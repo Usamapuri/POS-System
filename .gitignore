@@ -6,7 +6,6 @@
 
 # Backup files
 backups/
-*.sql
 *.tar.gz
 
 # Dependencies
@@ -67,8 +66,7 @@ postgres_dev_data/
 *.test
 *.out
 
-# Go mod cache
-go.sum
+# Go mod cache (go.sum is intentionally tracked)
 
 # Air build files (Go hot reloading)
 tmp/
