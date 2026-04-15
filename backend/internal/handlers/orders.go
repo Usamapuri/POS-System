@@ -4,11 +4,14 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"pos-backend/internal/middleware"
 	"pos-backend/internal/models"
+	"pos-backend/internal/pricing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -48,7 +51,7 @@ func (h *OrderHandler) GetOrders(c *gin.Context) {
 	queryBuilder := `
 		SELECT DISTINCT o.id, o.order_number, o.table_id, o.user_id, o.customer_name, 
 		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount, 
-		       o.total_amount, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
+		       o.service_charge_amount, o.total_amount, o.checkout_payment_method, o.guest_count, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
 		       t.table_number, t.location,
 		       u.username, u.first_name, u.last_name
 		FROM orders o
@@ -109,11 +112,12 @@ func (h *OrderHandler) GetOrders(c *gin.Context) {
 		var order models.Order
 		var tableNumber, tableLocation sql.NullString
 		var username, firstName, lastName sql.NullString
+		var checkoutMethod sql.NullString
 
 		err := rows.Scan(
 			&order.ID, &order.OrderNumber, &order.TableID, &order.UserID, &order.CustomerName,
 			&order.OrderType, &order.Status, &order.Subtotal, &order.TaxAmount, &order.DiscountAmount,
-			&order.TotalAmount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
+			&order.ServiceChargeAmount, &order.TotalAmount, &checkoutMethod, &order.GuestCount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
 			&tableNumber, &tableLocation,
 			&username, &firstName, &lastName,
 		)
@@ -124,6 +128,10 @@ func (h *OrderHandler) GetOrders(c *gin.Context) {
 				Error:   stringPtr(err.Error()),
 			})
 			return
+		}
+		if checkoutMethod.Valid {
+			s := checkoutMethod.String
+			order.CheckoutPaymentMethod = &s
 		}
 
 		// Add table info if available
@@ -209,6 +217,62 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 	})
 }
 
+// GetActiveOrderByTable returns the latest non-terminal order for a table (counter: add items to an open bill).
+func (h *OrderHandler) GetActiveOrderByTable(c *gin.Context) {
+	tableIDStr := c.Param("table_id")
+	tid, err := uuid.Parse(tableIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Message: "Invalid table id",
+			Error:   stringPtr("invalid_uuid"),
+		})
+		return
+	}
+
+	var orderID uuid.UUID
+	err = h.db.QueryRow(`
+		SELECT o.id FROM orders o
+		WHERE o.table_id = $1::uuid
+		AND o.status NOT IN ('completed', 'cancelled')
+		ORDER BY o.created_at DESC
+		LIMIT 1
+	`, tid).Scan(&orderID)
+
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.APIResponse{
+			Success: false,
+			Message: "No active order for this table",
+			Error:   stringPtr("no_active_order"),
+		})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Message: "Failed to look up order",
+			Error:   stringPtr(err.Error()),
+		})
+		return
+	}
+
+	order, err := h.getOrderByID(orderID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Message: "Failed to load order",
+			Error:   stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Message: "Active order",
+		Data:    order,
+	})
+}
+
 // CreateOrder creates a new order
 func (h *OrderHandler) CreateOrder(c *gin.Context) {
 	userID, _, _, ok := middleware.GetUserFromContext(c)
@@ -231,12 +295,43 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
+	_, _, role, roleOk := middleware.GetUserFromContext(c)
+	if roleOk && role == "counter" && req.OrderType == "dine_in" && req.TableID != nil {
+		if req.GuestCount < 1 {
+			c.JSON(http.StatusBadRequest, models.APIResponse{
+				Success: false,
+				Message: "Dine-in orders require guest count (NOP) of at least 1",
+				Error:   stringPtr("guest_count_required"),
+			})
+			return
+		}
+		if req.AssignedServerID == nil {
+			c.JSON(http.StatusBadRequest, models.APIResponse{
+				Success: false,
+				Message: "Dine-in orders require an assigned server",
+				Error:   stringPtr("assigned_server_required"),
+			})
+			return
+		}
+	}
+
 	// Validate request
 	if len(req.Items) == 0 {
 		c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
 			Message: "Order must contain at least one item",
 			Error:   stringPtr("empty_order"),
+		})
+		return
+	}
+
+	// Daily order number in its own transaction so counter failures cannot abort the order tx (pq: current transaction is aborted).
+	orderNumber, err := h.allocDailyOrderNumberStandalone(h.db)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Message: "Failed to allocate order number",
+			Error:   stringPtr(err.Error()),
 		})
 		return
 	}
@@ -253,49 +348,62 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	// Generate order number
-	orderNumber := h.generateOrderNumber()
-
 	// Calculate totals
 	var subtotal float64
 	for _, item := range req.Items {
-		// Get product price
 		var price float64
-		err := tx.QueryRow("SELECT price FROM products WHERE id = $1 AND is_available = true", item.ProductID).Scan(&price)
-		if err == sql.ErrNoRows {
-			c.JSON(http.StatusBadRequest, models.APIResponse{
-				Success: false,
-				Message: "Product not found or not available",
-				Error:   stringPtr("product_not_found"),
-			})
-			return
-		}
-		if err != nil {
+		if scanErr := tx.QueryRow("SELECT price FROM products WHERE id = $1 AND is_available = true", item.ProductID).Scan(&price); scanErr != nil {
+			if scanErr == sql.ErrNoRows {
+				c.JSON(http.StatusBadRequest, models.APIResponse{
+					Success: false,
+					Message: "Product not found or not available",
+					Error:   stringPtr("product_not_found"),
+				})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, models.APIResponse{
 				Success: false,
 				Message: "Failed to fetch product price",
-				Error:   stringPtr(err.Error()),
+				Error:   stringPtr(scanErr.Error()),
 			})
 			return
 		}
 		subtotal += price * float64(item.Quantity)
 	}
 
-	// Calculate tax (10% for example)
-	taxRate := 0.10
-	taxAmount := subtotal * taxRate
-	totalAmount := subtotal + taxAmount
+	ps, err := pricing.LoadSettings(h.db)
+	if err != nil {
+		ps = pricing.Defaults
+	}
+
+	orderUserID := userID
+	if req.AssignedServerID != nil {
+		var serverRole string
+		srvErr := tx.QueryRow(`SELECT role FROM users WHERE id = $1 AND is_active = true`, *req.AssignedServerID).Scan(&serverRole)
+		if srvErr != nil || serverRole != "server" {
+			c.JSON(http.StatusBadRequest, models.APIResponse{
+				Success: false,
+				Message: "Invalid or inactive assigned server",
+				Error:   stringPtr("invalid_assigned_server"),
+			})
+			return
+		}
+		orderUserID = *req.AssignedServerID
+	}
+
+	checkoutIntent := "cash"
+	_, serviceCharge, taxAmount, totalAmount := pricing.ComputeTotals(subtotal, 0, checkoutIntent, ps)
 
 	// Create order
 	orderID := uuid.New()
 	orderQuery := `
 		INSERT INTO orders (id, order_number, table_id, user_id, customer_name, order_type, status, 
-		                   subtotal, tax_amount, discount_amount, total_amount, notes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		                   subtotal, tax_amount, discount_amount, service_charge_amount, total_amount, guest_count, notes, checkout_payment_method)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 	`
 
-	_, err = tx.Exec(orderQuery, orderID, orderNumber, req.TableID, userID, req.CustomerName,
-		req.OrderType, "pending", subtotal, taxAmount, 0, totalAmount, req.Notes)
+	_, err = tx.Exec(orderQuery, orderID, orderNumber, req.TableID, orderUserID, req.CustomerName,
+		req.OrderType, "pending", subtotal, taxAmount, 0, serviceCharge, totalAmount, req.GuestCount, req.Notes, checkoutIntent)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
@@ -307,14 +415,12 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 
 	// Create order items
 	for _, item := range req.Items {
-		// Get product price again for consistency
 		var price float64
-		err := tx.QueryRow("SELECT price FROM products WHERE id = $1", item.ProductID).Scan(&price)
-		if err != nil {
+		if scanErr := tx.QueryRow("SELECT price FROM products WHERE id = $1", item.ProductID).Scan(&price); scanErr != nil {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{
 				Success: false,
 				Message: "Failed to fetch product price",
-				Error:   stringPtr(err.Error()),
+				Error:   stringPtr(scanErr.Error()),
 			})
 			return
 		}
@@ -323,16 +429,20 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		itemID := uuid.New()
 
 		itemQuery := `
-			INSERT INTO order_items (id, order_id, product_id, quantity, unit_price, total_price, special_instructions)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			INSERT INTO order_items (id, order_id, product_id, quantity, unit_price, total_price, special_instructions, status)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		`
 
-		_, err = tx.Exec(itemQuery, itemID, orderID, item.ProductID, item.Quantity, price, totalPrice, item.SpecialInstructions)
-		if err != nil {
+		itemStatus := "draft"
+		if req.OrderType != "dine_in" {
+			itemStatus = "pending"
+		}
+
+		if _, execErr := tx.Exec(itemQuery, itemID, orderID, item.ProductID, item.Quantity, price, totalPrice, item.SpecialInstructions, itemStatus); execErr != nil {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{
 				Success: false,
 				Message: "Failed to create order item",
-				Error:   stringPtr(err.Error()),
+				Error:   stringPtr(execErr.Error()),
 			})
 			return
 		}
@@ -377,6 +487,158 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		Message: "Order created successfully",
 		Data:    order,
 	})
+}
+
+// UpdateCheckoutIntent updates tax/service/total for the selected payment type (cash | card | online).
+func (h *OrderHandler) UpdateCheckoutIntent(c *gin.Context) {
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid order ID", Error: stringPtr("invalid_uuid")})
+		return
+	}
+
+	var req models.UpdateCheckoutIntentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request body", Error: stringPtr(err.Error())})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to start transaction", Error: stringPtr(err.Error())})
+		return
+	}
+	defer tx.Rollback()
+
+	var st string
+	if err := tx.QueryRow(`SELECT status FROM orders WHERE id = $1`, orderID).Scan(&st); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Order not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load order", Error: stringPtr(err.Error())})
+		return
+	}
+	if st == "completed" || st == "cancelled" {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Order cannot be updated", Error: stringPtr("invalid_order_status")})
+		return
+	}
+
+	if err := h.recalcOrderTotalsTx(tx, orderID, req.CheckoutPaymentMethod); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update totals", Error: stringPtr(err.Error())})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to commit", Error: stringPtr(err.Error())})
+		return
+	}
+
+	order, err := h.getOrderByID(orderID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load order", Error: stringPtr(err.Error())})
+		return
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Checkout intent updated", Data: order})
+}
+
+// ApplyOrderDiscount applies a discount at counter checkout (authenticated counter/admin/manager).
+func (h *OrderHandler) ApplyOrderDiscount(c *gin.Context) {
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid order ID", Error: stringPtr("invalid_uuid")})
+		return
+	}
+
+	var req models.ApplyOrderDiscountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request body", Error: stringPtr(err.Error())})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to start transaction", Error: stringPtr(err.Error())})
+		return
+	}
+	defer tx.Rollback()
+
+	var subtotal, discount float64
+	var st string
+	var checkout sql.NullString
+	if err := tx.QueryRow(`SELECT subtotal, discount_amount, status, checkout_payment_method FROM orders WHERE id = $1`, orderID).Scan(&subtotal, &discount, &st, &checkout); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Order not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load order", Error: stringPtr(err.Error())})
+		return
+	}
+	if st == "completed" || st == "cancelled" {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Order cannot be updated", Error: stringPtr("invalid_order_status")})
+		return
+	}
+
+	finalDiscount := req.DiscountAmount
+	if req.DiscountPercent != nil && *req.DiscountPercent > 0 {
+		p := *req.DiscountPercent
+		if p > 100 {
+			p = 100
+		}
+		finalDiscount = subtotal * (p / 100)
+	}
+	if finalDiscount < 0 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid discount", Error: stringPtr("invalid_discount")})
+		return
+	}
+	if finalDiscount > subtotal {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Discount cannot exceed subtotal", Error: stringPtr("discount_too_large")})
+		return
+	}
+
+	intent := "cash"
+	if checkout.Valid && checkout.String != "" {
+		intent = checkout.String
+	}
+
+	if _, err := tx.Exec(`UPDATE orders SET discount_amount = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, finalDiscount, orderID); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update discount", Error: stringPtr(err.Error())})
+		return
+	}
+
+	if err := h.recalcOrderTotalsTx(tx, orderID, intent); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to recalculate totals", Error: stringPtr(err.Error())})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to commit", Error: stringPtr(err.Error())})
+		return
+	}
+
+	order, err := h.getOrderByID(orderID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load order", Error: stringPtr(err.Error())})
+		return
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Discount applied", Data: order})
+}
+
+func (h *OrderHandler) recalcOrderTotalsTx(tx *sql.Tx, orderID uuid.UUID, checkoutIntent string) error {
+	var subtotal, discount float64
+	if err := tx.QueryRow(`SELECT subtotal, discount_amount FROM orders WHERE id = $1`, orderID).Scan(&subtotal, &discount); err != nil {
+		return err
+	}
+	ps, err := pricing.LoadSettings(h.db)
+	if err != nil {
+		ps = pricing.Defaults
+	}
+	_, svc, tax, total := pricing.ComputeTotals(subtotal, discount, checkoutIntent, ps)
+	_, err = tx.Exec(`
+		UPDATE orders SET tax_amount = $1, service_charge_amount = $2, total_amount = $3, checkout_payment_method = $4, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $5
+	`, tax, svc, total, checkoutIntent, orderID)
+	return err
 }
 
 // UpdateOrderStatus updates the status of an order
@@ -551,7 +813,7 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 	query := `
 		SELECT o.id, o.order_number, o.table_id, o.user_id, o.customer_name, 
 		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount, 
-		       o.total_amount, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
+		       o.service_charge_amount, o.total_amount, o.checkout_payment_method, o.guest_count, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
 		       t.table_number, t.location,
 		       u.username, u.first_name, u.last_name
 		FROM orders o
@@ -560,16 +822,22 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 		WHERE o.id = $1
 	`
 
+	var checkoutMethod sql.NullString
 	err := h.db.QueryRow(query, orderID).Scan(
 		&order.ID, &order.OrderNumber, &order.TableID, &order.UserID, &order.CustomerName,
 		&order.OrderType, &order.Status, &order.Subtotal, &order.TaxAmount, &order.DiscountAmount,
-		&order.TotalAmount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
+		&order.ServiceChargeAmount, &order.TotalAmount, &checkoutMethod, &order.GuestCount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
 		&tableNumber, &tableLocation,
 		&username, &firstName, &lastName,
 	)
 
 	if err != nil {
 		return nil, err
+	}
+
+	if checkoutMethod.Valid {
+		s := checkoutMethod.String
+		order.CheckoutPaymentMethod = &s
 	}
 
 	// Add table info if available
@@ -700,8 +968,45 @@ func (h *OrderHandler) loadOrderPayments(order *models.Order) error {
 	return nil
 }
 
-func (h *OrderHandler) generateOrderNumber() string {
-	timestamp := time.Now().Format("20060102")
-	return fmt.Sprintf("ORD%s%04d", timestamp, time.Now().UnixNano()%10000)
+// allocDailyOrderNumberStandalone reserves the next display sequence in a short transaction, then commits.
+// Kept separate from the order INSERT transaction so counter failures cannot abort the order tx.
+func (h *OrderHandler) allocDailyOrderNumberStandalone(db *sql.DB) (string, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	s, err := h.allocDailyOrderNumber(tx)
+	if err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return s, nil
+}
+
+func (h *OrderHandler) allocDailyOrderNumber(tx *sql.Tx) (string, error) {
+	loc := time.Local
+	if tz := os.Getenv("BUSINESS_TIMEZONE"); tz != "" {
+		if l, err := time.LoadLocation(tz); err == nil {
+			loc = l
+		}
+	}
+	day := time.Now().In(loc).Format("2006-01-02")
+	var n int
+	err := tx.QueryRow(`
+		INSERT INTO order_number_counters (business_date, last_value)
+		VALUES ($1::date, 1)
+		ON CONFLICT (business_date)
+		DO UPDATE SET last_value = order_number_counters.last_value + 1
+		RETURNING last_value
+	`, day).Scan(&n)
+	if err != nil {
+		return "", err
+	}
+	compact := strings.ReplaceAll(day, "-", "")
+	return fmt.Sprintf("%s-%03d", compact, n), nil
 }
 

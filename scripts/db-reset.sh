@@ -67,12 +67,15 @@ ORDER BY table_name;
 " 2>/dev/null || echo "Database may be empty or corrupted"
 
 echo ""
-echo -e "${YELLOW}Continue with database reset? (y/N):${NC}"
-read -p "> " CONFIRM
-
-if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
-    echo -e "${BLUE}❌ Operation cancelled${NC}"
-    exit 0
+if [[ "${1:-}" == "-y" ]] || [[ "${1:-}" == "--yes" ]]; then
+    echo -e "${GREEN}Non-interactive mode (-y): proceeding with reset.${NC}"
+else
+    echo -e "${YELLOW}Continue with database reset? (y/N):${NC}"
+    read -p "> " CONFIRM
+    if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}❌ Operation cancelled${NC}"
+        exit 0
+    fi
 fi
 
 # Create backup before reset
@@ -86,6 +89,11 @@ docker exec $CONTAINER_NAME pg_dump -U postgres pos_system > $BACKUP_FILE 2>/dev
 echo -e "${YELLOW}🗑️  Dropping existing database and recreating...${NC}"
 
 # Drop and recreate database (separate commands to avoid transaction issues)
+echo "  - Terminating open connections to pos_system (stop API/backend first if this fails)..."
+docker exec $CONTAINER_NAME psql -U postgres -d postgres -c \
+  "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'pos_system' AND pid <> pg_backend_pid();" \
+  >/dev/null 2>&1 || true
+
 echo "  - Dropping existing database..."
 docker exec $CONTAINER_NAME psql -U postgres -c "DROP DATABASE IF EXISTS pos_system;"
 
@@ -155,6 +163,20 @@ UNION ALL SELECT
     'Payments' as table_name, COUNT(*) as records FROM payments
 UNION ALL SELECT 
     'Inventory' as table_name, COUNT(*) as records FROM inventory
+UNION ALL SELECT 
+    'Stock Categories' as table_name, COUNT(*) as records FROM stock_categories
+UNION ALL SELECT 
+    'Stock Items' as table_name, COUNT(*) as records FROM stock_items
+UNION ALL SELECT 
+    'Stock Movements' as table_name, COUNT(*) as records FROM stock_movements
+UNION ALL SELECT 
+    'Expenses' as table_name, COUNT(*) as records FROM expenses
+UNION ALL SELECT 
+    'Daily Closings' as table_name, COUNT(*) as records FROM daily_closings
+UNION ALL SELECT 
+    'Kitchen Stations' as table_name, COUNT(*) as records FROM kitchen_stations
+UNION ALL SELECT 
+    'Void Log' as table_name, COUNT(*) as records FROM void_log
 ORDER BY table_name;
 "
 

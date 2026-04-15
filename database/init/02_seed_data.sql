@@ -1,14 +1,15 @@
 -- Seed data for POS System
 
 -- Insert default users
-INSERT INTO users (username, email, password_hash, first_name, last_name, role) VALUES
-('admin', 'admin@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Admin', 'User', 'admin'),
-('manager1', 'manager@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'John', 'Manager', 'manager'),
-('server1', 'server1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Sarah', 'Smith', 'server'),
-('server2', 'server2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Mike', 'Johnson', 'server'),
-('counter1', 'counter1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Lisa', 'Davis', 'counter'),
-('counter2', 'counter2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Tom', 'Wilson', 'counter'),
-('kitchen1', 'kitchen@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Chef', 'Williams', 'kitchen');
+INSERT INTO users (username, email, password_hash, first_name, last_name, role, manager_pin) VALUES
+('admin', 'admin@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Admin', 'User', 'admin', NULL),
+('manager1', 'manager@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'John', 'Manager', 'manager', '1234'),
+('server1', 'server1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Sarah', 'Smith', 'server', NULL),
+('server2', 'server2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Mike', 'Johnson', 'server', NULL),
+('counter1', 'counter1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Lisa', 'Davis', 'counter', NULL),
+('counter2', 'counter2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Tom', 'Wilson', 'counter', NULL),
+('kitchen1', 'kitchen@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Chef', 'Williams', 'kitchen', NULL),
+('store1', 'store@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Ali', 'Store', 'store_manager', NULL);
 
 -- Insert categories
 INSERT INTO categories (name, description, color, sort_order) VALUES
@@ -85,29 +86,117 @@ SELECT
     price * 0.4 as unit_cost
 FROM products;
 
--- Create some sample orders for testing
-INSERT INTO orders (order_number, table_id, user_id, order_type, status, subtotal, tax_amount, total_amount) VALUES
-('ORD001', (SELECT id FROM dining_tables WHERE table_number = 'T02'), (SELECT id FROM users WHERE username = 'server1'), 'dine_in', 'pending', 25.98, 2.60, 28.58),
-('ORD002', (SELECT id FROM dining_tables WHERE table_number = 'T05'), (SELECT id FROM users WHERE username = 'server2'), 'dine_in', 'preparing', 18.99, 1.90, 20.89),
-('ORD003', (SELECT id FROM dining_tables WHERE table_number = 'TAKEOUT'), (SELECT id FROM users WHERE username = 'counter1'), 'takeout', 'ready', 14.99, 1.50, 16.49);
+-- Sample orders (order numbers match production format YYYYMMDD-###; demo uses fixed date prefix)
+INSERT INTO orders (order_number, table_id, user_id, order_type, status, subtotal, tax_amount, total_amount, guest_count) VALUES
+('20260101-001', (SELECT id FROM dining_tables WHERE table_number = 'T02'), (SELECT id FROM users WHERE username = 'server1'), 'dine_in', 'pending', 25.98, 2.60, 28.58, 2),
+('20260101-002', (SELECT id FROM dining_tables WHERE table_number = 'T05'), (SELECT id FROM users WHERE username = 'server2'), 'dine_in', 'preparing', 18.99, 1.90, 20.89, 2),
+('20260101-003', (SELECT id FROM dining_tables WHERE table_number = 'TAKEOUT'), (SELECT id FROM users WHERE username = 'counter1'), 'takeout', 'ready', 14.99, 1.50, 16.49, 1);
 
--- Insert sample order items
-INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price) VALUES
--- Order 1 items
-((SELECT id FROM orders WHERE order_number = 'ORD001'), (SELECT id FROM products WHERE sku = 'APP001'), 1, 12.99, 12.99),
-((SELECT id FROM orders WHERE order_number = 'ORD001'), (SELECT id FROM products WHERE sku = 'MAIN001'), 1, 18.99, 18.99),
-((SELECT id FROM orders WHERE order_number = 'ORD001'), (SELECT id FROM products WHERE sku = 'BEV001'), 2, 2.99, 5.98),
+INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price, status) VALUES
+((SELECT id FROM orders WHERE order_number = '20260101-001'), (SELECT id FROM products WHERE sku = 'APP001'), 1, 12.99, 12.99, 'draft'),
+((SELECT id FROM orders WHERE order_number = '20260101-001'), (SELECT id FROM products WHERE sku = 'MAIN001'), 1, 18.99, 18.99, 'draft'),
+((SELECT id FROM orders WHERE order_number = '20260101-001'), (SELECT id FROM products WHERE sku = 'BEV001'), 2, 2.99, 5.98, 'draft'),
+((SELECT id FROM orders WHERE order_number = '20260101-002'), (SELECT id FROM products WHERE sku = 'MAIN001'), 1, 18.99, 18.99, 'sent'),
+((SELECT id FROM orders WHERE order_number = '20260101-003'), (SELECT id FROM products WHERE sku = 'PIZ001'), 1, 14.99, 14.99, 'ready');
 
--- Order 2 items
-((SELECT id FROM orders WHERE order_number = 'ORD002'), (SELECT id FROM products WHERE sku = 'MAIN001'), 1, 18.99, 18.99),
-
--- Order 3 items
-((SELECT id FROM orders WHERE order_number = 'ORD003'), (SELECT id FROM products WHERE sku = 'PIZ001'), 1, 14.99, 14.99);
-
--- Insert sample payment
 INSERT INTO payments (order_id, payment_method, amount, status, processed_by, processed_at) VALUES
-((SELECT id FROM orders WHERE order_number = 'ORD003'), 'cash', 16.49, 'completed', (SELECT id FROM users WHERE username = 'counter1'), CURRENT_TIMESTAMP);
+((SELECT id FROM orders WHERE order_number = '20260101-003'), 'cash', 16.49, 'completed', (SELECT id FROM users WHERE username = 'counter1'), CURRENT_TIMESTAMP);
 
--- Update order 3 status to completed since payment is done
-UPDATE orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE order_number = 'ORD003';
+UPDATE orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE order_number = '20260101-003';
+
+-- ============================================================
+-- Store Inventory Seed Data
+-- ============================================================
+
+-- Stock categories
+INSERT INTO stock_categories (name, description, sort_order) VALUES
+('Produce', 'Vegetables, fruits, and fresh items', 1),
+('Protein', 'Chicken, beef, fish, and other meats', 2),
+('Dairy', 'Milk, cheese, butter, and eggs', 3),
+('Dry Goods', 'Rice, flour, spices, and pantry staples', 4),
+('Beverages Supplies', 'Tea, coffee beans, syrups, and drink mixes', 5),
+('Cleaning', 'Cleaning agents, sanitizers, and supplies', 6),
+('Bathroom Supplies', 'Tissue, soap, air fresheners', 7),
+('Packaging', 'Takeout boxes, bags, napkins, and cutlery', 8);
+
+-- Stock items
+INSERT INTO stock_items (category_id, name, unit, quantity_on_hand, reorder_level, default_unit_cost, notes) VALUES
+((SELECT id FROM stock_categories WHERE name = 'Produce'), 'Potatoes', 'kg', 50, 10, 1.20, NULL),
+((SELECT id FROM stock_categories WHERE name = 'Produce'), 'Onions', 'kg', 30, 8, 0.90, NULL),
+((SELECT id FROM stock_categories WHERE name = 'Produce'), 'Tomatoes', 'kg', 20, 5, 2.00, NULL),
+((SELECT id FROM stock_categories WHERE name = 'Produce'), 'Lettuce', 'each', 15, 5, 1.50, 'Iceberg heads'),
+((SELECT id FROM stock_categories WHERE name = 'Protein'), 'Chicken Breast', 'kg', 25, 8, 6.50, 'Boneless'),
+((SELECT id FROM stock_categories WHERE name = 'Protein'), 'Beef Steak Cuts', 'kg', 12, 5, 14.00, 'Premium cuts'),
+((SELECT id FROM stock_categories WHERE name = 'Protein'), 'Fish Fillets', 'kg', 10, 4, 9.00, 'Cod fillets'),
+((SELECT id FROM stock_categories WHERE name = 'Dairy'), 'Mozzarella Cheese', 'kg', 8, 3, 7.50, NULL),
+((SELECT id FROM stock_categories WHERE name = 'Dairy'), 'Butter', 'kg', 6, 2, 5.00, 'Unsalted'),
+((SELECT id FROM stock_categories WHERE name = 'Dairy'), 'Eggs', 'dozen', 10, 3, 3.50, NULL),
+((SELECT id FROM stock_categories WHERE name = 'Dry Goods'), 'Flour', 'kg', 40, 10, 0.80, 'All-purpose'),
+((SELECT id FROM stock_categories WHERE name = 'Dry Goods'), 'Rice', 'kg', 30, 10, 1.50, 'Basmati'),
+((SELECT id FROM stock_categories WHERE name = 'Dry Goods'), 'Cooking Oil', 'liter', 15, 5, 2.50, 'Vegetable oil'),
+((SELECT id FROM stock_categories WHERE name = 'Beverages Supplies'), 'Coffee Beans', 'kg', 5, 2, 12.00, 'Arabica blend'),
+((SELECT id FROM stock_categories WHERE name = 'Beverages Supplies'), 'Tea Bags', 'box', 8, 3, 4.00, '100 bags per box'),
+((SELECT id FROM stock_categories WHERE name = 'Cleaning'), 'Floor Cleaner', 'liter', 10, 3, 3.00, NULL),
+((SELECT id FROM stock_categories WHERE name = 'Cleaning'), 'Dish Soap', 'liter', 8, 3, 2.50, NULL),
+((SELECT id FROM stock_categories WHERE name = 'Cleaning'), 'Sanitizer Spray', 'bottle', 12, 4, 4.50, NULL),
+((SELECT id FROM stock_categories WHERE name = 'Bathroom Supplies'), 'Air Freshener', 'can', 6, 2, 3.00, NULL),
+((SELECT id FROM stock_categories WHERE name = 'Bathroom Supplies'), 'Toilet Paper', 'pack', 10, 4, 8.00, '12-roll pack'),
+((SELECT id FROM stock_categories WHERE name = 'Bathroom Supplies'), 'Hand Soap', 'bottle', 8, 3, 2.50, 'Liquid pump'),
+((SELECT id FROM stock_categories WHERE name = 'Packaging'), 'Takeout Boxes', 'pack', 20, 5, 6.00, '50 per pack'),
+((SELECT id FROM stock_categories WHERE name = 'Packaging'), 'Paper Napkins', 'pack', 15, 5, 3.00, '500 per pack');
+
+-- Sample stock movements
+INSERT INTO stock_movements (stock_item_id, movement_type, quantity, unit_cost, total_cost, issued_to_user_id, created_by, note, created_at) VALUES
+((SELECT id FROM stock_items WHERE name = 'Potatoes'), 'purchase', 50, 1.20, 60.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Initial stock purchase', CURRENT_TIMESTAMP - INTERVAL '7 days'),
+((SELECT id FROM stock_items WHERE name = 'Chicken Breast'), 'purchase', 25, 6.50, 162.50, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Weekly meat order', CURRENT_TIMESTAMP - INTERVAL '5 days'),
+((SELECT id FROM stock_items WHERE name = 'Potatoes'), 'issue', -5, NULL, NULL, (SELECT id FROM users WHERE username = 'kitchen1'), (SELECT id FROM users WHERE username = 'store1'), 'Issued to kitchen for prep', CURRENT_TIMESTAMP - INTERVAL '3 days'),
+((SELECT id FROM stock_items WHERE name = 'Floor Cleaner'), 'purchase', 10, 3.00, 30.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Cleaning supplies restock', CURRENT_TIMESTAMP - INTERVAL '4 days'),
+((SELECT id FROM stock_items WHERE name = 'Floor Cleaner'), 'issue', -2, NULL, NULL, (SELECT id FROM users WHERE username = 'server1'), (SELECT id FROM users WHERE username = 'store1'), 'Issued to cleaning staff', CURRENT_TIMESTAMP - INTERVAL '2 days'),
+((SELECT id FROM stock_items WHERE name = 'Air Freshener'), 'purchase', 6, 3.00, 18.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Bathroom supplies', CURRENT_TIMESTAMP - INTERVAL '6 days'),
+((SELECT id FROM stock_items WHERE name = 'Coffee Beans'), 'purchase', 5, 12.00, 60.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Coffee bean order', CURRENT_TIMESTAMP - INTERVAL '3 days'),
+((SELECT id FROM stock_items WHERE name = 'Coffee Beans'), 'issue', -1, NULL, NULL, (SELECT id FROM users WHERE username = 'counter1'), (SELECT id FROM users WHERE username = 'store1'), 'For counter coffee machine', CURRENT_TIMESTAMP - INTERVAL '1 day');
+
+-- ============================================================
+-- Expenses Seed Data (auto-linked to stock purchases + manual)
+-- ============================================================
+
+INSERT INTO expenses (category, amount, description, reference_type, reference_id, expense_date, created_by, created_at) VALUES
+('inventory_purchase', 60.00, 'Potatoes - Initial stock purchase', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Initial stock purchase' LIMIT 1), CURRENT_DATE - INTERVAL '7 days', (SELECT id FROM users WHERE username = 'store1'), CURRENT_TIMESTAMP - INTERVAL '7 days'),
+('inventory_purchase', 162.50, 'Chicken Breast - Weekly meat order', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Weekly meat order' LIMIT 1), CURRENT_DATE - INTERVAL '5 days', (SELECT id FROM users WHERE username = 'store1'), CURRENT_TIMESTAMP - INTERVAL '5 days'),
+('inventory_purchase', 30.00, 'Floor Cleaner - Cleaning supplies restock', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Cleaning supplies restock' LIMIT 1), CURRENT_DATE - INTERVAL '4 days', (SELECT id FROM users WHERE username = 'store1'), CURRENT_TIMESTAMP - INTERVAL '4 days'),
+('inventory_purchase', 18.00, 'Air Freshener - Bathroom supplies', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Bathroom supplies' LIMIT 1), CURRENT_DATE - INTERVAL '6 days', (SELECT id FROM users WHERE username = 'store1'), CURRENT_TIMESTAMP - INTERVAL '6 days'),
+('inventory_purchase', 60.00, 'Coffee Beans - Coffee bean order', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Coffee bean order' LIMIT 1), CURRENT_DATE - INTERVAL '3 days', (SELECT id FROM users WHERE username = 'store1'), CURRENT_TIMESTAMP - INTERVAL '3 days'),
+('utilities', 250.00, 'Monthly electricity bill', NULL, NULL, CURRENT_DATE - INTERVAL '5 days', (SELECT id FROM users WHERE username = 'admin'), CURRENT_TIMESTAMP - INTERVAL '5 days'),
+('utilities', 80.00, 'Water bill', NULL, NULL, CURRENT_DATE - INTERVAL '5 days', (SELECT id FROM users WHERE username = 'admin'), CURRENT_TIMESTAMP - INTERVAL '5 days'),
+('rent', 2000.00, 'Monthly shop rent', NULL, NULL, CURRENT_DATE - INTERVAL '1 day', (SELECT id FROM users WHERE username = 'admin'), CURRENT_TIMESTAMP - INTERVAL '1 day'),
+('maintenance', 150.00, 'Plumber - kitchen sink repair', NULL, NULL, CURRENT_DATE - INTERVAL '2 days', (SELECT id FROM users WHERE username = 'manager1'), CURRENT_TIMESTAMP - INTERVAL '2 days'),
+('salaries', 500.00, 'Weekly staff wages advance', NULL, NULL, CURRENT_DATE - INTERVAL '3 days', (SELECT id FROM users WHERE username = 'admin'), CURRENT_TIMESTAMP - INTERVAL '3 days'),
+('supplies', 45.00, 'Office stationery and receipt paper', NULL, NULL, CURRENT_DATE - INTERVAL '4 days', (SELECT id FROM users WHERE username = 'manager1'), CURRENT_TIMESTAMP - INTERVAL '4 days'),
+('other', 35.00, 'Pest control service', NULL, NULL, CURRENT_DATE - INTERVAL '6 days', (SELECT id FROM users WHERE username = 'admin'), CURRENT_TIMESTAMP - INTERVAL '6 days');
+
+-- ============================================================
+-- Kitchen Stations & Category Mapping
+-- ============================================================
+
+INSERT INTO kitchen_stations (name, output_type, sort_order) VALUES
+('Main Kitchen', 'kds', 1),
+('Bar', 'kds', 2),
+('Bakery', 'printer', 3);
+
+INSERT INTO category_station_map (category_id, station_id) VALUES
+((SELECT id FROM categories WHERE name = 'Appetizers'), (SELECT id FROM kitchen_stations WHERE name = 'Main Kitchen')),
+((SELECT id FROM categories WHERE name = 'Main Courses'), (SELECT id FROM kitchen_stations WHERE name = 'Main Kitchen')),
+((SELECT id FROM categories WHERE name = 'Salads'), (SELECT id FROM kitchen_stations WHERE name = 'Main Kitchen')),
+((SELECT id FROM categories WHERE name = 'Pizza'), (SELECT id FROM kitchen_stations WHERE name = 'Main Kitchen')),
+((SELECT id FROM categories WHERE name = 'Beverages'), (SELECT id FROM kitchen_stations WHERE name = 'Bar')),
+((SELECT id FROM categories WHERE name = 'Desserts'), (SELECT id FROM kitchen_stations WHERE name = 'Bakery'));
+
+-- App Settings
+INSERT INTO app_settings (key, value) VALUES
+('enabled_order_types', '[{"id": "dine_in", "label": "Dine In", "enabled": true}, {"id": "takeout", "label": "Takeaway", "enabled": true}, {"id": "delivery", "label": "Delivery", "enabled": false}, {"id": "foodpanda", "label": "Foodpanda", "enabled": false}]'::jsonb),
+('tax_rate_cash', '0.15'::jsonb),
+('tax_rate_card', '0.05'::jsonb),
+('tax_rate_online', '0.15'::jsonb),
+('service_charge_rate', '0.10'::jsonb)
+ON CONFLICT (key) DO NOTHING;
 

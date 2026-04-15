@@ -15,7 +15,11 @@ import {
   BarChart3,
   UserCog,
   Store,
-  LayoutGrid
+  LayoutGrid,
+  Warehouse,
+  Radio,
+  FileWarning,
+  Receipt,
 } from 'lucide-react'
 import type { User as UserType } from '@/types'
 import apiClient from '@/api/client'
@@ -23,7 +27,7 @@ import apiClient from '@/api/client'
 // Import components for different sections
 import { AdminDashboard } from './AdminDashboard'
 import { POSLayout } from '@/components/pos/POSLayout'
-import { ServerInterface } from '@/components/server/ServerInterface'
+import { KOTServerInterface } from '@/components/server/KOTServerInterface'
 import { CounterInterface } from '@/components/counter/CounterInterface'
 import { NewEnhancedKitchenLayout } from '@/components/kitchen/NewEnhancedKitchenLayout'
 import { ToastDemo } from '@/components/ui/demo-toast'
@@ -33,6 +37,10 @@ import { AdminSettings } from './AdminSettings'
 import { AdminMenuManagement } from './AdminMenuManagement'
 import { AdminTableManagement } from './AdminTableManagement'
 import { AdminReports } from './AdminReports'
+import { StoreInventoryDashboard } from '@/components/store/StoreInventoryDashboard'
+import { ExpenseDashboard } from './ExpenseDashboard'
+import { StationManagement } from './StationManagement'
+import { VoidLog } from './VoidLog'
 
 interface AdminLayoutProps {
   user: UserType
@@ -89,6 +97,30 @@ const adminSections = [
     description: 'Dining table setup'
   },
   {
+    id: 'inventory',
+    label: 'Store Inventory',
+    icon: <Warehouse className="w-5 h-5" />,
+    description: 'Supplies & stock'
+  },
+  {
+    id: 'expenses',
+    label: 'Expenses',
+    icon: <Receipt className="w-5 h-5" />,
+    description: 'Expense tracking & daily closing'
+  },
+  {
+    id: 'stations',
+    label: 'Kitchen Stations',
+    icon: <Radio className="w-5 h-5" />,
+    description: 'KOT routing configuration'
+  },
+  {
+    id: 'void-log',
+    label: 'Void Log',
+    icon: <FileWarning className="w-5 h-5" />,
+    description: 'Voided items audit trail'
+  },
+  {
     id: 'reports',
     label: 'View Reports',
     icon: <BarChart3 className="w-5 h-5" />,
@@ -125,7 +157,7 @@ export function AdminLayout({ user }: AdminLayoutProps) {
       case 'dashboard':
         return <AdminDashboard />
       case 'server':
-        return <ServerInterface />
+        return <KOTServerInterface />
       case 'counter':
         return <CounterInterface />
       case 'kitchen':
@@ -144,6 +176,14 @@ export function AdminLayout({ user }: AdminLayoutProps) {
         return <AdminMenuManagement />
       case 'tables':
         return <AdminTableManagement />
+      case 'inventory':
+        return <StoreInventoryDashboard />
+      case 'expenses':
+        return <ExpenseDashboard />
+      case 'stations':
+        return <StationManagement />
+      case 'void-log':
+        return <VoidLog />
       case 'reports':
         return <AdminReports />
       default:
@@ -250,10 +290,12 @@ export function AdminLayout({ user }: AdminLayoutProps) {
       </div>
 
       {/* Main Content */}
-      <div className={`flex-1 overflow-auto ${
+      <div className={`flex-1 flex flex-col overflow-hidden ${
         (isMobile || isTablet) ? 'w-full' : ''
       }`}>
-        {renderCurrentSection()}
+        <div className="flex-1 overflow-auto">
+          {renderCurrentSection()}
+        </div>
       </div>
     </div>
   )

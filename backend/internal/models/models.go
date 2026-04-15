@@ -11,10 +11,11 @@ type User struct {
 	ID           uuid.UUID `json:"id"`
 	Username     string    `json:"username"`
 	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"` // Don't expose password hash in JSON
+	PasswordHash string    `json:"-"`
 	FirstName    string    `json:"first_name"`
 	LastName     string    `json:"last_name"`
-	Role         string    `json:"role"` // admin, manager, server, counter, kitchen
+	Role         string    `json:"role"` // admin, manager, server, counter, kitchen, store_manager
+	ManagerPin   *string   `json:"manager_pin,omitempty"`
 	IsActive     bool      `json:"is_active"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -30,6 +31,10 @@ type Category struct {
 	IsActive    bool      `json:"is_active"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// Populated when joined with category_station_map (one station per category in UI)
+	KitchenStationID     *uuid.UUID `json:"kitchen_station_id,omitempty"`
+	KitchenStationName   *string    `json:"kitchen_station_name,omitempty"`
+	KitchenStationOutput *string    `json:"kitchen_station_output_type,omitempty"`
 }
 
 // Product represents a menu item/product
@@ -70,10 +75,13 @@ type Order struct {
 	CustomerName   *string      `json:"customer_name"`
 	OrderType      string       `json:"order_type"` // dine_in, takeout, delivery
 	Status         string       `json:"status"`     // pending, confirmed, preparing, ready, served, completed, cancelled
-	Subtotal       float64      `json:"subtotal"`
-	TaxAmount      float64      `json:"tax_amount"`
-	DiscountAmount float64      `json:"discount_amount"`
-	TotalAmount    float64      `json:"total_amount"`
+	Subtotal             float64  `json:"subtotal"`
+	TaxAmount            float64  `json:"tax_amount"`
+	DiscountAmount       float64  `json:"discount_amount"`
+	ServiceChargeAmount  float64  `json:"service_charge_amount"`
+	TotalAmount          float64  `json:"total_amount"`
+	CheckoutPaymentMethod *string `json:"checkout_payment_method,omitempty"`
+	GuestCount     int          `json:"guest_count"`
 	Notes          *string      `json:"notes"`
 	CreatedAt      time.Time    `json:"created_at"`
 	UpdatedAt      time.Time    `json:"updated_at"`
@@ -114,7 +122,52 @@ type Payment struct {
 	ProcessedByUser *User      `json:"processed_by_user,omitempty"`
 }
 
-// Inventory represents product inventory
+// StockCategory represents a store inventory category (produce, cleaning, etc.)
+type StockCategory struct {
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	Description *string   `json:"description"`
+	SortOrder   int       `json:"sort_order"`
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	ItemCount   int       `json:"item_count,omitempty"`
+}
+
+// StockItem represents an individual store inventory item
+type StockItem struct {
+	ID              uuid.UUID      `json:"id"`
+	CategoryID      *uuid.UUID     `json:"category_id"`
+	Name            string         `json:"name"`
+	Unit            string         `json:"unit"`
+	QuantityOnHand  float64        `json:"quantity_on_hand"`
+	ReorderLevel    float64        `json:"reorder_level"`
+	DefaultUnitCost *float64       `json:"default_unit_cost"`
+	Notes           *string        `json:"notes"`
+	IsActive        bool           `json:"is_active"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	Category        *StockCategory `json:"category,omitempty"`
+}
+
+// StockMovement represents a purchase, issue, or adjustment
+type StockMovement struct {
+	ID              uuid.UUID  `json:"id"`
+	StockItemID     uuid.UUID  `json:"stock_item_id"`
+	MovementType    string     `json:"movement_type"` // purchase, issue, adjustment
+	Quantity        float64    `json:"quantity"`
+	UnitCost        *float64   `json:"unit_cost"`
+	TotalCost       *float64   `json:"total_cost"`
+	IssuedToUserID  *uuid.UUID `json:"issued_to_user_id"`
+	CreatedBy       *uuid.UUID `json:"created_by"`
+	Note            *string    `json:"note"`
+	CreatedAt       time.Time  `json:"created_at"`
+	StockItem       *StockItem `json:"stock_item,omitempty"`
+	IssuedToUser    *User      `json:"issued_to_user,omitempty"`
+	CreatedByUser   *User      `json:"created_by_user,omitempty"`
+}
+
+// Inventory represents product inventory (legacy menu-stock stub)
 type Inventory struct {
 	ID              uuid.UUID  `json:"id"`
 	ProductID       uuid.UUID  `json:"product_id"`
@@ -140,15 +193,94 @@ type OrderStatusHistory struct {
 	ChangedByUser  *User      `json:"changed_by_user,omitempty"`
 }
 
+// Expense represents a cash outflow record
+type Expense struct {
+	ID            uuid.UUID  `json:"id"`
+	Category      string     `json:"category"`
+	Amount        float64    `json:"amount"`
+	Description   *string    `json:"description"`
+	ReferenceType *string    `json:"reference_type"`
+	ReferenceID   *uuid.UUID `json:"reference_id"`
+	ExpenseDate   string     `json:"expense_date"`
+	CreatedBy     *uuid.UUID `json:"created_by"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	CreatedByName *string    `json:"created_by_name,omitempty"`
+}
+
+// DailyClosing represents an end-of-day reconciliation snapshot
+type DailyClosing struct {
+	ID             uuid.UUID  `json:"id"`
+	ClosingDate    string     `json:"closing_date"`
+	TotalSales     float64    `json:"total_sales"`
+	TotalTax       float64    `json:"total_tax"`
+	TotalOrders    int        `json:"total_orders"`
+	CashSales      float64    `json:"cash_sales"`
+	CardSales      float64    `json:"card_sales"`
+	DigitalSales   float64    `json:"digital_sales"`
+	TotalExpenses  float64    `json:"total_expenses"`
+	NetProfit      float64    `json:"net_profit"`
+	OpeningCash    float64    `json:"opening_cash"`
+	ExpectedCash   float64    `json:"expected_cash"`
+	ActualCash     *float64   `json:"actual_cash"`
+	CashDifference *float64   `json:"cash_difference"`
+	Notes          *string    `json:"notes"`
+	ClosedBy       *uuid.UUID `json:"closed_by"`
+	CreatedAt      time.Time  `json:"created_at"`
+	ClosedByName   *string    `json:"closed_by_name,omitempty"`
+}
+
+// KitchenStation represents a KOT routing destination
+type KitchenStation struct {
+	ID             uuid.UUID   `json:"id"`
+	Name           string      `json:"name"`
+	OutputType     string      `json:"output_type"` // kds, printer
+	PrintLocation  string      `json:"print_location"` // kitchen | counter (thermal slip routing)
+	IsActive       bool        `json:"is_active"`
+	SortOrder      int         `json:"sort_order"`
+	CreatedAt      time.Time   `json:"created_at"`
+	Categories     []uuid.UUID `json:"category_ids,omitempty"`
+}
+
+// VoidLogEntry represents an audit record for voided items
+type VoidLogEntry struct {
+	ID             uuid.UUID  `json:"id"`
+	OrderID        *uuid.UUID `json:"order_id"`
+	OrderItemID    *uuid.UUID `json:"order_item_id"`
+	VoidedBy       *uuid.UUID `json:"voided_by"`
+	AuthorizedBy   *uuid.UUID `json:"authorized_by"`
+	ItemName       string     `json:"item_name"`
+	Quantity       int        `json:"quantity"`
+	UnitPrice      float64    `json:"unit_price"`
+	Reason         *string    `json:"reason"`
+	CreatedAt      time.Time  `json:"created_at"`
+	OrderNumber    *string    `json:"order_number,omitempty"`
+	VoidedByName   *string    `json:"voided_by_name,omitempty"`
+	AuthorizedName *string    `json:"authorized_name,omitempty"`
+}
+
 // Request/Response DTOs
 
 // CreateOrderRequest represents the request to create a new order
 type CreateOrderRequest struct {
-	TableID      *uuid.UUID        `json:"table_id"`
-	CustomerName *string           `json:"customer_name"`
-	OrderType    string            `json:"order_type"`
-	Items        []CreateOrderItem `json:"items"`
-	Notes        *string           `json:"notes"`
+	TableID           *uuid.UUID        `json:"table_id"`
+	CustomerName      *string           `json:"customer_name"`
+	OrderType         string            `json:"order_type"`
+	GuestCount        int               `json:"guest_count"`
+	Items             []CreateOrderItem `json:"items"`
+	Notes             *string           `json:"notes"`
+	AssignedServerID  *uuid.UUID        `json:"assigned_server_id"`
+}
+
+// UpdateCheckoutIntentRequest sets displayed totals before payment (cash | card | online).
+type UpdateCheckoutIntentRequest struct {
+	CheckoutPaymentMethod string `json:"checkout_payment_method" binding:"required,oneof=cash card online"`
+}
+
+// ApplyOrderDiscountRequest sets order discount at checkout (counter). Use discount_amount, or discount_percent (0–100) to derive amount from subtotal.
+type ApplyOrderDiscountRequest struct {
+	DiscountAmount  float64  `json:"discount_amount"`
+	DiscountPercent *float64 `json:"discount_percent,omitempty"`
 }
 
 // CreateOrderItem represents an item in the order creation request

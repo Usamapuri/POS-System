@@ -1,6 +1,6 @@
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Form } from '@/components/ui/form'
 import { Button } from '@/components/ui/button'
@@ -8,13 +8,15 @@ import {
   TextInputField, 
   TextareaField,
   NumberInputField,
-  FormSubmitButton
+  FormSubmitButton,
+  SelectField,
 } from '@/components/forms/FormComponents'
 import { createCategorySchema, updateCategorySchema, type CreateCategoryData, type UpdateCategoryData } from '@/lib/form-schemas'
 import { toastHelpers } from '@/lib/toast-helpers'
 import apiClient from '@/api/client'
 import type { Category } from '@/types'
 import { X } from 'lucide-react'
+import type { KitchenStation } from '@/types'
 
 interface CategoryFormProps {
   category?: Category // If provided, we're editing; otherwise creating
@@ -27,6 +29,22 @@ export function CategoryForm({ category, onSuccess, onCancel, mode = 'create' }:
   const queryClient = useQueryClient()
   const isEditing = mode === 'edit' && category
 
+  const { data: stations = [] } = useQuery({
+    queryKey: ['stations'],
+    queryFn: async () => {
+      const res = await apiClient.getStations()
+      return (res.data || []) as KitchenStation[]
+    },
+  })
+
+  const stationOptions = [
+    { value: 'none', label: '— Not assigned —' },
+    ...stations.map((s) => ({
+      value: s.id,
+      label: `${s.name} (${s.output_type === 'kds' ? 'KDS' : 'Thermal printer'})`,
+    })),
+  ]
+
   // Choose the appropriate schema and default values
   const schema = isEditing ? updateCategorySchema : createCategorySchema
   const defaultValues = isEditing 
@@ -36,12 +54,14 @@ export function CategoryForm({ category, onSuccess, onCancel, mode = 'create' }:
         description: category.description || '',
         image_url: category.image_url || '',
         sort_order: category.sort_order || 0,
+        kitchen_station_id: category.kitchen_station_id || 'none',
       }
     : {
         name: '',
         description: '',
         image_url: '',
         sort_order: 0,
+        kitchen_station_id: 'none',
       }
 
   const form = useForm<CreateCategoryData | UpdateCategoryData>({
@@ -51,11 +71,22 @@ export function CategoryForm({ category, onSuccess, onCancel, mode = 'create' }:
 
   // Create mutation
   const createMutation = useMutation({
-    mutationFn: (data: CreateCategoryData) => apiClient.createCategory(data),
-    onSuccess: (response) => {
+    mutationFn: (data: CreateCategoryData) => {
+      const { kitchen_station_id: _ks, ...body } = data
+      return apiClient.createCategory(body)
+    },
+    onSuccess: async (response) => {
+      const ks = form.getValues('kitchen_station_id')
+      const sid = ks && ks !== 'none' ? ks : null
+      const raw = response as { data?: { id?: string } }
+      const newId = raw?.data?.id
+      if (newId) {
+        await apiClient.setCategoryKitchenStation(newId, sid)
+      }
       queryClient.invalidateQueries({ queryKey: ['admin-categories'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       queryClient.invalidateQueries({ queryKey: ['admin-products'] })
+      queryClient.invalidateQueries({ queryKey: ['stations'] })
       toastHelpers.categoryCreated(form.getValues('name'))
       form.reset()
       onSuccess?.()
@@ -67,11 +98,20 @@ export function CategoryForm({ category, onSuccess, onCancel, mode = 'create' }:
 
   // Update mutation  
   const updateMutation = useMutation({
-    mutationFn: (data: UpdateCategoryData) => apiClient.updateCategory(data.id.toString(), data),
-    onSuccess: (response) => {
+    mutationFn: (data: UpdateCategoryData) => {
+      const { kitchen_station_id: _ks, ...body } = data
+      return apiClient.updateCategory(data.id.toString(), body)
+    },
+    onSuccess: async () => {
+      const ks = form.getValues('kitchen_station_id')
+      const sid = ks && ks !== 'none' ? ks : null
+      if (category) {
+        await apiClient.setCategoryKitchenStation(category.id, sid)
+      }
       queryClient.invalidateQueries({ queryKey: ['admin-categories'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
       queryClient.invalidateQueries({ queryKey: ['admin-products'] })
+      queryClient.invalidateQueries({ queryKey: ['stations'] })
       toastHelpers.apiSuccess('Update', `Category "${form.getValues('name')}"`)
       onSuccess?.()
     },
@@ -148,9 +188,14 @@ export function CategoryForm({ category, onSuccess, onCancel, mode = 'create' }:
                 max={999}
                 description="Lower numbers appear first in menus"
               />
-              
-              {/* Empty column for layout balance */}
-              <div />
+              <SelectField
+                control={form.control}
+                name="kitchen_station_id"
+                label="Kitchen station"
+                placeholder="Choose station"
+                description="KOT for items in this category goes to this station — KDS screen or thermal printer ticket."
+                options={stationOptions}
+              />
             </div>
 
             {/* Action Buttons */}

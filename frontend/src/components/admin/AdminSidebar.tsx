@@ -15,7 +15,11 @@ import {
   UserCog,
   LayoutGrid,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Warehouse,
+  Receipt,
+  Radio,
+  FileWarning
 } from 'lucide-react'
 import type { User as UserType } from '@/types'
 import apiClient from '@/api/client'
@@ -80,6 +84,34 @@ const adminSections = [
     icon: <LayoutGrid className="w-5 h-5" />,
     description: 'Dining table management',
     href: '/admin/tables'
+  },
+  {
+    id: 'inventory',
+    label: 'Store Inventory',
+    icon: <Warehouse className="w-5 h-5" />,
+    description: 'Supplies & stock management',
+    href: '/admin/inventory'
+  },
+  {
+    id: 'expenses',
+    label: 'Expenses',
+    icon: <Receipt className="w-5 h-5" />,
+    description: 'Expense tracking & daily closing',
+    href: '/admin/expenses'
+  },
+  {
+    id: 'stations',
+    label: 'Kitchen Stations',
+    icon: <Radio className="w-5 h-5" />,
+    description: 'KOT routing configuration',
+    href: '/admin/stations'
+  },
+  {
+    id: 'void-log',
+    label: 'Void Log',
+    icon: <FileWarning className="w-5 h-5" />,
+    description: 'Voided items audit trail',
+    href: '/admin/void-log'
   },
   {
     id: 'reports',

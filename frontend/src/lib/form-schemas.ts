@@ -54,6 +54,8 @@ export const createCategorySchema = z.object({
   description: z.string().optional(),
   image_url: z.string().url().optional().or(z.literal('')),
   sort_order: z.number().min(0).default(0),
+  /** 'none' = unassigned; otherwise kitchen_stations.id */
+  kitchen_station_id: z.string().optional().default('none'),
 })
 
 export const updateCategorySchema = createCategorySchema.partial().extend({

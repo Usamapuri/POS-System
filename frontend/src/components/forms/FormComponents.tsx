@@ -226,7 +226,7 @@ export function SelectField<T extends FieldValues>({
       render={({ field }) => (
         <FormItem>
           <FormLabel>{label}</FormLabel>
-          <Select onValueChange={field.onChange} defaultValue={field.value}>
+          <Select onValueChange={field.onChange} value={field.value ?? undefined}>
             <FormControl>
               <SelectTrigger>
                 <SelectValue placeholder={placeholder} />
@@ -375,6 +375,7 @@ export const roleOptions: SelectOption[] = [
   { value: 'server', label: 'Server' },
   { value: 'counter', label: 'Counter/Checkout' },
   { value: 'kitchen', label: 'Kitchen Staff' },
+  { value: 'store_manager', label: 'Store Manager' },
 ]
 
 // POS-specific status options

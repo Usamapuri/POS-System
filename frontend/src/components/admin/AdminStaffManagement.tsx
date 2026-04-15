@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,9 @@ import {
   Shield,
   Edit,
   Table,
-  Users
+  Users,
+  Key,
+  X,
 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { toastHelpers } from '@/lib/toast-helpers'
@@ -34,6 +36,10 @@ export function AdminStaffManagement() {
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [isSearching, setIsSearching] = useState(false)
+  const [pinUser, setPinUser] = useState<User | null>(null)
+  const [pinValue, setPinValue] = useState('')
+  const [pinConfirm, setPinConfirm] = useState('')
+  const [pinError, setPinError] = useState('')
 
   const queryClient = useQueryClient()
 
@@ -83,6 +89,33 @@ export function AdminStaffManagement() {
     }
   })
 
+  const setPinMutation = useMutation({
+    mutationFn: ({ userId, pin }: { userId: string; pin: string }) => apiClient.setUserPin(userId, pin),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      setPinUser(null)
+      setPinValue('')
+      setPinConfirm('')
+      setPinError('')
+    },
+    onError: (error: any) => {
+      setPinError(error.message || 'Failed to set PIN')
+    },
+  })
+
+  const handleSetPin = () => {
+    if (pinValue.length !== 4 || !/^\d{4}$/.test(pinValue)) {
+      setPinError('PIN must be exactly 4 digits')
+      return
+    }
+    if (pinValue !== pinConfirm) {
+      setPinError('PINs do not match')
+      return
+    }
+    if (!pinUser) return
+    setPinMutation.mutate({ userId: pinUser.id, pin: pinValue })
+  }
+
   const handleFormSuccess = () => {
     setShowCreateForm(false)
     setEditingUser(null)
@@ -113,6 +146,7 @@ export function AdminStaffManagement() {
       case 'server': return 'bg-blue-100 text-blue-800 hover:bg-blue-200'
       case 'counter': return 'bg-green-100 text-green-800 hover:bg-green-200'
       case 'kitchen': return 'bg-orange-100 text-orange-800 hover:bg-orange-200'
+      case 'store_manager': return 'bg-teal-100 text-teal-800 hover:bg-teal-200'
       default: return 'bg-gray-100 text-gray-800 hover:bg-gray-200'
     }
   }
@@ -220,6 +254,7 @@ export function AdminStaffManagement() {
             data={filteredUsers}
             onEdit={setEditingUser}
             onDelete={handleDeleteUser}
+            onSetPin={setPinUser}
             isLoading={isLoading}
           />
         ) : filteredUsers.length === 0 ? (
@@ -325,6 +360,57 @@ export function AdminStaffManagement() {
             pagination={pagination}
             total={paginationInfo.total || users.length}
           />
+        </div>
+      )}
+
+      {/* PIN Modal */}
+      {pinUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl w-96 shadow-2xl">
+            <div className="p-4 border-b flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Key className="w-5 h-5 text-purple-600" />
+                <h3 className="font-bold text-gray-900">Set Manager PIN</h3>
+              </div>
+              <button onClick={() => { setPinUser(null); setPinValue(''); setPinConfirm(''); setPinError('') }} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="text-sm text-gray-600">
+                Setting PIN for <span className="font-semibold">{pinUser.first_name} {pinUser.last_name}</span> ({pinUser.role})
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">4-Digit PIN</label>
+                <Input
+                  type="password"
+                  maxLength={4}
+                  placeholder="Enter 4-digit PIN"
+                  value={pinValue}
+                  onChange={e => { setPinValue(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError('') }}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Confirm PIN</label>
+                <Input
+                  type="password"
+                  maxLength={4}
+                  placeholder="Re-enter PIN"
+                  value={pinConfirm}
+                  onChange={e => { setPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError('') }}
+                />
+              </div>
+              {pinError && <p className="text-red-500 text-sm">{pinError}</p>}
+            </div>
+            <div className="p-4 border-t flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => { setPinUser(null); setPinValue(''); setPinConfirm(''); setPinError('') }}>
+                Cancel
+              </Button>
+              <Button className="flex-1" onClick={handleSetPin} disabled={setPinMutation.isPending}>
+                {setPinMutation.isPending ? 'Saving...' : 'Save PIN'}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1,0 +1,86 @@
+package handlers
+
+import (
+	"database/sql"
+	"encoding/json"
+	"net/http"
+
+	"pos-backend/internal/models"
+	"pos-backend/internal/pricing"
+
+	"github.com/gin-gonic/gin"
+)
+
+type SettingsHandler struct {
+	db *sql.DB
+}
+
+func NewSettingsHandler(db *sql.DB) *SettingsHandler {
+	return &SettingsHandler{db: db}
+}
+
+func (h *SettingsHandler) GetSetting(c *gin.Context) {
+	key := c.Param("key")
+
+	var value json.RawMessage
+	err := h.db.QueryRow(`SELECT value FROM app_settings WHERE key = $1`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Setting not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to fetch setting", Error: strPtr(err.Error())})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: json.RawMessage(value)})
+}
+
+func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
+	key := c.Param("key")
+
+	var body json.RawMessage
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid JSON body", Error: strPtr(err.Error())})
+		return
+	}
+
+	_, err := h.db.Exec(`
+		INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
+		ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
+	`, key, body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to save setting", Error: strPtr(err.Error())})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Setting saved"})
+}
+
+func (h *SettingsHandler) GetAllSettings(c *gin.Context) {
+	rows, err := h.db.Query(`SELECT key, value FROM app_settings ORDER BY key`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to fetch settings", Error: strPtr(err.Error())})
+		return
+	}
+	defer rows.Close()
+
+	result := map[string]json.RawMessage{}
+	for rows.Next() {
+		var key string
+		var value json.RawMessage
+		rows.Scan(&key, &value)
+		result[key] = value
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: result})
+}
+
+// GetPricingSettings returns tax and service charge rates for checkout UI.
+func (h *SettingsHandler) GetPricingSettings(c *gin.Context) {
+	p, err := pricing.LoadSettings(h.db)
+	if err != nil {
+		p = pricing.Defaults
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: p})
+}

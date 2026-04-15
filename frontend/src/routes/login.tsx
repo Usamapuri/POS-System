@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 
 import apiClient from '@/api/client'
 import type { LoginRequest, LoginResponse, APIResponse } from '@/types'
-import { Eye, EyeOff, Store, Users, CreditCard, BarChart3, ChefHat, UserCheck, Settings } from 'lucide-react'
+import { Eye, EyeOff, Store, Users, CreditCard, BarChart3, ChefHat, UserCheck, Settings, Warehouse } from 'lucide-react'
 
 export const Route = createFileRoute('/login')({
   component: LoginPage,
@@ -328,6 +328,7 @@ function LoginPage() {
                       { username: 'admin', role: 'Admin', icon: Settings, bg: 'bg-red-50 text-red-700 border-red-100', desc: '👑 Full system access', password: 'admin123' },
                       { username: 'manager1', role: 'Manager', icon: BarChart3, bg: 'bg-blue-50 text-blue-700 border-blue-100', desc: '📊 Management & reports', password: 'admin123' },
                       { username: 'kitchen1', role: 'Kitchen', icon: ChefHat, bg: 'bg-orange-50 text-orange-700 border-orange-100', desc: '👨‍🍳 Order preparation', password: 'admin123' },
+                      { username: 'store1', role: 'Store Manager', icon: Warehouse, bg: 'bg-teal-50 text-teal-700 border-teal-100', desc: '📦 Inventory & supplies', password: 'admin123' },
                     ].map((account) => (
                       <button
                         key={account.username}

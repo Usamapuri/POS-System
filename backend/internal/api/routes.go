@@ -14,6 +14,7 @@ import (
 	"pos-backend/internal/models"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -25,6 +26,14 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 	productHandler := handlers.NewProductHandler(db)
 	paymentHandler := handlers.NewPaymentHandler(db)
 	tableHandler := handlers.NewTableHandler(db)
+	stockHandler := handlers.NewStockHandler(db)
+	expenseHandler := handlers.NewExpenseHandler(db)
+	closingHandler := handlers.NewDailyClosingHandler(db)
+	stationHandler := handlers.NewStationHandler(db)
+	kotHandler := handlers.NewKOTHandler(db)
+	pinHandler := handlers.NewPinHandler(db)
+	settingsHandler := handlers.NewSettingsHandler(db)
+	counterHandler := handlers.NewCounterHandler(db)
 
 	// Public routes (no authentication required)
 	public := router.Group("/")
@@ -61,6 +70,19 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		// Payment routes (counter/admin only)
 		protected.GET("/orders/:id/payments", paymentHandler.GetPayments)
 		protected.GET("/orders/:id/payment-summary", paymentHandler.GetPaymentSummary)
+
+		// KOT routes (server, counter, admin, manager)
+		protected.POST("/orders/:id/fire-kot", kotHandler.FireKOT)
+		protected.POST("/orders/:id/items", kotHandler.AddItemsToOrder)
+		protected.DELETE("/orders/:id/items/:item_id", kotHandler.RemoveDraftItem)
+		protected.POST("/orders/:id/items/:item_id/void", kotHandler.VoidItem)
+
+		// PIN verification (any authenticated user can verify)
+		protected.POST("/verify-pin", pinHandler.VerifyPin)
+
+		// Settings (read for all authenticated users)
+		protected.GET("/settings/:key", settingsHandler.GetSetting)
+		protected.GET("/settings", settingsHandler.GetAllSettings)
 	}
 
 	// Server routes (server role - dine-in orders only)
@@ -71,12 +93,17 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		server.POST("/orders", createDineInOrder(db)) // Only dine-in orders
 	}
 
-	// Counter routes (counter role - all order types and payments)
+	// Counter routes (counter role - all order types and payments; admin/manager use embedded counter UI)
 	counter := router.Group("/counter")
 	counter.Use(authMiddleware)
-	counter.Use(middleware.RequireRole("counter"))
+	counter.Use(middleware.RequireRoles([]string{"counter", "admin", "manager"}))
 	{
+		counter.GET("/servers", counterHandler.ListServers)
+		counter.GET("/pricing", settingsHandler.GetPricingSettings)
+		counter.GET("/tables/:table_id/active-order", orderHandler.GetActiveOrderByTable)
 		counter.POST("/orders", orderHandler.CreateOrder)                   // All order types
+		counter.PATCH("/orders/:id/checkout-intent", orderHandler.UpdateCheckoutIntent)
+		counter.PATCH("/orders/:id/discount", orderHandler.ApplyOrderDiscount)
 		counter.POST("/orders/:id/payments", paymentHandler.ProcessPayment) // Process payments
 	}
 
@@ -95,6 +122,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		admin.GET("/products", productHandler.GetProducts) // Use existing paginated handler
 		admin.GET("/categories", getAdminCategories(db))   // Add pagination
 		admin.POST("/categories", createCategory(db))
+		admin.PUT("/categories/:id/station", stationHandler.SetCategoryKitchenStation)
 		admin.PUT("/categories/:id", updateCategory(db))
 		admin.DELETE("/categories/:id", deleteCategory(db))
 		admin.POST("/products", createProduct(db))
@@ -116,6 +144,66 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		// Advanced order management
 		admin.POST("/orders", orderHandler.CreateOrder)                   // Admins can create any type of order
 		admin.POST("/orders/:id/payments", paymentHandler.ProcessPayment) // Admins can process payments
+
+		// Expense management
+		admin.GET("/expenses", expenseHandler.GetExpenses)
+		admin.POST("/expenses", expenseHandler.CreateExpense)
+		admin.PUT("/expenses/:id", expenseHandler.UpdateExpense)
+		admin.DELETE("/expenses/:id", expenseHandler.DeleteExpense)
+		admin.GET("/expenses/summary", expenseHandler.GetExpenseSummary)
+		admin.GET("/expenses/categories", expenseHandler.GetExpenseCategories)
+
+		// Daily closing
+		admin.GET("/daily-closings", closingHandler.GetDailyClosings)
+		admin.GET("/daily-closings/current", closingHandler.GetCurrentDayStatus)
+		admin.POST("/daily-closings", closingHandler.CloseDay)
+		admin.GET("/daily-closings/:date", closingHandler.GetDailyClosingByDate)
+
+		// P&L Reports
+		admin.GET("/reports/pnl", expenseHandler.GetPnLReport)
+
+		// Kitchen station management
+		admin.GET("/stations", stationHandler.GetStations)
+		admin.POST("/stations", stationHandler.CreateStation)
+		admin.PUT("/stations/:id", stationHandler.UpdateStation)
+		admin.DELETE("/stations/:id", stationHandler.DeleteStation)
+		admin.POST("/stations/:id/categories", stationHandler.SetStationCategories)
+		admin.GET("/stations/:id/categories", stationHandler.GetStationCategories)
+
+		// PIN management
+		admin.PUT("/users/:id/pin", pinHandler.SetPin)
+
+		// Void log
+		admin.GET("/void-log", pinHandler.GetVoidLog)
+
+		// Settings management
+		admin.PUT("/settings/:key", settingsHandler.UpdateSetting)
+	}
+
+	// Store inventory routes (store_manager, admin, manager)
+	store := router.Group("/store")
+	store.Use(authMiddleware)
+	store.Use(middleware.RequireRoles([]string{"admin", "manager", "store_manager"}))
+	{
+		store.GET("/stock-categories", stockHandler.GetStockCategories)
+		store.POST("/stock-categories", stockHandler.CreateStockCategory)
+		store.PUT("/stock-categories/:id", stockHandler.UpdateStockCategory)
+		store.DELETE("/stock-categories/:id", stockHandler.DeleteStockCategory)
+
+		store.GET("/stock-items", stockHandler.GetStockItems)
+		store.GET("/stock-items/:id", stockHandler.GetStockItem)
+		store.POST("/stock-items", stockHandler.CreateStockItem)
+		store.PUT("/stock-items/:id", stockHandler.UpdateStockItem)
+		store.DELETE("/stock-items/:id", stockHandler.DeleteStockItem)
+
+		store.POST("/stock-items/:id/purchase", stockHandler.PurchaseStock)
+		store.POST("/stock-items/:id/issue", stockHandler.IssueStock)
+
+		store.GET("/stock-alerts", stockHandler.GetStockAlerts)
+		store.GET("/stock-reports/movements", stockHandler.GetMovementsReport)
+		store.GET("/stock-reports/summary", stockHandler.GetStockSummary)
+		store.GET("/stock-reports/advanced", stockHandler.GetAdvancedReport)
+		store.GET("/users", stockHandler.GetStoreUsers)
 	}
 
 	// Kitchen routes (kitchen staff access)
@@ -125,6 +213,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 	{
 		kitchen.GET("/orders", getKitchenOrders(db))
 		kitchen.PATCH("/orders/:id/items/:item_id/status", updateOrderItemStatus(db))
+		kitchen.POST("/orders/:id/bump", kotHandler.KitchenBump)
 	}
 }
 
@@ -315,22 +404,23 @@ func getKitchenOrders(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		status := c.DefaultQuery("status", "all")
 
-		query := `
-			SELECT DISTINCT o.id, o.order_number, o.table_id, o.order_type, o.status, 
-			       o.created_at, o.customer_name,
-			       t.table_number
+		q := `
+			SELECT DISTINCT o.id::text, o.order_number, o.table_id::text, o.order_type, o.status,
+			       o.created_at, o.updated_at, o.customer_name, o.guest_count,
+			       o.kot_first_sent_at,
+			       t.table_number, t.location,
+			       u.first_name, u.last_name
 			FROM orders o
 			LEFT JOIN dining_tables t ON o.table_id = t.id
+			LEFT JOIN users u ON o.user_id = u.id
 			WHERE o.status IN ('confirmed', 'preparing', 'ready')
 		`
-
 		if status != "all" {
-			query += ` AND o.status = '` + status + `'`
+			q += ` AND o.status = '` + status + `'`
 		}
+		q += ` ORDER BY o.created_at ASC`
 
-		query += ` ORDER BY o.created_at ASC`
-
-		rows, err := db.Query(query)
+		rows, err := db.Query(q)
 		if err != nil {
 			c.JSON(500, gin.H{
 				"success": false,
@@ -341,14 +431,38 @@ func getKitchenOrders(db *sql.DB) gin.HandlerFunc {
 		}
 		defer rows.Close()
 
-		var orders []map[string]interface{}
-		for rows.Next() {
-			var orderID, tableID interface{}
-			var orderNumber, orderType, orderStatus, customerName, tableNumber sql.NullString
-			var createdAt interface{}
+		type kitchenOrder struct {
+			ID               string                   `json:"id"`
+			OrderNumber      string                   `json:"order_number"`
+			TableID          *string                  `json:"table_id"`
+			OrderType        string                   `json:"order_type"`
+			Status           string                   `json:"status"`
+			CreatedAt        interface{}               `json:"created_at"`
+			UpdatedAt        interface{}               `json:"updated_at"`
+			CustomerName     string                   `json:"customer_name"`
+			GuestCount       int                      `json:"guest_count"`
+			KotFirstSentAt   interface{}               `json:"kot_first_sent_at,omitempty"`
+			Table            map[string]interface{}    `json:"table,omitempty"`
+			Items            []map[string]interface{}  `json:"items"`
+			ServerName       string                   `json:"server_name,omitempty"`
+		}
 
-			err := rows.Scan(&orderID, &orderNumber, &tableID, &orderType, &orderStatus,
-				&createdAt, &customerName, &tableNumber)
+		var orders []kitchenOrder
+		for rows.Next() {
+			var o kitchenOrder
+			var orderIDStr string
+			var tableID, tableNumber, tableLocation sql.NullString
+			var orderNumber, orderType, orderStatus, customerName sql.NullString
+			var firstName, lastName sql.NullString
+			var createdAt, updatedAt interface{}
+			var guestCount sql.NullInt64
+			var kotFirstSent sql.NullTime
+
+			err := rows.Scan(&orderIDStr, &orderNumber, &tableID, &orderType, &orderStatus,
+				&createdAt, &updatedAt, &customerName, &guestCount,
+				&kotFirstSent,
+				&tableNumber, &tableLocation,
+				&firstName, &lastName)
 			if err != nil {
 				c.JSON(500, gin.H{
 					"success": false,
@@ -358,18 +472,41 @@ func getKitchenOrders(db *sql.DB) gin.HandlerFunc {
 				return
 			}
 
-			order := map[string]interface{}{
-				"id":            orderID,
-				"order_number":  orderNumber.String,
-				"table_id":      tableID,
-				"table_number":  tableNumber.String,
-				"order_type":    orderType.String,
-				"status":        orderStatus.String,
-				"customer_name": customerName.String,
-				"created_at":    createdAt,
+			o.ID = orderIDStr
+			o.OrderNumber = orderNumber.String
+			o.OrderType = orderType.String
+			o.Status = orderStatus.String
+			o.CustomerName = customerName.String
+			o.GuestCount = 0
+			if guestCount.Valid {
+				o.GuestCount = int(guestCount.Int64)
+			}
+			o.CreatedAt = createdAt
+			o.UpdatedAt = updatedAt
+
+			if tableID.Valid {
+				tid := tableID.String
+				o.TableID = &tid
+				o.Table = map[string]interface{}{
+					"table_number": tableNumber.String,
+					"location":     tableLocation.String,
+				}
 			}
 
-			orders = append(orders, order)
+			if firstName.Valid {
+				o.ServerName = firstName.String + " " + lastName.String
+			}
+			if kotFirstSent.Valid {
+				o.KotFirstSentAt = kotFirstSent.Time
+			}
+
+			orders = append(orders, o)
+		}
+
+		// Fetch items for each order (include voided for KDS strikethrough; exclude draft only)
+		for i, order := range orders {
+			items := fetchKitchenOrderItems(db, order.ID)
+			orders[i].Items = items
 		}
 
 		c.JSON(200, gin.H{
@@ -378,6 +515,75 @@ func getKitchenOrders(db *sql.DB) gin.HandlerFunc {
 			"data":    orders,
 		})
 	}
+}
+
+// fetchKitchenOrderItems loads line items for KDS (includes voided for strikethrough; excludes draft).
+func fetchKitchenOrderItems(db *sql.DB, orderID string) []map[string]interface{} {
+	itemRows, err := db.Query(`
+		SELECT oi.id::text, oi.product_id::text, oi.quantity, oi.unit_price, oi.total_price,
+		       oi.special_instructions, oi.status, oi.created_at, oi.updated_at,
+		       oi.kot_sent_at, oi.kot_fire_generation,
+		       p.name AS product_name, p.category_id::text
+		FROM order_items oi
+		JOIN products p ON oi.product_id = p.id
+		WHERE oi.order_id = $1::uuid AND oi.status != 'draft'
+		ORDER BY oi.created_at ASC
+	`, orderID)
+	if err != nil || itemRows == nil {
+		return nil
+	}
+	defer itemRows.Close()
+
+	var items []map[string]interface{}
+	for itemRows.Next() {
+		var itemID, productID string
+		var productName string
+		var categoryID sql.NullString
+		var qty int
+		var unitPrice, totalPrice float64
+		var specialInstructions sql.NullString
+		var itemStatus string
+		var itemCreatedAt, itemUpdatedAt interface{}
+		var kotSentAt sql.NullTime
+		var kotFireGen int
+
+		if err := itemRows.Scan(&itemID, &productID, &qty, &unitPrice, &totalPrice,
+			&specialInstructions, &itemStatus, &itemCreatedAt, &itemUpdatedAt,
+			&kotSentAt, &kotFireGen,
+			&productName, &categoryID); err != nil {
+			continue
+		}
+
+		catStr := ""
+		if categoryID.Valid {
+			catStr = categoryID.String
+		}
+
+		item := map[string]interface{}{
+			"id":                   itemID,
+			"order_id":             orderID,
+			"product_id":           productID,
+			"quantity":             qty,
+			"unit_price":           unitPrice,
+			"total_price":          totalPrice,
+			"special_instructions": specialInstructions.String,
+			"status":               itemStatus,
+			"created_at":           itemCreatedAt,
+			"updated_at":           itemUpdatedAt,
+			"kot_fire_generation":  kotFireGen,
+			"product": map[string]interface{}{
+				"id":          productID,
+				"name":        productName,
+				"price":       unitPrice,
+				"category_id": catStr,
+			},
+		}
+		if kotSentAt.Valid {
+			item["kot_sent_at"] = kotSentAt.Time
+		}
+		items = append(items, item)
+	}
+	return items
 }
 
 // Update order item status handler
@@ -399,8 +605,22 @@ func updateOrderItemStatus(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Update order item status
-		_, err := db.Exec(`
+		var currentStatus string
+		err := db.QueryRow(`SELECT status FROM order_items WHERE id = $1 AND order_id = $2`, itemID, orderID).Scan(&currentStatus)
+		if err != nil {
+			c.JSON(404, gin.H{"success": false, "message": "Order item not found"})
+			return
+		}
+		if currentStatus == "voided" {
+			c.JSON(400, gin.H{"success": false, "message": "Voided items cannot be updated on KDS"})
+			return
+		}
+		if currentStatus == "draft" {
+			c.JSON(400, gin.H{"success": false, "message": "Draft items are not on KDS yet"})
+			return
+		}
+
+		_, err = db.Exec(`
 			UPDATE order_items 
 			SET status = $1, updated_at = CURRENT_TIMESTAMP 
 			WHERE id = $2 AND order_id = $3
@@ -415,6 +635,14 @@ func updateOrderItemStatus(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Keep order-level status in sync so bump/KDS rules see `preparing` once cooking starts.
+		if req.Status == "ready" || req.Status == "preparing" {
+			_, _ = db.Exec(`
+				UPDATE orders SET status = 'preparing', updated_at = CURRENT_TIMESTAMP
+				WHERE id = $1::uuid AND status = 'confirmed'
+			`, orderID)
+		}
+
 		c.JSON(200, gin.H{
 			"success": true,
 			"message": "Order item status updated successfully",
@@ -422,12 +650,14 @@ func updateOrderItemStatus(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
-// Server role handler - only allows dine-in orders
+// Server role handler - creates orders with configurable order types
 func createDineInOrder(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			TableID      *string `json:"table_id"`
 			CustomerName *string `json:"customer_name"`
+			OrderType    string  `json:"order_type"`
+			GuestCount   int     `json:"guest_count"`
 			Items        []struct {
 				ProductID           string  `json:"product_id"`
 				Quantity            int     `json:"quantity"`
@@ -445,19 +675,22 @@ func createDineInOrder(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Force order type to dine_in for servers
+		orderType := req.OrderType
+		if orderType == "" {
+			orderType = "dine_in"
+		}
+
 		orderHandler := handlers.NewOrderHandler(db)
 
-		// Create order request with forced dine_in type
 		createOrderReq := map[string]interface{}{
 			"table_id":      req.TableID,
 			"customer_name": req.CustomerName,
-			"order_type":    "dine_in", // Force dine-in for servers
+			"order_type":    orderType,
+			"guest_count":   req.GuestCount,
 			"items":         req.Items,
 			"notes":         req.Notes,
 		}
 
-		// Convert to JSON and back to simulate the request
 		reqBytes, _ := json.Marshal(createOrderReq)
 		c.Request.Body = io.NopCloser(strings.NewReader(string(reqBytes)))
 
@@ -1421,7 +1654,7 @@ func getAdminUsers(db *sql.DB) gin.HandlerFunc {
 		offset := (page - 1) * perPage
 
 		// Build query with filters
-		queryBuilder := "SELECT id, username, email, first_name, last_name, role, is_active, created_at FROM users WHERE 1=1"
+		queryBuilder := "SELECT id, username, email, first_name, last_name, role, is_active, created_at, CASE WHEN manager_pin IS NOT NULL THEN true ELSE false END as has_pin FROM users WHERE 1=1"
 		args := []interface{}{}
 		argCount := 0
 
@@ -1480,10 +1713,10 @@ func getAdminUsers(db *sql.DB) gin.HandlerFunc {
 		for rows.Next() {
 			var user map[string]interface{} = make(map[string]interface{})
 			var id, username, email, firstName, lastName, userRole string
-			var isActive bool
+			var isActive, hasPin bool
 			var createdAt time.Time
 
-			err := rows.Scan(&id, &username, &email, &firstName, &lastName, &userRole, &isActive, &createdAt)
+			err := rows.Scan(&id, &username, &email, &firstName, &lastName, &userRole, &isActive, &createdAt, &hasPin)
 			if err != nil {
 				c.JSON(500, gin.H{
 					"success": false,
@@ -1501,6 +1734,7 @@ func getAdminUsers(db *sql.DB) gin.HandlerFunc {
 			user["role"] = userRole
 			user["is_active"] = isActive
 			user["created_at"] = createdAt
+			user["has_pin"] = hasPin
 
 			users = append(users, user)
 		}
@@ -1544,25 +1778,39 @@ func getAdminCategories(db *sql.DB) gin.HandlerFunc {
 
 		offset := (page - 1) * perPage
 
-		// Build query with filters
-		queryBuilder := "SELECT id, name, description, color, sort_order, is_active, created_at, updated_at FROM categories WHERE 1=1"
+		// Build query with filters (include kitchen station for menu routing)
+		queryBuilder := `SELECT c.id, c.name, c.description, c.color, c.sort_order, c.is_active, c.created_at, c.updated_at,
+			(SELECT csm.station_id::text FROM category_station_map csm WHERE csm.category_id = c.id LIMIT 1),
+			(SELECT ks.name FROM category_station_map csm JOIN kitchen_stations ks ON ks.id = csm.station_id WHERE csm.category_id = c.id LIMIT 1),
+			(SELECT ks.output_type FROM category_station_map csm JOIN kitchen_stations ks ON ks.id = csm.station_id WHERE csm.category_id = c.id LIMIT 1)
+			FROM categories c WHERE 1=1`
 		args := []interface{}{}
 		argCount := 0
 
 		if activeOnly {
-			queryBuilder += " AND is_active = true"
+			queryBuilder += " AND c.is_active = true"
 		}
 
 		if search != "" {
 			argCount++
-			queryBuilder += fmt.Sprintf(" AND (name ILIKE $%d OR description ILIKE $%d)", argCount, argCount)
+			queryBuilder += fmt.Sprintf(" AND (c.name ILIKE $%d OR c.description ILIKE $%d)", argCount, argCount)
 			args = append(args, "%"+search+"%")
 		}
 
 		// Count total records
-		countQuery := "SELECT COUNT(*) FROM (" + queryBuilder + ") as count_query"
+		countQuery := "SELECT COUNT(*) FROM categories c WHERE 1=1"
+		countArgs := []interface{}{}
+		countArg := 0
+		if activeOnly {
+			countQuery += " AND c.is_active = true"
+		}
+		if search != "" {
+			countArg++
+			countQuery += fmt.Sprintf(" AND (c.name ILIKE $%d OR c.description ILIKE $%d)", countArg, countArg)
+			countArgs = append(countArgs, "%"+search+"%")
+		}
 		var total int
-		if err := db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		if err := db.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
 			c.JSON(500, gin.H{
 				"success": false,
 				"message": "Failed to count categories",
@@ -1572,7 +1820,7 @@ func getAdminCategories(db *sql.DB) gin.HandlerFunc {
 		}
 
 		// Add ordering and pagination
-		queryBuilder += " ORDER BY sort_order ASC, name ASC"
+		queryBuilder += " ORDER BY c.sort_order ASC, c.name ASC"
 		argCount++
 		queryBuilder += fmt.Sprintf(" LIMIT $%d", argCount)
 		args = append(args, perPage)
@@ -1595,10 +1843,12 @@ func getAdminCategories(db *sql.DB) gin.HandlerFunc {
 		var categories []models.Category
 		for rows.Next() {
 			var category models.Category
+			var stationIDStr, stationName, stationOut sql.NullString
 
 			err := rows.Scan(
 				&category.ID, &category.Name, &category.Description, &category.Color,
 				&category.SortOrder, &category.IsActive, &category.CreatedAt, &category.UpdatedAt,
+				&stationIDStr, &stationName, &stationOut,
 			)
 			if err != nil {
 				c.JSON(500, gin.H{
@@ -1607,6 +1857,19 @@ func getAdminCategories(db *sql.DB) gin.HandlerFunc {
 					"error":   err.Error(),
 				})
 				return
+			}
+			if stationIDStr.Valid && stationIDStr.String != "" {
+				if uid, perr := uuid.Parse(stationIDStr.String); perr == nil {
+					category.KitchenStationID = &uid
+				}
+			}
+			if stationName.Valid {
+				s := stationName.String
+				category.KitchenStationName = &s
+			}
+			if stationOut.Valid {
+				o := stationOut.String
+				category.KitchenStationOutput = &o
 			}
 
 			categories = append(categories, category)

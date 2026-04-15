@@ -1,7 +1,7 @@
 # POS System - Development Makefile
 # Usage: make <command>
 
-.PHONY: help dev prod up down build logs clean backup restore create-admin remove-data db-shell test lint format
+.PHONY: help dev prod up down build logs clean backup restore create-admin remove-data db-shell db-migrate-counter-pricing test lint format
 
 # Default target
 .DEFAULT_GOAL := help
@@ -38,6 +38,7 @@ help:
 	@echo "  make backup            - Backup database and uploads"
 	@echo "  make restore           - Restore database from backup"
 	@echo "  make db-shell          - Access PostgreSQL shell"
+	@echo "  make db-migrate-counter-pricing - Add service_charge_amount & checkout columns (existing DBs)"
 	@echo "  make db-reset          - Reset database with fresh schema and seed data"
 	@echo ""
 	@echo "$(GREEN)Utility Commands:$(NC)"
@@ -196,6 +197,17 @@ db-shell:
 	@docker exec -it pos-postgres-dev psql -U postgres pos_system || \
 	 docker exec -it pos-postgres psql -U postgres pos_system
 
+# Apply counter/pricing columns on DBs created before service_charge (fixes pq: service_charge_amount does not exist)
+db-migrate-counter-pricing:
+	@echo "$(GREEN)📦 Applying counter pricing migration...$(NC)"
+	@if [ -z "$$(docker ps -q -f name=pos-postgres)" ]; then \
+		echo "$(RED)❌ Database container is not running. Start the stack first (e.g. make dev).$(NC)"; \
+		exit 1; \
+	fi
+	@docker exec -i pos-postgres-dev psql -U postgres -d pos_system < scripts/counter_pricing_migration.sql 2>/dev/null || \
+	 docker exec -i pos-postgres psql -U postgres -d pos_system < scripts/counter_pricing_migration.sql
+	@echo "$(GREEN)✅ Migration applied. Restart backend if it was caching schema errors.$(NC)"
+
 # Reset database with fresh schema and seed data
 db-reset:
 	@echo "$(YELLOW)🔄 Resetting database...$(NC)"
@@ -203,7 +215,7 @@ db-reset:
 		echo "$(RED)❌ Database container is not running. Please run 'make up' first.$(NC)"; \
 		exit 1; \
 	fi
-	@./scripts/db-reset.sh
+	@./scripts/db-reset.sh -y
 	@echo "$(GREEN)✅ Database reset completed!$(NC)"
 
 ## Utility Commands

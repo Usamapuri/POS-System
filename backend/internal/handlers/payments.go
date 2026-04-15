@@ -7,6 +7,7 @@ import (
 
 	"pos-backend/internal/middleware"
 	"pos-backend/internal/models"
+	"pos-backend/internal/pricing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -53,7 +54,7 @@ func (h *PaymentHandler) ProcessPayment(c *gin.Context) {
 	}
 
 	// Validate payment method
-	validMethods := []string{"cash", "credit_card", "debit_card", "digital_wallet"}
+	validMethods := []string{"cash", "credit_card", "debit_card", "digital_wallet", "online"}
 	isValidMethod := false
 	for _, method := range validMethods {
 		if req.PaymentMethod == method {
@@ -92,6 +93,29 @@ func (h *PaymentHandler) ProcessPayment(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
+	// Align order totals with tax for this payment method before first completed payment
+	var totalPaidBefore float64
+	if err = tx.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = $1 AND status = 'completed'
+	`, orderID).Scan(&totalPaidBefore); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Message: "Failed to calculate total payments",
+			Error:   stringPtr(err.Error()),
+		})
+		return
+	}
+	if totalPaidBefore == 0 {
+		if err := persistOrderTotalsForPayment(h.db, tx, orderID, req.PaymentMethod); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{
+				Success: false,
+				Message: "Failed to update order totals for payment method",
+				Error:   stringPtr(err.Error()),
+			})
+			return
+		}
+	}
+
 	// Check if order exists and get total amount
 	var orderTotalAmount float64
 	var orderStatus string
@@ -123,21 +147,7 @@ func (h *PaymentHandler) ProcessPayment(c *gin.Context) {
 		return
 	}
 
-	// Check if order is already fully paid
-	var totalPaid float64
-	err = tx.QueryRow(`
-		SELECT COALESCE(SUM(amount), 0) 
-		FROM payments 
-		WHERE order_id = $1 AND status = 'completed'
-	`, orderID).Scan(&totalPaid)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
-			Success: false,
-			Message: "Failed to calculate total payments",
-			Error:   stringPtr(err.Error()),
-		})
-		return
-	}
+	totalPaid := totalPaidBefore
 
 	if totalPaid >= orderTotalAmount {
 		c.JSON(http.StatusBadRequest, models.APIResponse{
@@ -454,3 +464,20 @@ func (h *PaymentHandler) getPaymentByID(paymentID uuid.UUID) (*models.Payment, e
 	return &payment, nil
 }
 
+func persistOrderTotalsForPayment(db *sql.DB, tx *sql.Tx, orderID uuid.UUID, paymentMethod string) error {
+	var subtotal, discount float64
+	if err := tx.QueryRow(`SELECT subtotal, discount_amount FROM orders WHERE id = $1`, orderID).Scan(&subtotal, &discount); err != nil {
+		return err
+	}
+	ps, err := pricing.LoadSettings(db)
+	if err != nil {
+		ps = pricing.Defaults
+	}
+	_, svc, tax, total := pricing.ComputeTotalsFromPaymentMethod(subtotal, discount, paymentMethod, ps)
+	intent := pricing.CheckoutIntentFromPaymentMethod(paymentMethod)
+	_, err = tx.Exec(`
+		UPDATE orders SET tax_amount = $1, service_charge_amount = $2, total_amount = $3, checkout_payment_method = $4, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $5
+	`, tax, svc, total, intent, orderID)
+	return err
+}

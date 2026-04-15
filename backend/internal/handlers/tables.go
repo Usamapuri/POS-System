@@ -28,9 +28,11 @@ func (h *TableHandler) GetTables(c *gin.Context) {
 		SELECT t.id, t.table_number, t.seating_capacity, t.location, t.is_occupied, 
 		       t.created_at, t.updated_at,
 		       o.id as order_id, o.order_number, o.customer_name, o.status as order_status,
-		       o.created_at as order_created_at, o.total_amount
+		       o.created_at as order_created_at, o.total_amount, o.guest_count,
+		       u.id as server_id, u.first_name as server_first_name, u.last_name as server_last_name, u.role as server_role
 		FROM dining_tables t
 		LEFT JOIN orders o ON t.id = o.table_id AND o.status NOT IN ('completed', 'cancelled')
+		LEFT JOIN users u ON o.user_id = u.id
 		WHERE 1=1
 	`
 
@@ -62,17 +64,20 @@ func (h *TableHandler) GetTables(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var tables []models.DiningTable
+	var tables []map[string]interface{}
 	for rows.Next() {
 		var table models.DiningTable
 		var orderID, orderNumber, customerName, orderStatus sql.NullString
 		var orderCreatedAt sql.NullTime
 		var totalAmount sql.NullFloat64
+		var guestCount sql.NullInt32
+		var serverID, serverFirstName, serverLastName, serverRole sql.NullString
 
 		err := rows.Scan(
 			&table.ID, &table.TableNumber, &table.SeatingCapacity, &table.Location, &table.IsOccupied,
 			&table.CreatedAt, &table.UpdatedAt,
-			&orderID, &orderNumber, &customerName, &orderStatus, &orderCreatedAt, &totalAmount,
+			&orderID, &orderNumber, &customerName, &orderStatus, &orderCreatedAt, &totalAmount, &guestCount,
+			&serverID, &serverFirstName, &serverLastName, &serverRole,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{
@@ -83,7 +88,6 @@ func (h *TableHandler) GetTables(c *gin.Context) {
 			return
 		}
 
-		// Create a map to hold table data including current order info
 		tableData := map[string]interface{}{
 			"id":               table.ID,
 			"table_number":     table.TableNumber,
@@ -95,20 +99,28 @@ func (h *TableHandler) GetTables(c *gin.Context) {
 			"current_order":    nil,
 		}
 
-		// Add current order info if available
 		if orderID.Valid {
-			tableData["current_order"] = map[string]interface{}{
+			orderData := map[string]interface{}{
 				"id":            orderID.String,
 				"order_number":  orderNumber.String,
 				"customer_name": customerName.String,
 				"status":        orderStatus.String,
 				"created_at":    orderCreatedAt.Time,
 				"total_amount":  totalAmount.Float64,
+				"guest_count":   int(guestCount.Int32),
 			}
+			if serverID.Valid {
+				orderData["server"] = map[string]interface{}{
+					"id":         serverID.String,
+					"first_name": serverFirstName.String,
+					"last_name":  serverLastName.String,
+					"role":       serverRole.String,
+				}
+			}
+			tableData["current_order"] = orderData
 		}
 
-		// Convert to table struct for consistent response
-		tables = append(tables, table)
+		tables = append(tables, tableData)
 	}
 
 	c.JSON(http.StatusOK, models.APIResponse{

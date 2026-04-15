@@ -1,0 +1,1028 @@
+package handlers
+
+import (
+	"database/sql"
+	"fmt"
+	"math"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"pos-backend/internal/middleware"
+	"pos-backend/internal/models"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+)
+
+type StockHandler struct {
+	db *sql.DB
+}
+
+func NewStockHandler(db *sql.DB) *StockHandler {
+	return &StockHandler{db: db}
+}
+
+// ---------- Stock Categories ----------
+
+func (h *StockHandler) GetStockCategories(c *gin.Context) {
+	rows, err := h.db.Query(`
+		SELECT sc.id, sc.name, sc.description, sc.sort_order, sc.is_active,
+		       sc.created_at, sc.updated_at,
+		       COUNT(si.id) AS item_count
+		FROM stock_categories sc
+		LEFT JOIN stock_items si ON si.category_id = sc.id AND si.is_active = true
+		GROUP BY sc.id
+		ORDER BY sc.sort_order ASC, sc.name ASC
+	`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to fetch stock categories", Error: strPtr(err.Error())})
+		return
+	}
+	defer rows.Close()
+
+	var categories []models.StockCategory
+	for rows.Next() {
+		var cat models.StockCategory
+		if err := rows.Scan(&cat.ID, &cat.Name, &cat.Description, &cat.SortOrder, &cat.IsActive, &cat.CreatedAt, &cat.UpdatedAt, &cat.ItemCount); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to scan category", Error: strPtr(err.Error())})
+			return
+		}
+		categories = append(categories, cat)
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock categories retrieved", Data: categories})
+}
+
+func (h *StockHandler) CreateStockCategory(c *gin.Context) {
+	var req struct {
+		Name        string  `json:"name" binding:"required"`
+		Description *string `json:"description"`
+		SortOrder   int     `json:"sort_order"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request", Error: strPtr(err.Error())})
+		return
+	}
+
+	var id string
+	err := h.db.QueryRow(`INSERT INTO stock_categories (name, description, sort_order) VALUES ($1,$2,$3) RETURNING id`,
+		req.Name, req.Description, req.SortOrder).Scan(&id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to create category", Error: strPtr(err.Error())})
+		return
+	}
+
+	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Message: "Stock category created", Data: map[string]string{"id": id}})
+}
+
+func (h *StockHandler) UpdateStockCategory(c *gin.Context) {
+	catID := c.Param("id")
+	var req struct {
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+		SortOrder   *int    `json:"sort_order"`
+		IsActive    *bool   `json:"is_active"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request", Error: strPtr(err.Error())})
+		return
+	}
+
+	sets, args, n := buildUpdates(map[string]interface{}{
+		"name": req.Name, "description": req.Description, "sort_order": req.SortOrder, "is_active": req.IsActive,
+	})
+	if len(sets) == 0 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "No fields to update"})
+		return
+	}
+	sets = append(sets, "updated_at = CURRENT_TIMESTAMP")
+	args = append(args, catID)
+	query := fmt.Sprintf("UPDATE stock_categories SET %s WHERE id = $%d", strings.Join(sets, ", "), n+1)
+	res, err := h.db.Exec(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update category", Error: strPtr(err.Error())})
+		return
+	}
+	if ra, _ := res.RowsAffected(); ra == 0 {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Category not found"})
+		return
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock category updated"})
+}
+
+func (h *StockHandler) DeleteStockCategory(c *gin.Context) {
+	catID := c.Param("id")
+	var count int
+	h.db.QueryRow("SELECT COUNT(*) FROM stock_items WHERE category_id = $1", catID).Scan(&count)
+	if count > 0 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Cannot delete category with existing items", Error: strPtr("category_has_items")})
+		return
+	}
+	res, err := h.db.Exec("DELETE FROM stock_categories WHERE id = $1", catID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to delete category", Error: strPtr(err.Error())})
+		return
+	}
+	if ra, _ := res.RowsAffected(); ra == 0 {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Category not found"})
+		return
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock category deleted"})
+}
+
+// ---------- Stock Items ----------
+
+func (h *StockHandler) GetStockItems(c *gin.Context) {
+	page, perPage := parsePagination(c)
+	offset := (page - 1) * perPage
+	categoryID := c.Query("category_id")
+	search := c.Query("search")
+	lowStockOnly := c.Query("low_stock") == "true"
+
+	qb := `SELECT si.id, si.category_id, si.name, si.unit, si.quantity_on_hand, si.reorder_level,
+	              si.default_unit_cost, si.notes, si.is_active, si.created_at, si.updated_at,
+	              sc.id, sc.name
+	       FROM stock_items si
+	       LEFT JOIN stock_categories sc ON si.category_id = sc.id
+	       WHERE si.is_active = true`
+	args := []interface{}{}
+	n := 0
+
+	if categoryID != "" {
+		n++
+		qb += fmt.Sprintf(" AND si.category_id = $%d", n)
+		args = append(args, categoryID)
+	}
+	if search != "" {
+		n++
+		qb += fmt.Sprintf(" AND si.name ILIKE $%d", n)
+		args = append(args, "%"+search+"%")
+	}
+	if lowStockOnly {
+		qb += " AND si.quantity_on_hand <= si.reorder_level"
+	}
+
+	var total int
+	countQ := "SELECT COUNT(*) FROM (" + qb + ") q"
+	h.db.QueryRow(countQ, args...).Scan(&total)
+
+	qb += " ORDER BY sc.sort_order ASC, si.name ASC"
+	n++
+	qb += fmt.Sprintf(" LIMIT $%d", n)
+	args = append(args, perPage)
+	n++
+	qb += fmt.Sprintf(" OFFSET $%d", n)
+	args = append(args, offset)
+
+	rows, err := h.db.Query(qb, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to fetch stock items", Error: strPtr(err.Error())})
+		return
+	}
+	defer rows.Close()
+
+	var items []models.StockItem
+	for rows.Next() {
+		var item models.StockItem
+		var catID sql.NullString
+		var catName sql.NullString
+		if err := rows.Scan(&item.ID, &item.CategoryID, &item.Name, &item.Unit, &item.QuantityOnHand, &item.ReorderLevel,
+			&item.DefaultUnitCost, &item.Notes, &item.IsActive, &item.CreatedAt, &item.UpdatedAt,
+			&catID, &catName); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to scan item", Error: strPtr(err.Error())})
+			return
+		}
+		if catID.Valid {
+			uid, _ := uuid.Parse(catID.String)
+			item.Category = &models.StockCategory{ID: uid, Name: catName.String}
+		}
+		items = append(items, item)
+	}
+
+	c.JSON(http.StatusOK, models.PaginatedResponse{
+		Success: true, Message: "Stock items retrieved", Data: items,
+		Meta: models.MetaData{CurrentPage: page, PerPage: perPage, Total: total, TotalPages: int(math.Ceil(float64(total) / float64(perPage)))},
+	})
+}
+
+func (h *StockHandler) GetStockItem(c *gin.Context) {
+	itemID := c.Param("id")
+	var item models.StockItem
+	var catID sql.NullString
+	var catName sql.NullString
+	err := h.db.QueryRow(`
+		SELECT si.id, si.category_id, si.name, si.unit, si.quantity_on_hand, si.reorder_level,
+		       si.default_unit_cost, si.notes, si.is_active, si.created_at, si.updated_at,
+		       sc.id, sc.name
+		FROM stock_items si
+		LEFT JOIN stock_categories sc ON si.category_id = sc.id
+		WHERE si.id = $1`, itemID).Scan(
+		&item.ID, &item.CategoryID, &item.Name, &item.Unit, &item.QuantityOnHand, &item.ReorderLevel,
+		&item.DefaultUnitCost, &item.Notes, &item.IsActive, &item.CreatedAt, &item.UpdatedAt,
+		&catID, &catName)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Stock item not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to fetch item", Error: strPtr(err.Error())})
+		return
+	}
+	if catID.Valid {
+		uid, _ := uuid.Parse(catID.String)
+		item.Category = &models.StockCategory{ID: uid, Name: catName.String}
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock item retrieved", Data: item})
+}
+
+func (h *StockHandler) CreateStockItem(c *gin.Context) {
+	var req struct {
+		CategoryID      *string  `json:"category_id"`
+		Name            string   `json:"name" binding:"required"`
+		Unit            string   `json:"unit" binding:"required"`
+		QuantityOnHand  float64  `json:"quantity_on_hand"`
+		ReorderLevel    float64  `json:"reorder_level"`
+		DefaultUnitCost *float64 `json:"default_unit_cost"`
+		Notes           *string  `json:"notes"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request", Error: strPtr(err.Error())})
+		return
+	}
+
+	var id string
+	err := h.db.QueryRow(`
+		INSERT INTO stock_items (category_id, name, unit, quantity_on_hand, reorder_level, default_unit_cost, notes)
+		VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+		req.CategoryID, req.Name, req.Unit, req.QuantityOnHand, req.ReorderLevel, req.DefaultUnitCost, req.Notes).Scan(&id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to create item", Error: strPtr(err.Error())})
+		return
+	}
+	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Message: "Stock item created", Data: map[string]string{"id": id}})
+}
+
+func (h *StockHandler) UpdateStockItem(c *gin.Context) {
+	itemID := c.Param("id")
+	var req struct {
+		CategoryID      *string  `json:"category_id"`
+		Name            *string  `json:"name"`
+		Unit            *string  `json:"unit"`
+		ReorderLevel    *float64 `json:"reorder_level"`
+		DefaultUnitCost *float64 `json:"default_unit_cost"`
+		Notes           *string  `json:"notes"`
+		IsActive        *bool    `json:"is_active"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request", Error: strPtr(err.Error())})
+		return
+	}
+
+	sets, args, n := buildUpdates(map[string]interface{}{
+		"category_id": req.CategoryID, "name": req.Name, "unit": req.Unit,
+		"reorder_level": req.ReorderLevel, "default_unit_cost": req.DefaultUnitCost,
+		"notes": req.Notes, "is_active": req.IsActive,
+	})
+	if len(sets) == 0 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "No fields to update"})
+		return
+	}
+	sets = append(sets, "updated_at = CURRENT_TIMESTAMP")
+	args = append(args, itemID)
+	query := fmt.Sprintf("UPDATE stock_items SET %s WHERE id = $%d", strings.Join(sets, ", "), n+1)
+	res, err := h.db.Exec(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update item", Error: strPtr(err.Error())})
+		return
+	}
+	if ra, _ := res.RowsAffected(); ra == 0 {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Stock item not found"})
+		return
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock item updated"})
+}
+
+func (h *StockHandler) DeleteStockItem(c *gin.Context) {
+	itemID := c.Param("id")
+	res, err := h.db.Exec("DELETE FROM stock_items WHERE id = $1", itemID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to delete item", Error: strPtr(err.Error())})
+		return
+	}
+	if ra, _ := res.RowsAffected(); ra == 0 {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Stock item not found"})
+		return
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock item deleted"})
+}
+
+// ---------- Purchase & Issue ----------
+
+func (h *StockHandler) PurchaseStock(c *gin.Context) {
+	itemID := c.Param("id")
+	userID, _, _, ok := middleware.GetUserFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.APIResponse{Success: false, Message: "Authentication required"})
+		return
+	}
+
+	var req struct {
+		Quantity float64  `json:"quantity" binding:"required"`
+		UnitCost *float64 `json:"unit_cost"`
+		Note     *string  `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request", Error: strPtr(err.Error())})
+		return
+	}
+	if req.Quantity <= 0 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Quantity must be positive"})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Transaction error", Error: strPtr(err.Error())})
+		return
+	}
+	defer tx.Rollback()
+
+	var totalCost *float64
+	if req.UnitCost != nil {
+		tc := req.Quantity * *req.UnitCost
+		totalCost = &tc
+	}
+
+	var movementID string
+	err = tx.QueryRow(`INSERT INTO stock_movements (stock_item_id, movement_type, quantity, unit_cost, total_cost, created_by, note)
+		VALUES ($1, 'purchase', $2, $3, $4, $5, $6) RETURNING id`, itemID, req.Quantity, req.UnitCost, totalCost, userID, req.Note).Scan(&movementID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to record purchase", Error: strPtr(err.Error())})
+		return
+	}
+
+	updateCost := ""
+	if req.UnitCost != nil {
+		updateCost = ", default_unit_cost = $3"
+	}
+	qtyQuery := fmt.Sprintf("UPDATE stock_items SET quantity_on_hand = quantity_on_hand + $1 %s WHERE id = $2", updateCost)
+	if req.UnitCost != nil {
+		_, err = tx.Exec(qtyQuery, req.Quantity, itemID, req.UnitCost)
+	} else {
+		_, err = tx.Exec("UPDATE stock_items SET quantity_on_hand = quantity_on_hand + $1 WHERE id = $2", req.Quantity, itemID)
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update quantity", Error: strPtr(err.Error())})
+		return
+	}
+
+	if totalCost != nil && *totalCost > 0 {
+		var itemName string
+		tx.QueryRow("SELECT name FROM stock_items WHERE id = $1", itemID).Scan(&itemName)
+		desc := itemName
+		if req.Note != nil && *req.Note != "" {
+			desc = itemName + " - " + *req.Note
+		}
+		_, err = tx.Exec(`INSERT INTO expenses (category, amount, description, reference_type, reference_id, expense_date, created_by)
+			VALUES ('inventory_purchase', $1, $2, 'stock_movement', $3, CURRENT_DATE, $4)`,
+			*totalCost, desc, movementID, userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to create expense record", Error: strPtr(err.Error())})
+			return
+		}
+	}
+
+	tx.Commit()
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Purchase recorded successfully"})
+}
+
+func (h *StockHandler) IssueStock(c *gin.Context) {
+	itemID := c.Param("id")
+	userID, _, _, ok := middleware.GetUserFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.APIResponse{Success: false, Message: "Authentication required"})
+		return
+	}
+
+	var req struct {
+		Quantity        float64 `json:"quantity" binding:"required"`
+		Unit            *string `json:"unit"`
+		IssuedToUserID  string  `json:"issued_to_user_id" binding:"required"`
+		Reason          *string `json:"reason"`
+		Note            *string `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request", Error: strPtr(err.Error())})
+		return
+	}
+	if req.Quantity <= 0 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Quantity must be positive"})
+		return
+	}
+
+	var currentQty float64
+	var itemUnit string
+	err := h.db.QueryRow("SELECT quantity_on_hand, unit FROM stock_items WHERE id = $1", itemID).Scan(&currentQty, &itemUnit)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Stock item not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to check stock", Error: strPtr(err.Error())})
+		return
+	}
+	deductQty := req.Quantity
+	if req.Unit != nil && *req.Unit != "" && *req.Unit != itemUnit {
+		converted, ok := convertUnits(req.Quantity, *req.Unit, itemUnit)
+		if !ok {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: fmt.Sprintf("Cannot convert from %s to %s", *req.Unit, itemUnit)})
+			return
+		}
+		deductQty = converted
+	}
+
+	if currentQty < deductQty {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: fmt.Sprintf("Insufficient stock (available: %.2f %s)", currentQty, itemUnit), Error: strPtr("insufficient_stock")})
+		return
+	}
+
+	noteText := ""
+	if req.Reason != nil && *req.Reason != "" {
+		noteText = "[" + *req.Reason + "]"
+	}
+	if req.Note != nil && *req.Note != "" {
+		if noteText != "" {
+			noteText += " "
+		}
+		noteText += *req.Note
+	}
+	var notePtr *string
+	if noteText != "" {
+		notePtr = &noteText
+	} else {
+		notePtr = req.Note
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Transaction error", Error: strPtr(err.Error())})
+		return
+	}
+	defer tx.Rollback()
+
+	negQty := -deductQty
+	_, err = tx.Exec(`INSERT INTO stock_movements (stock_item_id, movement_type, quantity, issued_to_user_id, created_by, note)
+		VALUES ($1, 'issue', $2, $3, $4, $5)`, itemID, negQty, req.IssuedToUserID, userID, notePtr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to record issue", Error: strPtr(err.Error())})
+		return
+	}
+
+	_, err = tx.Exec("UPDATE stock_items SET quantity_on_hand = quantity_on_hand - $1 WHERE id = $2", deductQty, itemID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update quantity", Error: strPtr(err.Error())})
+		return
+	}
+
+	tx.Commit()
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock issued successfully"})
+}
+
+// ---------- Alerts ----------
+
+func (h *StockHandler) GetStockAlerts(c *gin.Context) {
+	rows, err := h.db.Query(`
+		SELECT si.id, si.name, si.unit, si.quantity_on_hand, si.reorder_level,
+		       sc.name AS category_name
+		FROM stock_items si
+		LEFT JOIN stock_categories sc ON si.category_id = sc.id
+		WHERE si.is_active = true AND si.quantity_on_hand <= si.reorder_level
+		ORDER BY (si.quantity_on_hand / NULLIF(si.reorder_level,0)) ASC, si.name ASC
+	`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to fetch alerts", Error: strPtr(err.Error())})
+		return
+	}
+	defer rows.Close()
+
+	type AlertItem struct {
+		ID             uuid.UUID `json:"id"`
+		Name           string    `json:"name"`
+		Unit           string    `json:"unit"`
+		QuantityOnHand float64   `json:"quantity_on_hand"`
+		ReorderLevel   float64   `json:"reorder_level"`
+		CategoryName   string    `json:"category_name"`
+	}
+
+	var alerts []AlertItem
+	for rows.Next() {
+		var a AlertItem
+		var catName sql.NullString
+		if err := rows.Scan(&a.ID, &a.Name, &a.Unit, &a.QuantityOnHand, &a.ReorderLevel, &catName); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to scan alert", Error: strPtr(err.Error())})
+			return
+		}
+		a.CategoryName = catName.String
+		alerts = append(alerts, a)
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock alerts retrieved", Data: alerts})
+}
+
+// ---------- Reports ----------
+
+func (h *StockHandler) GetMovementsReport(c *gin.Context) {
+	page, perPage := parsePagination(c)
+	offset := (page - 1) * perPage
+	categoryID := c.Query("category_id")
+	movementType := c.Query("type")
+	from := c.Query("from")
+	to := c.Query("to")
+
+	qb := `SELECT sm.id, sm.stock_item_id, sm.movement_type, sm.quantity, sm.unit_cost, sm.total_cost,
+	              sm.issued_to_user_id, sm.created_by, sm.note, sm.created_at,
+	              si.name AS item_name, si.unit,
+	              iu.first_name AS issued_fn, iu.last_name AS issued_ln,
+	              cu.first_name AS created_fn, cu.last_name AS created_ln
+	       FROM stock_movements sm
+	       JOIN stock_items si ON sm.stock_item_id = si.id
+	       LEFT JOIN users iu ON sm.issued_to_user_id = iu.id
+	       LEFT JOIN users cu ON sm.created_by = cu.id
+	       WHERE 1=1`
+	args := []interface{}{}
+	n := 0
+
+	if categoryID != "" {
+		n++
+		qb += fmt.Sprintf(" AND si.category_id = $%d", n)
+		args = append(args, categoryID)
+	}
+	if movementType != "" {
+		n++
+		qb += fmt.Sprintf(" AND sm.movement_type = $%d", n)
+		args = append(args, movementType)
+	}
+	if from != "" {
+		n++
+		qb += fmt.Sprintf(" AND sm.created_at >= $%d", n)
+		args = append(args, from)
+	}
+	if to != "" {
+		if t, err := time.Parse("2006-01-02", to); err == nil {
+			t = t.AddDate(0, 0, 1)
+			n++
+			qb += fmt.Sprintf(" AND sm.created_at < $%d", n)
+			args = append(args, t.Format("2006-01-02"))
+		}
+	}
+
+	var total int
+	h.db.QueryRow("SELECT COUNT(*) FROM ("+qb+") q", args...).Scan(&total)
+
+	qb += " ORDER BY sm.created_at DESC"
+	n++
+	qb += fmt.Sprintf(" LIMIT $%d", n)
+	args = append(args, perPage)
+	n++
+	qb += fmt.Sprintf(" OFFSET $%d", n)
+	args = append(args, offset)
+
+	rows, err := h.db.Query(qb, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to fetch movements", Error: strPtr(err.Error())})
+		return
+	}
+	defer rows.Close()
+
+	type MovementRow struct {
+		ID             uuid.UUID  `json:"id"`
+		StockItemID    uuid.UUID  `json:"stock_item_id"`
+		MovementType   string     `json:"movement_type"`
+		Quantity       float64    `json:"quantity"`
+		UnitCost       *float64   `json:"unit_cost"`
+		TotalCost      *float64   `json:"total_cost"`
+		IssuedToUserID *uuid.UUID `json:"issued_to_user_id"`
+		CreatedBy      *uuid.UUID `json:"created_by"`
+		Note           *string    `json:"note"`
+		CreatedAt      time.Time  `json:"created_at"`
+		ItemName       string     `json:"item_name"`
+		ItemUnit       string     `json:"item_unit"`
+		IssuedToName   *string    `json:"issued_to_name"`
+		CreatedByName  *string    `json:"created_by_name"`
+	}
+
+	var movements []MovementRow
+	for rows.Next() {
+		var m MovementRow
+		var issuedFN, issuedLN, createdFN, createdLN sql.NullString
+		if err := rows.Scan(&m.ID, &m.StockItemID, &m.MovementType, &m.Quantity, &m.UnitCost, &m.TotalCost,
+			&m.IssuedToUserID, &m.CreatedBy, &m.Note, &m.CreatedAt,
+			&m.ItemName, &m.ItemUnit, &issuedFN, &issuedLN, &createdFN, &createdLN); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to scan movement", Error: strPtr(err.Error())})
+			return
+		}
+		if issuedFN.Valid {
+			name := issuedFN.String + " " + issuedLN.String
+			m.IssuedToName = &name
+		}
+		if createdFN.Valid {
+			name := createdFN.String + " " + createdLN.String
+			m.CreatedByName = &name
+		}
+		movements = append(movements, m)
+	}
+
+	c.JSON(http.StatusOK, models.PaginatedResponse{
+		Success: true, Message: "Movements retrieved", Data: movements,
+		Meta: models.MetaData{CurrentPage: page, PerPage: perPage, Total: total, TotalPages: int(math.Ceil(float64(total) / float64(perPage)))},
+	})
+}
+
+func (h *StockHandler) GetStockSummary(c *gin.Context) {
+	period := c.DefaultQuery("period", "week") // week, month
+
+	interval := "7 days"
+	if period == "month" {
+		interval = "30 days"
+	}
+
+	type CategorySummary struct {
+		CategoryName   string  `json:"category_name"`
+		TotalItems     int     `json:"total_items"`
+		TotalValue     float64 `json:"total_value"`
+		LowStockCount  int     `json:"low_stock_count"`
+	}
+
+	catRows, err := h.db.Query(`
+		SELECT sc.name,
+		       COUNT(si.id) AS total_items,
+		       COALESCE(SUM(si.quantity_on_hand * COALESCE(si.default_unit_cost, 0)), 0) AS total_value,
+		       COUNT(CASE WHEN si.quantity_on_hand <= si.reorder_level THEN 1 END) AS low_stock
+		FROM stock_categories sc
+		LEFT JOIN stock_items si ON si.category_id = sc.id AND si.is_active = true
+		WHERE sc.is_active = true
+		GROUP BY sc.id, sc.name, sc.sort_order
+		ORDER BY sc.sort_order ASC
+	`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to fetch summary", Error: strPtr(err.Error())})
+		return
+	}
+	defer catRows.Close()
+
+	var categories []CategorySummary
+	for catRows.Next() {
+		var cs CategorySummary
+		catRows.Scan(&cs.CategoryName, &cs.TotalItems, &cs.TotalValue, &cs.LowStockCount)
+		categories = append(categories, cs)
+	}
+
+	type WeeklyUsage struct {
+		Week          string  `json:"week"`
+		PurchaseQty   float64 `json:"purchase_qty"`
+		IssueQty      float64 `json:"issue_qty"`
+		PurchaseCost  float64 `json:"purchase_cost"`
+	}
+
+	usageRows, err := h.db.Query(fmt.Sprintf(`
+		SELECT DATE_TRUNC('week', sm.created_at)::date AS week,
+		       COALESCE(SUM(CASE WHEN sm.movement_type = 'purchase' THEN sm.quantity ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN sm.movement_type = 'issue' THEN ABS(sm.quantity) ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN sm.movement_type = 'purchase' THEN COALESCE(sm.total_cost,0) ELSE 0 END), 0)
+		FROM stock_movements sm
+		WHERE sm.created_at >= CURRENT_DATE - INTERVAL '%s'
+		GROUP BY DATE_TRUNC('week', sm.created_at)
+		ORDER BY week DESC
+	`, interval))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to fetch usage", Error: strPtr(err.Error())})
+		return
+	}
+	defer usageRows.Close()
+
+	var usage []WeeklyUsage
+	for usageRows.Next() {
+		var wu WeeklyUsage
+		var weekDate time.Time
+		usageRows.Scan(&weekDate, &wu.PurchaseQty, &wu.IssueQty, &wu.PurchaseCost)
+		wu.Week = weekDate.Format("2006-01-02")
+		usage = append(usage, wu)
+	}
+
+	var totalItems int
+	var totalValue float64
+	var lowStockCount int
+	h.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(quantity_on_hand * COALESCE(default_unit_cost,0)),0),
+	               COUNT(CASE WHEN quantity_on_hand <= reorder_level THEN 1 END)
+	               FROM stock_items WHERE is_active = true`).Scan(&totalItems, &totalValue, &lowStockCount)
+
+	c.JSON(http.StatusOK, models.APIResponse{
+		Success: true, Message: "Stock summary retrieved",
+		Data: map[string]interface{}{
+			"overview": map[string]interface{}{
+				"total_items":     totalItems,
+				"total_value":     totalValue,
+				"low_stock_count": lowStockCount,
+			},
+			"categories":  categories,
+			"weekly_usage": usage,
+		},
+	})
+}
+
+// ---------- Advanced Reports ----------
+
+func (h *StockHandler) GetAdvancedReport(c *gin.Context) {
+	period := c.DefaultQuery("period", "30")
+
+	// 1. KPI: total stock value
+	var totalStockValue float64
+	h.db.QueryRow(`SELECT COALESCE(SUM(quantity_on_hand * COALESCE(default_unit_cost,0)),0) FROM stock_items WHERE is_active=true`).Scan(&totalStockValue)
+
+	// 2. KPI: total waste value (issues with spoilage/waste reason in the note)
+	var totalWasteValue float64
+	h.db.QueryRow(fmt.Sprintf(`
+		SELECT COALESCE(SUM(ABS(sm.quantity) * COALESCE(si.default_unit_cost,0)),0)
+		FROM stock_movements sm
+		JOIN stock_items si ON sm.stock_item_id = si.id
+		WHERE sm.movement_type = 'issue'
+		  AND sm.note ILIKE '%%[Spoilage/Waste]%%'
+		  AND sm.created_at >= CURRENT_DATE - INTERVAL '%s days'
+	`, period)).Scan(&totalWasteValue)
+
+	// 3. KPI: inventory turnover = COGS / avg inventory value
+	var totalIssuedCost float64
+	h.db.QueryRow(fmt.Sprintf(`
+		SELECT COALESCE(SUM(ABS(sm.quantity) * COALESCE(si.default_unit_cost,0)),0)
+		FROM stock_movements sm
+		JOIN stock_items si ON sm.stock_item_id = si.id
+		WHERE sm.movement_type = 'issue'
+		  AND sm.created_at >= CURRENT_DATE - INTERVAL '%s days'
+	`, period)).Scan(&totalIssuedCost)
+	turnoverRate := 0.0
+	if totalStockValue > 0 {
+		turnoverRate = totalIssuedCost / totalStockValue
+	}
+
+	// 4. Category value distribution for donut chart
+	type CatValue struct {
+		Name  string  `json:"name"`
+		Value float64 `json:"value"`
+	}
+	catRows, _ := h.db.Query(`
+		SELECT COALESCE(sc.name, 'Uncategorized'),
+		       COALESCE(SUM(si.quantity_on_hand * COALESCE(si.default_unit_cost,0)),0)
+		FROM stock_items si
+		LEFT JOIN stock_categories sc ON si.category_id = sc.id
+		WHERE si.is_active = true
+		GROUP BY sc.name
+		HAVING SUM(si.quantity_on_hand * COALESCE(si.default_unit_cost,0)) > 0
+		ORDER BY 2 DESC
+	`)
+	var catValues []CatValue
+	if catRows != nil {
+		defer catRows.Close()
+		for catRows.Next() {
+			var cv CatValue
+			catRows.Scan(&cv.Name, &cv.Value)
+			catValues = append(catValues, cv)
+		}
+	}
+
+	// 5. Purchase cost vs issued qty trend (weekly buckets)
+	type TrendRow struct {
+		Week         string  `json:"week"`
+		PurchaseCost float64 `json:"purchase_cost"`
+		IssuedQty    float64 `json:"issued_qty"`
+	}
+	trendRows, _ := h.db.Query(fmt.Sprintf(`
+		SELECT DATE_TRUNC('week', sm.created_at)::date AS week,
+		       COALESCE(SUM(CASE WHEN sm.movement_type='purchase' THEN COALESCE(sm.total_cost,0) ELSE 0 END),0),
+		       COALESCE(SUM(CASE WHEN sm.movement_type='issue' THEN ABS(sm.quantity) ELSE 0 END),0)
+		FROM stock_movements sm
+		WHERE sm.created_at >= CURRENT_DATE - INTERVAL '%s days'
+		GROUP BY DATE_TRUNC('week', sm.created_at)
+		ORDER BY week ASC
+	`, period))
+	var trends []TrendRow
+	if trendRows != nil {
+		defer trendRows.Close()
+		for trendRows.Next() {
+			var tr TrendRow
+			var weekDate time.Time
+			trendRows.Scan(&weekDate, &tr.PurchaseCost, &tr.IssuedQty)
+			tr.Week = weekDate.Format("Jan 02")
+			trends = append(trends, tr)
+		}
+	}
+
+	// 6. Variance report: per-item starting stock, purchased, issued, current on-hand, variance
+	type VarianceRow struct {
+		ItemID        string  `json:"item_id"`
+		ItemName      string  `json:"item_name"`
+		Unit          string  `json:"unit"`
+		Category      string  `json:"category"`
+		StartingStock float64 `json:"starting_stock"`
+		Purchased     float64 `json:"purchased"`
+		Issued        float64 `json:"issued"`
+		ActualOnHand  float64 `json:"actual_on_hand"`
+		Expected      float64 `json:"expected"`
+		Variance      float64 `json:"variance"`
+		UnitCost      float64 `json:"unit_cost"`
+	}
+	varRows, _ := h.db.Query(fmt.Sprintf(`
+		SELECT si.id, si.name, si.unit,
+		       COALESCE(sc.name,'Uncategorized'),
+		       COALESCE(si.default_unit_cost, 0),
+		       si.quantity_on_hand,
+		       COALESCE(SUM(CASE WHEN sm.movement_type='purchase' THEN sm.quantity ELSE 0 END),0) AS purchased,
+		       COALESCE(SUM(CASE WHEN sm.movement_type='issue' THEN ABS(sm.quantity) ELSE 0 END),0) AS issued
+		FROM stock_items si
+		LEFT JOIN stock_categories sc ON si.category_id = sc.id
+		LEFT JOIN stock_movements sm ON sm.stock_item_id = si.id
+		  AND sm.created_at >= CURRENT_DATE - INTERVAL '%s days'
+		WHERE si.is_active = true
+		GROUP BY si.id, si.name, si.unit, sc.name, si.default_unit_cost, si.quantity_on_hand
+		ORDER BY si.name ASC
+	`, period))
+	var variances []VarianceRow
+	if varRows != nil {
+		defer varRows.Close()
+		for varRows.Next() {
+			var vr VarianceRow
+			varRows.Scan(&vr.ItemID, &vr.ItemName, &vr.Unit, &vr.Category,
+				&vr.UnitCost, &vr.ActualOnHand, &vr.Purchased, &vr.Issued)
+			vr.StartingStock = vr.ActualOnHand - vr.Purchased + vr.Issued
+			vr.Expected = vr.StartingStock + vr.Purchased - vr.Issued
+			vr.Variance = vr.ActualOnHand - vr.Expected
+			variances = append(variances, vr)
+		}
+	}
+
+	// 7. Waste & spoilage breakdown
+	type WasteRow struct {
+		ItemName  string  `json:"item_name"`
+		Category  string  `json:"category"`
+		Unit      string  `json:"unit"`
+		QtyWasted float64 `json:"qty_wasted"`
+		Reason    string  `json:"reason"`
+		LostValue float64 `json:"lost_value"`
+		Date      string  `json:"date"`
+	}
+	wasteRows, _ := h.db.Query(fmt.Sprintf(`
+		SELECT si.name, COALESCE(sc.name,'Uncategorized'), si.unit,
+		       ABS(sm.quantity),
+		       sm.note,
+		       ABS(sm.quantity) * COALESCE(si.default_unit_cost,0),
+		       sm.created_at::date
+		FROM stock_movements sm
+		JOIN stock_items si ON sm.stock_item_id = si.id
+		LEFT JOIN stock_categories sc ON si.category_id = sc.id
+		WHERE sm.movement_type = 'issue'
+		  AND (sm.note ILIKE '%%[Spoilage/Waste]%%' OR sm.note ILIKE '%%[Return to Vendor]%%')
+		  AND sm.created_at >= CURRENT_DATE - INTERVAL '%s days'
+		ORDER BY sm.created_at DESC
+	`, period))
+	var wastes []WasteRow
+	if wasteRows != nil {
+		defer wasteRows.Close()
+		for wasteRows.Next() {
+			var wr WasteRow
+			var dt time.Time
+			wasteRows.Scan(&wr.ItemName, &wr.Category, &wr.Unit, &wr.QtyWasted, &wr.Reason, &wr.LostValue, &dt)
+			wr.Date = dt.Format("2006-01-02")
+			if wr.Reason != "" {
+				start := strings.Index(wr.Reason, "[")
+				end := strings.Index(wr.Reason, "]")
+				if start >= 0 && end > start {
+					wr.Reason = wr.Reason[start+1 : end]
+				}
+			}
+			wastes = append(wastes, wr)
+		}
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{
+		Success: true, Message: "Advanced report retrieved",
+		Data: map[string]interface{}{
+			"kpis": map[string]interface{}{
+				"total_stock_value": totalStockValue,
+				"total_waste_value": totalWasteValue,
+				"turnover_rate":     turnoverRate,
+			},
+			"category_values":  catValues,
+			"trends":           trends,
+			"variance":         variances,
+			"waste":            wastes,
+		},
+	})
+}
+
+// ---------- User list for issue-to dropdown ----------
+
+func (h *StockHandler) GetStoreUsers(c *gin.Context) {
+	rows, err := h.db.Query(`SELECT id, first_name, last_name, role FROM users WHERE is_active = true ORDER BY first_name ASC`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to fetch users", Error: strPtr(err.Error())})
+		return
+	}
+	defer rows.Close()
+
+	type UserBrief struct {
+		ID        uuid.UUID `json:"id"`
+		FirstName string    `json:"first_name"`
+		LastName  string    `json:"last_name"`
+		Role      string    `json:"role"`
+	}
+	var users []UserBrief
+	for rows.Next() {
+		var u UserBrief
+		rows.Scan(&u.ID, &u.FirstName, &u.LastName, &u.Role)
+		users = append(users, u)
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Users retrieved", Data: users})
+}
+
+// ---------- helpers ----------
+
+func strPtr(s string) *string { return &s }
+
+func parsePagination(c *gin.Context) (int, int) {
+	page := 1
+	perPage := 20
+	if p, err := strconv.Atoi(c.Query("page")); err == nil && p > 0 {
+		page = p
+	}
+	if pp, err := strconv.Atoi(c.Query("per_page")); err == nil && pp > 0 && pp <= 100 {
+		perPage = pp
+	}
+	return page, perPage
+}
+
+func buildUpdates(fields map[string]interface{}) ([]string, []interface{}, int) {
+	sets := []string{}
+	args := []interface{}{}
+	n := 0
+	for col, val := range fields {
+		if val == nil {
+			continue
+		}
+		switch v := val.(type) {
+		case *string:
+			if v == nil {
+				continue
+			}
+			n++
+			sets = append(sets, fmt.Sprintf("%s = $%d", col, n))
+			args = append(args, *v)
+		case *int:
+			if v == nil {
+				continue
+			}
+			n++
+			sets = append(sets, fmt.Sprintf("%s = $%d", col, n))
+			args = append(args, *v)
+		case *float64:
+			if v == nil {
+				continue
+			}
+			n++
+			sets = append(sets, fmt.Sprintf("%s = $%d", col, n))
+			args = append(args, *v)
+		case *bool:
+			if v == nil {
+				continue
+			}
+			n++
+			sets = append(sets, fmt.Sprintf("%s = $%d", col, n))
+			args = append(args, *v)
+		}
+	}
+	return sets, args, n
+}
+
+func convertUnits(qty float64, from, to string) (float64, bool) {
+	type pair struct{ from, to string }
+	factors := map[pair]float64{
+		{"g", "kg"}:     0.001,
+		{"kg", "g"}:     1000,
+		{"ml", "liter"}:  0.001,
+		{"liter", "ml"}: 1000,
+		{"oz", "lb"}:    0.0625,
+		{"lb", "oz"}:    16,
+		{"oz", "g"}:     28.3495,
+		{"g", "oz"}:     0.035274,
+		{"lb", "kg"}:    0.453592,
+		{"kg", "lb"}:    2.20462,
+		{"ml", "oz"}:    0.033814,
+		{"oz", "ml"}:    29.5735,
+		{"liter", "oz"}: 33.814,
+		{"oz", "liter"}: 0.0295735,
+	}
+	if f, ok := factors[pair{from, to}]; ok {
+		return qty * f, true
+	}
+	return 0, false
+}

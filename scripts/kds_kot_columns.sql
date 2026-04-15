@@ -1,0 +1,6 @@
+-- KDS / KOT timing & delta support (run on existing DBs)
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS kot_first_sent_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS kitchen_bumped_at TIMESTAMP WITH TIME ZONE;
+
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kot_sent_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS kot_fire_generation INTEGER NOT NULL DEFAULT 1;

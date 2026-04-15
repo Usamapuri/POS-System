@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { AdminLayout } from '@/components/admin/AdminLayout'
-import { ServerInterface } from '@/components/server/ServerInterface'
+import { KOTServerInterface } from '@/components/server/KOTServerInterface'
 import { CounterInterface } from '@/components/counter/CounterInterface'
 import { POSLayout } from '@/components/pos/POSLayout'
 import { NewEnhancedKitchenLayout } from '@/components/kitchen/NewEnhancedKitchenLayout'
+import { StoreInventoryDashboard } from '@/components/store/StoreInventoryDashboard'
+import { ExpenseDashboard } from '@/components/admin/ExpenseDashboard'
 import { 
   LayoutDashboard, 
   Users, 
@@ -14,7 +16,9 @@ import {
   ShoppingCart,
   Settings,
   LogOut,
-  User
+  User,
+  Warehouse,
+  Receipt
 } from 'lucide-react'
 import type { User as UserType } from '@/types'
 import apiClient from '@/api/client'
@@ -37,8 +41,10 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
         return 'counter'
       case 'kitchen':
         return 'kitchen'
+      case 'store_manager':
+        return 'inventory'
       default:
-        return 'pos' // fallback to general POS interface
+        return 'pos'
     }
   }
 
@@ -84,6 +90,13 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
           icon: <ChefHat className="w-4 h-4" />,
           description: 'Order preparation and status updates'
         }
+      case 'store_manager':
+        return {
+          title: 'Store Manager',
+          color: 'bg-teal-100 text-teal-800',
+          icon: <Warehouse className="w-4 h-4" />,
+          description: 'Inventory and supplies management'
+        }
       default:
         return {
           title: 'Staff',
@@ -107,7 +120,8 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
         { id: 'pos', label: 'General POS', icon: <ShoppingCart className="w-4 h-4" /> },
         { id: 'server', label: 'Server Interface', icon: <Users className="w-4 h-4" /> },
         { id: 'counter', label: 'Counter/Checkout', icon: <CreditCard className="w-4 h-4" /> },
-        { id: 'kitchen', label: 'Kitchen Display', icon: <ChefHat className="w-4 h-4" /> }
+        { id: 'kitchen', label: 'Kitchen Display', icon: <ChefHat className="w-4 h-4" /> },
+        { id: 'expenses', label: 'Expenses', icon: <Receipt className="w-4 h-4" /> }
       )
     }
     // Server gets server interface and general POS
@@ -130,6 +144,12 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
         { id: 'kitchen', label: 'Kitchen Display', icon: <ChefHat className="w-4 h-4" /> }
       )
     }
+    // Store manager gets inventory only
+    else if (role === 'store_manager') {
+      views.push(
+        { id: 'inventory', label: 'Inventory', icon: <Warehouse className="w-4 h-4" /> }
+      )
+    }
     // Default fallback
     else {
       views.push(
@@ -147,11 +167,15 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
       case 'dashboard':
         return <AdminLayout user={user} />
       case 'server':
-        return <ServerInterface />
+        return <KOTServerInterface />
       case 'counter':
         return <CounterInterface />
       case 'kitchen':
         return <NewEnhancedKitchenLayout user={user} />
+      case 'inventory':
+        return <StoreInventoryDashboard />
+      case 'expenses':
+        return <ExpenseDashboard />
       case 'pos':
         return <POSLayout user={user} />
       default:

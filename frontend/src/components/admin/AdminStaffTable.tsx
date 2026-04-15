@@ -26,14 +26,16 @@ import {
   Shield,
   Mail,
   Calendar,
-  MoreHorizontal
+  MoreHorizontal,
+  Key,
 } from "lucide-react"
 import type { User } from "@/types"
 
 interface AdminStaffTableProps {
-  data: User[]
+  data: (User & { has_pin?: boolean })[]
   onEdit: (user: User) => void
   onDelete: (user: User) => void
+  onSetPin?: (user: User) => void
   isLoading?: boolean
 }
 
@@ -41,6 +43,7 @@ export function AdminStaffTable({
   data,
   onEdit,
   onDelete,
+  onSetPin,
   isLoading = false
 }: AdminStaffTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
@@ -52,6 +55,7 @@ export function AdminStaffTable({
       'server': 'bg-blue-100 text-blue-800 hover:bg-blue-200',
       'counter': 'bg-green-100 text-green-800 hover:bg-green-200',
       'kitchen': 'bg-orange-100 text-orange-800 hover:bg-orange-200',
+      'store_manager': 'bg-teal-100 text-teal-800 hover:bg-teal-200',
     }
     return colors[role.toLowerCase()] || 'bg-gray-100 text-gray-800'
   }
@@ -201,6 +205,36 @@ export function AdminStaffTable({
         return (
           <div className="text-gray-900">
             {new Date(date).toLocaleDateString()}
+          </div>
+        )
+      },
+    },
+    {
+      id: "pin",
+      header: () => (
+        <div className="flex items-center">
+          <Key className="mr-2 h-4 w-4" />
+          PIN
+        </div>
+      ),
+      cell: ({ row }) => {
+        const user = row.original as User & { has_pin?: boolean }
+        const canHavePin = user.role === 'manager' || user.role === 'admin'
+        if (!canHavePin) return <span className="text-gray-300">—</span>
+        return (
+          <div className="flex items-center gap-2">
+            {(user as any).has_pin ? (
+              <Badge variant="secondary" className="text-xs">
+                <Key className="w-3 h-3 mr-1" /> ****
+              </Badge>
+            ) : (
+              <span className="text-gray-400 text-xs">Not set</span>
+            )}
+            {onSetPin && (
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => onSetPin(user)}>
+                {(user as any).has_pin ? 'Change' : 'Set'}
+              </Button>
+            )}
           </div>
         )
       },

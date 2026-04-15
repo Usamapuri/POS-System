@@ -45,6 +45,8 @@ func main() {
 
 	log.Println("Successfully connected to database")
 
+	database.ApplySchemaPatches(db)
+
 	// Initialize Gin router
 	gin.SetMode(getEnv("GIN_MODE", "release"))
 	router := gin.New()

@@ -25,7 +25,9 @@ import {
   Trash2,
   Tag,
   Hash,
-  Calendar
+  Calendar,
+  Monitor,
+  Printer,
 } from "lucide-react"
 import type { Category } from "@/types"
 
@@ -121,6 +123,34 @@ export function AdminCategoriesTable({
         return (
           <div className="text-gray-600 font-mono">
             #{order}
+          </div>
+        )
+      },
+    },
+    {
+      id: "kitchen_station",
+      header: "Kitchen station",
+      cell: ({ row }) => {
+        const c = row.original
+        const name = c.kitchen_station_name
+        const out = c.kitchen_station_output_type
+        if (!name) {
+          return <span className="text-sm text-muted-foreground">—</span>
+        }
+        return (
+          <div className="flex flex-col gap-1">
+            <span className="text-sm text-gray-900">{name}</span>
+            <Badge variant="outline" className="w-fit gap-1 text-xs font-normal">
+              {out === "printer" ? (
+                <>
+                  <Printer className="h-3 w-3" /> Printer
+                </>
+              ) : (
+                <>
+                  <Monitor className="h-3 w-3" /> KDS
+                </>
+              )}
+            </Badge>
           </div>
         )
       },

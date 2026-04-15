@@ -89,10 +89,18 @@ docker exec $CONTAINER_NAME psql -U postgres -d pos_system -c "
 SET session_replication_role = replica;
 
 -- Clear data tables in dependency order
+TRUNCATE TABLE void_log CASCADE;
+TRUNCATE TABLE category_station_map CASCADE;
+TRUNCATE TABLE kitchen_stations CASCADE;
 TRUNCATE TABLE order_status_history CASCADE;
 TRUNCATE TABLE payments CASCADE;
 TRUNCATE TABLE order_items CASCADE;
 TRUNCATE TABLE orders CASCADE;
+TRUNCATE TABLE daily_closings CASCADE;
+TRUNCATE TABLE expenses CASCADE;
+TRUNCATE TABLE stock_movements CASCADE;
+TRUNCATE TABLE stock_items CASCADE;
+TRUNCATE TABLE stock_categories CASCADE;
 TRUNCATE TABLE inventory CASCADE;
 TRUNCATE TABLE products CASCADE;
 TRUNCATE TABLE categories CASCADE;
@@ -137,6 +145,16 @@ if [[ $? -eq 0 ]]; then
         'Tables' as table_name, COUNT(*) as record_count FROM dining_tables
     UNION ALL SELECT 
         'Inventory' as table_name, COUNT(*) as record_count FROM inventory
+    UNION ALL SELECT 
+        'Stock Categories' as table_name, COUNT(*) as record_count FROM stock_categories
+    UNION ALL SELECT 
+        'Stock Items' as table_name, COUNT(*) as record_count FROM stock_items
+    UNION ALL SELECT 
+        'Stock Movements' as table_name, COUNT(*) as record_count FROM stock_movements
+    UNION ALL SELECT 
+        'Expenses' as table_name, COUNT(*) as record_count FROM expenses
+    UNION ALL SELECT 
+        'Daily Closings' as table_name, COUNT(*) as record_count FROM daily_closings
     ORDER BY table_name;
     "
     

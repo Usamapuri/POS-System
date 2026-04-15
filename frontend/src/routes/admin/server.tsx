@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { ServerInterface } from '@/components/server/ServerInterface'
+import { KOTServerInterface } from '@/components/server/KOTServerInterface'
 
 export const Route = createFileRoute('/admin/server')({
-  component: () => <ServerInterface />,
+  component: KOTServerInterface,
 })

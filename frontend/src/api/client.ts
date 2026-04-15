@@ -23,6 +23,23 @@ import type {
   OrderFilters,
   ProductFilters,
   TableFilters,
+  StockCategory,
+  StockItem,
+  StockMovement,
+  StockAlert,
+  UserBrief,
+  StockSummary,
+  AdvancedStockReport,
+  Expense,
+  DailyClosing,
+  PnLReport,
+  CurrentDayStatus,
+  ExpenseSummary,
+  KitchenStation,
+  VoidLogEntry,
+  FireKOTResponse,
+  PricingSettings,
+  CounterServer,
 } from '@/types';
 
 class APIClient {
@@ -77,10 +94,43 @@ class APIClient {
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        throw new Error(error.response?.data?.message || error.message);
+        const data = error.response?.data as { message?: string; error?: string } | undefined;
+        const parts = [data?.message, data?.error].filter(Boolean);
+        throw new Error(parts.length > 0 ? parts.join(' — ') : error.message);
       }
       throw error;
     }
+  }
+
+  /**
+   * Backend exposes POST /server/orders, /counter/orders, and /admin/orders — not POST /orders.
+   * Order creation must use the route group that matches the logged-in role.
+   */
+  private getStoredUserRole(): string {
+    try {
+      const raw = localStorage.getItem('pos_user');
+      if (raw) {
+        const u = JSON.parse(raw) as { role?: string };
+        if (u.role) return u.role;
+      }
+    } catch {
+      /* ignore */
+    }
+    return 'server';
+  }
+
+  private getOrderCreatePath(): string {
+    const role = this.getStoredUserRole();
+    if (role === 'admin' || role === 'manager') return '/admin/orders';
+    if (role === 'counter') return '/counter/orders';
+    return '/server/orders';
+  }
+
+  private getProcessPaymentPath(orderId: string): string {
+    const role = this.getStoredUserRole();
+    if (role === 'admin' || role === 'manager') return `/admin/orders/${orderId}/payments`;
+    if (role === 'counter') return `/counter/orders/${orderId}/payments`;
+    return `/counter/orders/${orderId}/payments`;
   }
 
   // Authentication endpoints
@@ -180,7 +230,7 @@ class APIClient {
   async createOrder(order: CreateOrderRequest): Promise<APIResponse<Order>> {
     return this.request({
       method: 'POST',
-      url: '/orders',
+      url: this.getOrderCreatePath(),
       data: order,
     });
   }
@@ -205,7 +255,7 @@ class APIClient {
   async processPayment(orderId: string, payment: ProcessPaymentRequest): Promise<APIResponse<Payment>> {
     return this.request({
       method: 'POST',
-      url: `/orders/${orderId}/payments`,
+      url: this.getProcessPaymentPath(orderId),
       data: payment,
     });
   }
@@ -272,13 +322,25 @@ class APIClient {
     });
   }
 
-  // Role-specific order creation
-  async createServerOrder(order: CreateOrderRequest): Promise<APIResponse<Order>> {
+  /** Kitchen bump: order ready for pickup, removes from active KDS */
+  async kitchenBumpOrder(orderId: string): Promise<
+    APIResponse<{
+      order_id: string
+      completion_seconds: number
+      kitchen_bumped_at: string
+      table_id?: string | null
+      ready_for_pickup: boolean
+    }>
+  > {
     return this.request({
       method: 'POST',
-      url: '/server/orders',
-      data: order,
+      url: `/kitchen/orders/${orderId}/bump`,
     });
+  }
+
+  // Role-specific order creation (KOT / server UI: same body as createOrder; URL follows current role)
+  async createServerOrder(order: CreateOrderRequest): Promise<APIResponse<Order>> {
+    return this.createOrder(order);
   }
 
   async createCounterOrder(order: CreateOrderRequest): Promise<APIResponse<Order>> {
@@ -298,11 +360,54 @@ class APIClient {
     });
   }
 
+  async getCounterServers(q?: string): Promise<APIResponse<CounterServer[]>> {
+    return this.request({
+      method: 'GET',
+      url: '/counter/servers',
+      params: q ? { q } : undefined,
+    });
+  }
+
+  /** Latest open order for a table (pending…served) — for counter add-ons to occupied tables. */
+  async getActiveOrderForTable(tableId: string): Promise<APIResponse<Order>> {
+    return this.request({
+      method: 'GET',
+      url: `/counter/tables/${tableId}/active-order`,
+    });
+  }
+
+  async getCounterPricing(): Promise<APIResponse<PricingSettings>> {
+    return this.request({ method: 'GET', url: '/counter/pricing' });
+  }
+
+  async updateCheckoutIntent(
+    orderId: string,
+    body: { checkout_payment_method: 'cash' | 'card' | 'online' }
+  ): Promise<APIResponse<Order>> {
+    return this.request({
+      method: 'PATCH',
+      url: `/counter/orders/${orderId}/checkout-intent`,
+      data: body,
+    });
+  }
+
+  async applyOrderDiscount(
+    orderId: string,
+    body: { discount_amount?: number; discount_percent?: number }
+  ): Promise<APIResponse<Order>> {
+    return this.request({
+      method: 'PATCH',
+      url: `/counter/orders/${orderId}/discount`,
+      data: body,
+    });
+  }
+
   // User management endpoints (Admin only)
-  async getUsers(): Promise<APIResponse<User[]>> {
+  async getUsers(params?: { page?: number; limit?: number; per_page?: number; search?: string; role?: string }): Promise<APIResponse<User[]>> {
     return this.request({
       method: 'GET',
       url: '/admin/users',
+      params,
     });
   }
 
@@ -409,6 +514,202 @@ class APIClient {
 
   async deleteTable(id: string): Promise<APIResponse> {
     return this.request({ method: 'DELETE', url: `/admin/tables/${id}` });
+  }
+
+  // Store Inventory endpoints
+  async getStockCategories(): Promise<APIResponse<StockCategory[]>> {
+    return this.request({ method: 'GET', url: '/store/stock-categories' });
+  }
+
+  async createStockCategory(data: { name: string; description?: string; sort_order?: number }): Promise<APIResponse<{ id: string }>> {
+    return this.request({ method: 'POST', url: '/store/stock-categories', data });
+  }
+
+  async updateStockCategory(id: string, data: Partial<StockCategory>): Promise<APIResponse> {
+    return this.request({ method: 'PUT', url: `/store/stock-categories/${id}`, data });
+  }
+
+  async deleteStockCategory(id: string): Promise<APIResponse> {
+    return this.request({ method: 'DELETE', url: `/store/stock-categories/${id}` });
+  }
+
+  async getStockItems(params?: { page?: number; per_page?: number; category_id?: string; search?: string; low_stock?: string }): Promise<PaginatedResponse<StockItem[]>> {
+    return this.request({ method: 'GET', url: '/store/stock-items', params });
+  }
+
+  async getStockItem(id: string): Promise<APIResponse<StockItem>> {
+    return this.request({ method: 'GET', url: `/store/stock-items/${id}` });
+  }
+
+  async createStockItem(data: { category_id?: string; name: string; unit: string; quantity_on_hand?: number; reorder_level?: number; default_unit_cost?: number; notes?: string }): Promise<APIResponse<{ id: string }>> {
+    return this.request({ method: 'POST', url: '/store/stock-items', data });
+  }
+
+  async updateStockItem(id: string, data: Partial<StockItem>): Promise<APIResponse> {
+    return this.request({ method: 'PUT', url: `/store/stock-items/${id}`, data });
+  }
+
+  async deleteStockItem(id: string): Promise<APIResponse> {
+    return this.request({ method: 'DELETE', url: `/store/stock-items/${id}` });
+  }
+
+  async purchaseStock(itemId: string, data: { quantity: number; unit_cost?: number; note?: string }): Promise<APIResponse> {
+    return this.request({ method: 'POST', url: `/store/stock-items/${itemId}/purchase`, data });
+  }
+
+  async issueStock(itemId: string, data: { quantity: number; unit?: string; issued_to_user_id: string; reason?: string; note?: string }): Promise<APIResponse> {
+    return this.request({ method: 'POST', url: `/store/stock-items/${itemId}/issue`, data });
+  }
+
+  async getStockAlerts(): Promise<APIResponse<StockAlert[]>> {
+    return this.request({ method: 'GET', url: '/store/stock-alerts' });
+  }
+
+  async getStockMovements(params?: { page?: number; per_page?: number; category_id?: string; type?: string; from?: string; to?: string }): Promise<PaginatedResponse<StockMovement[]>> {
+    return this.request({ method: 'GET', url: '/store/stock-reports/movements', params });
+  }
+
+  async getStockSummary(period?: string): Promise<APIResponse<StockSummary>> {
+    return this.request({ method: 'GET', url: '/store/stock-reports/summary', params: { period } });
+  }
+
+  async getAdvancedStockReport(period?: string): Promise<APIResponse<AdvancedStockReport>> {
+    return this.request({ method: 'GET', url: '/store/stock-reports/advanced', params: { period } });
+  }
+
+  async getStoreUsers(): Promise<APIResponse<UserBrief[]>> {
+    return this.request({ method: 'GET', url: '/store/users' });
+  }
+
+  // Expense endpoints
+  async getExpenses(params?: { page?: number; per_page?: number; category?: string; from?: string; to?: string; search?: string }): Promise<PaginatedResponse<Expense[]>> {
+    return this.request({ method: 'GET', url: '/admin/expenses', params });
+  }
+
+  async createExpense(data: { category: string; amount: number; description?: string; expense_date?: string }): Promise<APIResponse<{ id: string }>> {
+    return this.request({ method: 'POST', url: '/admin/expenses', data });
+  }
+
+  async updateExpense(id: string, data: { category?: string; amount?: number; description?: string; expense_date?: string }): Promise<APIResponse> {
+    return this.request({ method: 'PUT', url: `/admin/expenses/${id}`, data });
+  }
+
+  async deleteExpense(id: string): Promise<APIResponse> {
+    return this.request({ method: 'DELETE', url: `/admin/expenses/${id}` });
+  }
+
+  async getExpenseSummary(params?: { from?: string; to?: string }): Promise<APIResponse<ExpenseSummary>> {
+    return this.request({ method: 'GET', url: '/admin/expenses/summary', params });
+  }
+
+  async getExpenseCategories(): Promise<APIResponse<{ category: string; count: number; total: number }[]>> {
+    return this.request({ method: 'GET', url: '/admin/expenses/categories' });
+  }
+
+  // Daily Closing endpoints
+  async getDailyClosings(params?: { page?: number; per_page?: number }): Promise<PaginatedResponse<DailyClosing[]>> {
+    return this.request({ method: 'GET', url: '/admin/daily-closings', params });
+  }
+
+  async getCurrentDayStatus(): Promise<APIResponse<CurrentDayStatus>> {
+    return this.request({ method: 'GET', url: '/admin/daily-closings/current' });
+  }
+
+  async closeDay(data: { opening_cash: number; actual_cash: number; notes?: string }): Promise<APIResponse> {
+    return this.request({ method: 'POST', url: '/admin/daily-closings', data });
+  }
+
+  async getDailyClosingByDate(date: string): Promise<APIResponse<DailyClosing>> {
+    return this.request({ method: 'GET', url: `/admin/daily-closings/${date}` });
+  }
+
+  // P&L Report endpoint
+  async getPnLReport(params?: { period?: string; from?: string; to?: string }): Promise<APIResponse<PnLReport>> {
+    return this.request({ method: 'GET', url: '/admin/reports/pnl', params });
+  }
+
+  // KOT endpoints
+  async fireKOT(orderId: string): Promise<APIResponse<FireKOTResponse>> {
+    return this.request({ method: 'POST', url: `/orders/${orderId}/fire-kot` });
+  }
+
+  async addItemsToOrder(orderId: string, items: { product_id: string; quantity: number; special_instructions?: string }[]): Promise<APIResponse> {
+    return this.request({ method: 'POST', url: `/orders/${orderId}/items`, data: { items } });
+  }
+
+  async removeDraftItem(orderId: string, itemId: string): Promise<APIResponse> {
+    return this.request({ method: 'DELETE', url: `/orders/${orderId}/items/${itemId}` });
+  }
+
+  async voidItem(orderId: string, itemId: string, data: { pin: string; reason: string }): Promise<APIResponse> {
+    return this.request({ method: 'POST', url: `/orders/${orderId}/items/${itemId}/void`, data });
+  }
+
+  // PIN verification
+  async verifyPin(pin: string): Promise<APIResponse<{ valid: boolean; user_name?: string }>> {
+    return this.request({ method: 'POST', url: '/verify-pin', data: { pin } });
+  }
+
+  // Kitchen Station management (admin)
+  async getStations(): Promise<APIResponse<KitchenStation[]>> {
+    return this.request({ method: 'GET', url: '/admin/stations' });
+  }
+
+  async createStation(data: {
+    name: string;
+    output_type: string;
+    sort_order?: number;
+    print_location?: 'kitchen' | 'counter';
+  }): Promise<APIResponse<KitchenStation>> {
+    return this.request({ method: 'POST', url: '/admin/stations', data });
+  }
+
+  async updateStation(id: string, data: Partial<KitchenStation>): Promise<APIResponse> {
+    return this.request({ method: 'PUT', url: `/admin/stations/${id}`, data });
+  }
+
+  async deleteStation(id: string): Promise<APIResponse> {
+    return this.request({ method: 'DELETE', url: `/admin/stations/${id}` });
+  }
+
+  async setStationCategories(stationId: string, categoryIds: string[]): Promise<APIResponse> {
+    return this.request({ method: 'POST', url: `/admin/stations/${stationId}/categories`, data: { category_ids: categoryIds } });
+  }
+
+  async getStationCategories(stationId: string): Promise<APIResponse<string[]>> {
+    return this.request({ method: 'GET', url: `/admin/stations/${stationId}/categories` });
+  }
+
+  /** Assign category to exactly one kitchen station (or clear with null). */
+  async setCategoryKitchenStation(categoryId: string, stationId: string | null): Promise<APIResponse> {
+    return this.request({
+      method: 'PUT',
+      url: `/admin/categories/${categoryId}/station`,
+      data: { station_id: stationId },
+    });
+  }
+
+  // PIN management (admin)
+  async setUserPin(userId: string, pin: string): Promise<APIResponse> {
+    return this.request({ method: 'PUT', url: `/admin/users/${userId}/pin`, data: { pin } });
+  }
+
+  // Void log (admin)
+  async getVoidLog(params?: { page?: number; per_page?: number; from?: string; to?: string; user_id?: string }): Promise<PaginatedResponse<VoidLogEntry[]>> {
+    return this.request({ method: 'GET', url: '/admin/void-log', params });
+  }
+
+  // App Settings
+  async getSetting(key: string): Promise<APIResponse<any>> {
+    return this.request({ method: 'GET', url: `/settings/${key}` });
+  }
+
+  async updateSetting(key: string, value: any): Promise<APIResponse<any>> {
+    return this.request({ method: 'PUT', url: `/admin/settings/${key}`, data: value });
+  }
+
+  async getAllSettings(): Promise<APIResponse<Record<string, any>>> {
+    return this.request({ method: 'GET', url: '/settings' });
   }
 
   // Utility methods
