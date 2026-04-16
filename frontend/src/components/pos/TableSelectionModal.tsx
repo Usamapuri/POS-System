@@ -51,21 +51,23 @@ export function TableSelectionModal({
   }, {} as Record<string, DiningTable[]>)
 
   const getTableStatusColor = (table: DiningTable) => {
-    if (table.is_occupied) {
-      return 'bg-red-100 border-red-200 text-red-800'
+    const isOccupied = table.has_active_order ?? table.is_occupied
+    if (isOccupied) {
+      return 'bg-emerald-100 border-emerald-300 text-emerald-900'
     }
     return 'bg-green-100 border-green-200 text-green-800'
   }
 
   const getTableStatusIcon = (table: DiningTable) => {
-    if (table.is_occupied) {
+    const isOccupied = table.has_active_order ?? table.is_occupied
+    if (isOccupied) {
       return <Clock className="w-4 h-4" />
     }
     return <CheckCircle className="w-4 h-4" />
   }
 
   const getTableStatusText = (table: DiningTable) => {
-    return table.is_occupied ? 'Occupied' : 'Available'
+    return (table.has_active_order ?? table.is_occupied) ? 'Occupied' : 'Available'
   }
 
   return (
@@ -150,11 +152,11 @@ export function TableSelectionModal({
                             ? 'ring-2 ring-blue-500 border-blue-200'
                             : ''
                         } ${
-                          table.is_occupied
+                          (table.has_active_order ?? table.is_occupied)
                             ? 'opacity-60 cursor-not-allowed'
                             : ''
                         }`}
-                        onClick={() => !table.is_occupied && onTableSelect(table)}
+                        onClick={() => !(table.has_active_order ?? table.is_occupied) && onTableSelect(table)}
                       >
                         <CardContent className="p-4 text-center">
                           <div className="space-y-3">

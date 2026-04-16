@@ -20,6 +20,7 @@ import {
   Package
 } from 'lucide-react'
 import type { Product, DiningTable } from '@/types'
+import { useCurrency } from '@/contexts/CurrencyContext'
 
 interface CartItem {
   product: Product
@@ -40,6 +41,7 @@ interface CreateOrderRequest {
 }
 
 export function ServerInterface() {
+  const { formatCurrency } = useCurrency()
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [selectedTable, setSelectedTable] = useState<DiningTable | null>(null)
   const [customerName, setCustomerName] = useState('')
@@ -143,15 +145,16 @@ export function ServerInterface() {
 
   // Helper function to get table status
   const getTableStatus = (table: DiningTable) => {
+    const isOccupied = table.has_active_order ?? table.is_occupied
     // Ensure activeOrders is always an array
     const orders = Array.isArray(activeOrders) ? activeOrders : []
     const hasActiveOrder = orders.some(order => order.table_id === table.id)
     
-    if (table.is_occupied && hasActiveOrder) {
-      return { status: 'occupied', label: 'Occupied', color: 'bg-red-100 text-red-800 border-red-200' }
+    if (isOccupied && hasActiveOrder) {
+      return { status: 'occupied', label: 'Occupied', color: 'bg-emerald-100 text-emerald-900 border-emerald-300' }
     } else if (hasActiveOrder) {
       return { status: 'pending', label: 'Order Pending', color: 'bg-yellow-100 text-yellow-800 border-yellow-200' }
-    } else if (table.is_occupied) {
+    } else if (isOccupied) {
       return { status: 'seated', label: 'Seated', color: 'bg-blue-100 text-blue-800 border-blue-200' }
     } else {
       return { status: 'available', label: 'Available', color: 'bg-green-100 text-green-800 border-green-200' }
@@ -159,7 +162,7 @@ export function ServerInterface() {
   }
 
   // Available tables (not occupied or ready for new orders)
-  const availableTables = tables.filter(table => !table.is_occupied)
+  const availableTables = tables.filter(table => !(table.has_active_order ?? table.is_occupied))
   
   // All tables with status for restaurant view
   const tablesWithStatus = tables.map(table => {
@@ -219,13 +222,6 @@ export function ServerInterface() {
     }
 
     createOrderMutation.mutate(orderData)
-  }
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount)
   }
 
   return (
@@ -449,7 +445,7 @@ export function ServerInterface() {
                   <span className="truncate">Pending</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-red-500 flex-shrink-0"></div>
+                  <div className="w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-emerald-500 flex-shrink-0"></div>
                   <span className="truncate">Occupied</span>
                 </div>
               </div>
@@ -477,7 +473,7 @@ export function ServerInterface() {
                         table.statusInfo.status === 'available' ? 'bg-green-500' :
                         table.statusInfo.status === 'seated' ? 'bg-blue-500' :
                         table.statusInfo.status === 'pending' ? 'bg-yellow-500' :
-                        'bg-red-500'
+                        'bg-emerald-500'
                       }`} />
                       
                       {/* Active order indicator */}

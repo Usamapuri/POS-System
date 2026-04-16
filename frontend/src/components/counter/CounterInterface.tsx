@@ -9,6 +9,7 @@ import { KotPrintModal } from '@/components/counter/KotPrintModal'
 import { computeCartTotals, mergePricingSettings } from '@/lib/counterPricing'
 import { subscribeOrderReady } from '@/lib/kdsRealtime'
 import { cn } from '@/lib/utils'
+import { useCurrency } from '@/contexts/CurrencyContext'
 import { toastHelpers } from '@/lib/toast-helpers'
 import { getCashierNameFromStorage, parseReceiptSettings, printCustomerReceipt } from '@/lib/printCustomerReceipt'
 import {
@@ -77,6 +78,7 @@ export function CounterInterface() {
   const [continuingOrderId, setContinuingOrderId] = useState<string | null>(null)
 
   const queryClient = useQueryClient()
+  const { formatCurrency } = useCurrency()
 
   useEffect(() => {
     return subscribeOrderReady((e) => {
@@ -224,6 +226,7 @@ export function CounterInterface() {
             cashierName: getCashierNameFromStorage(),
             paymentMethod: variables.paymentData.payment_method,
             paidAt: new Date(),
+            formatAmount: formatCurrency,
           })
         }
       } catch {
@@ -352,9 +355,6 @@ export function CounterInterface() {
     if (orderType === 'dine_in' && (!selectedTable || !dineInSession)) return
     submitCartMutation.mutate()
   }
-
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
 
   const selectPaymentOrder = (order: Order) => {
     setSelectedOrder(order)
@@ -647,7 +647,7 @@ export function CounterInterface() {
                   </h3>
                   <div className="grid grid-cols-3 gap-2 max-h-[220px] overflow-y-auto pr-1">
                     {sortedTables.slice(0, 24).map((table) => {
-                      const occ = table.is_occupied
+                      const occ = table.has_active_order ?? table.is_occupied
                       return (
                         <Button
                           key={table.id}
@@ -655,7 +655,8 @@ export function CounterInterface() {
                           variant={selectedTable?.id === table.id ? 'default' : 'outline'}
                           className={cn(
                             'h-14 flex-col text-xs',
-                            occ && 'opacity-90 border-dashed border-amber-600/50 bg-muted/30'
+                            occ &&
+                              'opacity-95 border-emerald-400/70 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/35 dark:border-emerald-700/80 dark:text-emerald-100'
                           )}
                           onClick={() => {
                             if (occ) void handleOccupiedTable(table)

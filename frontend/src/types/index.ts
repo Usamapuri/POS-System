@@ -84,6 +84,7 @@ export interface DiningTable {
   seating_capacity: number;
   location?: string;
   is_occupied: boolean;
+  has_active_order?: boolean;
   created_at: string;
   updated_at: string;
 }

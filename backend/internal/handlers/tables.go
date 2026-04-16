@@ -29,9 +29,16 @@ func (h *TableHandler) GetTables(c *gin.Context) {
 		       t.created_at, t.updated_at,
 		       o.id as order_id, o.order_number, o.customer_name, o.status as order_status,
 		       o.created_at as order_created_at, o.total_amount, o.guest_count,
+		       CASE WHEN o.id IS NOT NULL THEN true ELSE false END as has_active_order,
 		       u.id as server_id, u.first_name as server_first_name, u.last_name as server_last_name, u.role as server_role
 		FROM dining_tables t
-		LEFT JOIN orders o ON t.id = o.table_id AND o.status NOT IN ('completed', 'cancelled')
+		LEFT JOIN LATERAL (
+			SELECT id, order_number, customer_name, status, created_at, total_amount, guest_count, user_id
+			FROM orders
+			WHERE table_id = t.id AND status NOT IN ('completed', 'cancelled')
+			ORDER BY created_at DESC
+			LIMIT 1
+		) o ON true
 		LEFT JOIN users u ON o.user_id = u.id
 		WHERE 1=1
 	`
@@ -71,12 +78,13 @@ func (h *TableHandler) GetTables(c *gin.Context) {
 		var orderCreatedAt sql.NullTime
 		var totalAmount sql.NullFloat64
 		var guestCount sql.NullInt32
+		var hasActiveOrder bool
 		var serverID, serverFirstName, serverLastName, serverRole sql.NullString
 
 		err := rows.Scan(
 			&table.ID, &table.TableNumber, &table.SeatingCapacity, &table.Location, &table.IsOccupied,
 			&table.CreatedAt, &table.UpdatedAt,
-			&orderID, &orderNumber, &customerName, &orderStatus, &orderCreatedAt, &totalAmount, &guestCount,
+			&orderID, &orderNumber, &customerName, &orderStatus, &orderCreatedAt, &totalAmount, &guestCount, &hasActiveOrder,
 			&serverID, &serverFirstName, &serverLastName, &serverRole,
 		)
 		if err != nil {
@@ -94,6 +102,7 @@ func (h *TableHandler) GetTables(c *gin.Context) {
 			"seating_capacity": table.SeatingCapacity,
 			"location":         table.Location,
 			"is_occupied":      table.IsOccupied,
+			"has_active_order": hasActiveOrder,
 			"created_at":       table.CreatedAt,
 			"updated_at":       table.UpdatedAt,
 			"current_order":    nil,
@@ -204,6 +213,7 @@ func (h *TableHandler) GetTable(c *gin.Context) {
 		"seating_capacity": table.SeatingCapacity,
 		"location":         table.Location,
 		"is_occupied":      table.IsOccupied,
+		"has_active_order": currentOrder != nil,
 		"created_at":       table.CreatedAt,
 		"updated_at":       table.UpdatedAt,
 		"current_order":    currentOrder,
@@ -223,7 +233,13 @@ func (h *TableHandler) GetTablesByLocation(c *gin.Context) {
 		       t.created_at, t.updated_at,
 		       o.id as order_id, o.order_number, o.customer_name, o.status as order_status
 		FROM dining_tables t
-		LEFT JOIN orders o ON t.id = o.table_id AND o.status NOT IN ('completed', 'cancelled')
+		LEFT JOIN LATERAL (
+			SELECT id, order_number, customer_name, status
+			FROM orders
+			WHERE table_id = t.id AND status NOT IN ('completed', 'cancelled')
+			ORDER BY created_at DESC
+			LIMIT 1
+		) o ON true
 		ORDER BY t.location ASC, t.table_number ASC
 	`
 
@@ -267,6 +283,7 @@ func (h *TableHandler) GetTablesByLocation(c *gin.Context) {
 			defaultLocation := "General"
 			table.Location = &defaultLocation
 		}
+		table.HasActiveOrder = orderID.Valid
 
 		locationKey := *table.Location
 		locationMap[locationKey] = append(locationMap[locationKey], table)
