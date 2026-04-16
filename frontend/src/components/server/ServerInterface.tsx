@@ -19,6 +19,7 @@ import {
   Settings,
   Package
 } from 'lucide-react'
+import { formatCurrency } from '@/lib/utils'
 import type { Product, DiningTable } from '@/types'
 import { useCurrency } from '@/contexts/CurrencyContext'
 

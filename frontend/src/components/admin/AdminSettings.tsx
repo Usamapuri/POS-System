@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { useToast } from '@/hooks/use-toast'
-import { parseCurrencyFromSettings } from '@/lib/formatMoney'
+import { DEFAULT_DISPLAY_CURRENCY, parseCurrencyFromSettings, setDisplayCurrency } from '@/lib/currency'
 
 interface OrderTypeConfig {
   id: string
@@ -30,7 +30,7 @@ interface OrderTypeConfig {
 export function AdminSettings() {
   const [settings, setSettings] = useState({
     restaurant_name: 'My Restaurant',
-    currency: 'PKR',
+    currency: DEFAULT_DISPLAY_CURRENCY,
     tax_rate: '10.00',
     service_charge: '5.00',
     receipt_header: 'Thank you for dining with us!',
@@ -86,8 +86,17 @@ export function AdminSettings() {
     })
     setSettings((prev) => ({
       ...prev,
-      currency: parseCurrencyFromSettings(d.currency),
+      currency: parseCurrencyFromSettings(d.currency) ?? DEFAULT_DISPLAY_CURRENCY,
     }))
+  }, [allSettingsRes])
+
+  useEffect(() => {
+    const d = allSettingsRes?.data as Record<string, unknown> | undefined
+    if (!d) return
+    const code = parseCurrencyFromSettings(d.currency)
+    if (code) {
+      setSettings((s) => ({ ...s, currency: code }))
+    }
   }, [allSettingsRes])
 
   const saveCustomerReceipt = useMutation({
@@ -164,7 +173,8 @@ export function AdminSettings() {
 
   const saveCurrencyMutation = useMutation({
     mutationFn: (currency: string) => apiClient.updateSetting('currency', currency),
-    onSuccess: () => {
+    onSuccess: (_data, currency) => {
+      setDisplayCurrency(currency)
       queryClient.invalidateQueries({ queryKey: ['settings', 'all'] })
       toast({ title: 'Saved', description: 'Currency preference updated.' })
     },
@@ -185,7 +195,7 @@ export function AdminSettings() {
     // Reset to defaults
     setSettings({
       restaurant_name: 'My Restaurant',
-      currency: 'PKR',
+      currency: DEFAULT_DISPLAY_CURRENCY,
       tax_rate: '10.00',
       service_charge: '5.00',
       receipt_header: 'Thank you for dining with us!',
@@ -214,7 +224,7 @@ export function AdminSettings() {
           </Button>
           <Button onClick={handleSave} disabled={saveCurrencyMutation.isPending}>
             <Save className="w-4 h-4 mr-2" />
-            Save Changes
+            {saveCurrencyMutation.isPending ? 'Saving…' : 'Save Changes'}
           </Button>
         </div>
       </div>
@@ -274,7 +284,7 @@ export function AdminSettings() {
                 value={settings.currency}
                 onChange={(e) => setSettings({...settings, currency: e.target.value})}
               >
-                <option value="PKR">PKR (RS)</option>
+                <option value="PKR">PKR (Rs.)</option>
                 <option value="USD">USD ($)</option>
                 <option value="EUR">EUR (€)</option>
                 <option value="GBP">GBP (£)</option>

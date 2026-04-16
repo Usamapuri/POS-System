@@ -1,7 +1,7 @@
 # POS System - Development Makefile
 # Usage: make <command>
 
-.PHONY: help dev prod up down build logs clean backup restore create-admin remove-data db-shell db-migrate-counter-pricing test lint format
+.PHONY: help dev prod up down build logs clean backup restore create-admin remove-data db-shell db-migrate-counter-pricing db-migrate-currency test lint format
 
 # Default target
 .DEFAULT_GOAL := help
@@ -39,6 +39,7 @@ help:
 	@echo "  make restore           - Restore database from backup"
 	@echo "  make db-shell          - Access PostgreSQL shell"
 	@echo "  make db-migrate-counter-pricing - Add service_charge_amount & checkout columns (existing DBs)"
+	@echo "  make db-migrate-currency         - Set app_settings.currency to PKR (existing DBs)"
 	@echo "  make db-reset          - Reset database with fresh schema and seed data"
 	@echo ""
 	@echo "$(GREEN)Utility Commands:$(NC)"
@@ -207,6 +208,17 @@ db-migrate-counter-pricing:
 	@docker exec -i pos-postgres-dev psql -U postgres -d pos_system < scripts/counter_pricing_migration.sql 2>/dev/null || \
 	 docker exec -i pos-postgres psql -U postgres -d pos_system < scripts/counter_pricing_migration.sql
 	@echo "$(GREEN)✅ Migration applied. Restart backend if it was caching schema errors.$(NC)"
+
+# Set default currency in app_settings (PKR) for DBs created before currency row existed
+db-migrate-currency:
+	@echo "$(GREEN)📦 Applying currency setting migration...$(NC)"
+	@if [ -z "$$(docker ps -q -f name=pos-postgres)" ]; then \
+		echo "$(RED)❌ Database container is not running. Start the stack first (e.g. make up postgres).$(NC)"; \
+		exit 1; \
+	fi
+	@docker exec -i pos-postgres-dev psql -U postgres -d pos_system < scripts/currency_setting_migration.sql 2>/dev/null || \
+	 docker exec -i pos-postgres psql -U postgres -d pos_system < scripts/currency_setting_migration.sql
+	@echo "$(GREEN)✅ Currency setting applied (PKR).$(NC)"
 
 # Reset database with fresh schema and seed data
 db-reset:

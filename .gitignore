@@ -87,3 +87,6 @@ files/
 # Temporary files
 *.tmp
 *.temp
+
+# Vite / TanStack Start ephemeral config cache (do not commit)
+frontend/vite.config.ts.timestamp-*.mjs

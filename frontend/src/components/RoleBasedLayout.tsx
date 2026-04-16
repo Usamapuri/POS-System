@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { AdminLayout } from '@/components/admin/AdminLayout'
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react'
 import type { User as UserType } from '@/types'
 import apiClient from '@/api/client'
+import { DISPLAY_CURRENCY_EVENT, parseCurrencyFromSettings, setDisplayCurrency } from '@/lib/currency'
 
 interface RoleBasedLayoutProps {
   user: UserType
@@ -29,6 +31,25 @@ interface RoleBasedLayoutProps {
 
 export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
   const [currentView, setCurrentView] = useState<string>(getDefaultView(user.role))
+  const [currencyBump, setCurrencyBump] = useState(0)
+
+  const { data: settingsRes } = useQuery({
+    queryKey: ['settings', 'all'],
+    queryFn: () => apiClient.getAllSettings(),
+  })
+
+  useEffect(() => {
+    const d = settingsRes?.data as Record<string, unknown> | undefined
+    if (!d) return
+    const code = parseCurrencyFromSettings(d.currency)
+    if (code) setDisplayCurrency(code)
+  }, [settingsRes])
+
+  useEffect(() => {
+    const fn = () => setCurrencyBump((b) => b + 1)
+    window.addEventListener(DISPLAY_CURRENCY_EVENT, fn)
+    return () => window.removeEventListener(DISPLAY_CURRENCY_EVENT, fn)
+  }, [])
 
   function getDefaultView(role: string): string {
     switch (role) {
@@ -248,8 +269,8 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="flex-1">
+      {/* Main Content Area — key refreshes prices when display currency changes */}
+      <div className="flex-1" key={currencyBump}>
         {renderCurrentView()}
       </div>
     </div>

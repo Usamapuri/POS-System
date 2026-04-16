@@ -1,3 +1,4 @@
+import { formatCurrency } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Minus, Plus, Trash2, Ban, Send, Users } from 'lucide-react'

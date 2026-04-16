@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import apiClient from '@/api/client'
+import { formatCurrency } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Ban, CheckCircle, X } from 'lucide-react'
 import { useCurrency } from '@/contexts/CurrencyContext'

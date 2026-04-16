@@ -1,5 +1,5 @@
 import type { Order } from '@/types'
-import { DEFAULT_CURRENCY, formatMoney } from '@/lib/formatMoney'
+import { formatMoney } from '@/lib/currency'
 
 export type CustomerReceiptSettings = {
   businessName: string
@@ -63,7 +63,7 @@ export function printCustomerReceipt(
     formatAmount?: (n: number) => string
   }
 ): void {
-  const fmt = opts.formatAmount ?? ((n: number) => formatMoney(n, DEFAULT_CURRENCY))
+  const fmt = opts.formatAmount ?? ((n: number) => formatMoney(n))
   const items = order.items ?? []
   const totalQty = items.filter((i) => i.status !== 'voided').reduce((s, i) => s + i.quantity, 0)
   const inv = order.order_number

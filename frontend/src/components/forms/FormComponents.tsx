@@ -20,6 +20,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Loader2 } from 'lucide-react'
+import { getCurrencySymbolPrefix } from '@/lib/currency'
 
 // Generic form field wrapper
 interface FormFieldWrapperProps<T extends FieldValues> {
@@ -162,8 +163,9 @@ export function PriceInputField<T extends FieldValues>({
   label,
   placeholder = "0.00",
   description,
-  currency = "$",
+  currency,
 }: PriceInputFieldProps<T>) {
+  const symbol = currency ?? getCurrencySymbolPrefix()
   return (
     <FormField
       control={control}
@@ -174,7 +176,7 @@ export function PriceInputField<T extends FieldValues>({
           <FormControl>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                {currency}
+                {symbol}
               </span>
               <Input
                 type="number"

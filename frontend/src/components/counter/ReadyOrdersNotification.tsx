@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Bell, BellRing, CheckCircle, Clock, MapPin, User, Package } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatCurrency } from '@/lib/utils';
 import { kitchenSoundService } from '@/services/soundService';
 import apiClient from '@/api/client';
 import type { Order } from '@/types';

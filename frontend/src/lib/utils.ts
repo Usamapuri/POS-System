@@ -1,14 +1,14 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import { DEFAULT_CURRENCY, formatMoney } from '@/lib/formatMoney'
+import { formatMoney } from '@/lib/currency'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-/** @deprecated Prefer useCurrency().formatCurrency so UI follows Settings. */
+/** Formats amounts using the active display currency (localStorage + Admin settings). */
 export function formatCurrency(amount: number): string {
-  return formatMoney(amount, DEFAULT_CURRENCY)
+  return formatMoney(amount)
 }
 
 export function formatDate(dateString: string): string {

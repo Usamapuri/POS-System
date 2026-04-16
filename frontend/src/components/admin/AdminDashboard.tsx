@@ -4,7 +4,7 @@ import apiClient from '@/api/client'
 import { useCurrency } from '@/contexts/CurrencyContext'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { 
+import {
   DollarSign, 
   ShoppingCart, 
   Users, 
@@ -14,6 +14,7 @@ import {
   Settings,
   BarChart3
 } from 'lucide-react'
+import { formatCurrency } from '@/lib/utils'
 
 interface IncomeBreakdownItem {
   period: string

@@ -714,7 +714,7 @@ function ReportsTab({ report, loading, period, setPeriod }: {
                 <LineChart data={trendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                   <XAxis dataKey="week" tick={{ fontSize: 11 }} />
-                  <YAxis yAxisId="cost" tick={{ fontSize: 11 }} tickFormatter={v => formatCurrency(v)} />
+                  <YAxis yAxisId="cost" tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(Number(v))} />
                   <YAxis yAxisId="qty" orientation="right" tick={{ fontSize: 11 }} />
                   <ReTooltip />
                   <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />

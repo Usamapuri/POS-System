@@ -1,21 +1,28 @@
-export const DEFAULT_CURRENCY = 'PKR' as const
+import {
+  DEFAULT_DISPLAY_CURRENCY,
+  formatMoney as formatMoneyCore,
+  parseCurrencyFromSettings as parseCurrencyRaw,
+} from './currency'
+
+export const DEFAULT_CURRENCY = DEFAULT_DISPLAY_CURRENCY as const
 
 export type SupportedCurrency = 'USD' | 'EUR' | 'GBP' | 'PKR'
 
-const SUPPORTED: ReadonlySet<string> = new Set(['USD', 'EUR', 'GBP', 'PKR'])
+const SUPPORTED = new Set<string>(['USD', 'EUR', 'GBP', 'PKR'])
 
+/** Non-null currency code for settings + CurrencyContext (defaults to PKR). */
 export function parseCurrencyFromSettings(raw: unknown): SupportedCurrency {
-  if (typeof raw !== 'string' || !SUPPORTED.has(raw)) {
-    return 'PKR'
-  }
-  return raw as SupportedCurrency
+  const v = parseCurrencyRaw(raw)
+  if (v && SUPPORTED.has(v)) return v as SupportedCurrency
+  return 'PKR'
 }
 
-/** Short prefix for price inputs (PKR shown as RS per product requirement). */
+/** Prefix for price inputs; aligns with `getCurrencySymbolPrefix` in currency.ts. */
 export function currencyInputPrefix(code: string): string {
-  switch (parseCurrencyFromSettings(code)) {
+  const c = parseCurrencyFromSettings(code)
+  switch (c) {
     case 'PKR':
-      return 'RS'
+      return 'Rs.'
     case 'EUR':
       return '€'
     case 'GBP':
@@ -26,22 +33,5 @@ export function currencyInputPrefix(code: string): string {
 }
 
 export function formatMoney(amount: number, currencyCode: string = DEFAULT_CURRENCY): string {
-  const code = parseCurrencyFromSettings(currencyCode)
-
-  if (code === 'PKR') {
-    const num = new Intl.NumberFormat('en-PK', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount)
-    return `RS ${num}`
-  }
-
-  try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: code,
-    }).format(amount)
-  } catch {
-    return `RS ${new Intl.NumberFormat('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)}`
-  }
+  return formatMoneyCore(amount, currencyCode)
 }
