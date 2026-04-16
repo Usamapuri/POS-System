@@ -79,8 +79,10 @@ class APIClient {
         if (error.response?.status === 401) {
           localStorage.removeItem('pos_token');
           localStorage.removeItem('pos_user');
-          // Redirect to login page
-          window.location.href = '/login';
+          // Redirect to login page (avoid hard reload loops while already on /login)
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
         }
         return Promise.reject(error);
       }

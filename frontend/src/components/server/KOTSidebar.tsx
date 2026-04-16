@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Minus, Plus, Trash2, Ban, Send, Users } from 'lucide-react'
 import type { KOTItem } from './KOTServerInterface'
 import { isKotUnsentStatus } from './kotConstants'
+import { useCurrency } from '@/contexts/CurrencyContext'
 
 interface KOTSidebarProps {
   items: KOTItem[]
@@ -27,6 +28,8 @@ export function KOTSidebar({
   onFireKOT,
   isFireLoading,
 }: KOTSidebarProps) {
+  const { formatCurrency } = useCurrency()
+
   /** Not yet fired — `draft` (dine-in / local) or `pending` (takeout/delivery after save) */
   const draftItems = items.filter(i => isKotUnsentStatus(i.status))
   const sentItems = items.filter(i => ['sent', 'preparing', 'ready'].includes(i.status))
@@ -78,10 +81,10 @@ export function KOTSidebar({
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm text-gray-900 truncate">{item.product_name}</div>
-                    <div className="text-sm text-gray-500">${item.unit_price.toFixed(2)}</div>
+                    <div className="text-sm text-gray-500">{formatCurrency(item.unit_price)}</div>
                   </div>
                   <div className="text-sm font-semibold text-gray-900">
-                    ${(item.unit_price * item.quantity).toFixed(2)}
+                    {formatCurrency(item.unit_price * item.quantity)}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 mt-2">
@@ -129,10 +132,10 @@ export function KOTSidebar({
                         {item.status}
                       </Badge>
                     </div>
-                    <div className="text-sm text-gray-500">x{item.quantity} @ ${item.unit_price.toFixed(2)}</div>
+                    <div className="text-sm text-gray-500">x{item.quantity} @ {formatCurrency(item.unit_price)}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">${(item.unit_price * item.quantity).toFixed(2)}</span>
+                    <span className="text-sm font-semibold">{formatCurrency(item.unit_price * item.quantity)}</span>
                     <button
                       onClick={() => onRequestVoid(item.id, item.product_name, item.quantity, item.unit_price)}
                       className="w-7 h-7 rounded-md text-red-500 flex items-center justify-center hover:bg-red-50"
@@ -160,7 +163,7 @@ export function KOTSidebar({
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm text-gray-500 line-through truncate">{item.product_name}</div>
-                    <div className="text-sm text-gray-400 line-through">x{item.quantity} @ ${item.unit_price.toFixed(2)}</div>
+                    <div className="text-sm text-gray-400 line-through">x{item.quantity} @ {formatCurrency(item.unit_price)}</div>
                   </div>
                   <Badge variant="destructive" className="text-xs">VOIDED</Badge>
                 </div>
@@ -175,15 +178,15 @@ export function KOTSidebar({
         <div className="space-y-1 text-sm">
           <div className="flex justify-between text-gray-500">
             <span>Subtotal ({activeItems.length} items)</span>
-            <span>${subtotal.toFixed(2)}</span>
+            <span>{formatCurrency(subtotal)}</span>
           </div>
           <div className="flex justify-between text-gray-500">
             <span>Tax (10%)</span>
-            <span>${tax.toFixed(2)}</span>
+            <span>{formatCurrency(tax)}</span>
           </div>
           <div className="flex justify-between font-bold text-gray-900 text-base pt-1 border-t">
             <span>Total</span>
-            <span>${total.toFixed(2)}</span>
+            <span>{formatCurrency(total)}</span>
           </div>
         </div>
         <Button

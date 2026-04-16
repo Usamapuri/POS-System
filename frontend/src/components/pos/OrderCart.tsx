@@ -13,7 +13,7 @@ import {
   Receipt,
   MapPin
 } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
+import { useCurrency } from '@/contexts/CurrencyContext'
 import { PaymentConfirmationModal } from './PaymentConfirmationModal'
 import type { CartItem, DiningTable } from '@/types'
 
@@ -42,6 +42,7 @@ export function OrderCart({
   onRemoveItem,
   onClearCart
 }: OrderCartProps) {
+  const { formatCurrency } = useCurrency()
   const [notes, setNotes] = useState('')
   const [showPaymentModal, setShowPaymentModal] = useState(false)
 

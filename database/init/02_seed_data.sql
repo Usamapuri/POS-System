@@ -20,44 +20,44 @@ INSERT INTO categories (name, description, color, sort_order) VALUES
 ('Salads', 'Fresh salads and healthy options', '#FECA57', 5),
 ('Pizza', 'Various pizza options', '#FF9FF3', 6);
 
--- Insert products
+-- Insert products (prices in PKR; scaled from former USD demo at ~285 PKR per1 USD)
 INSERT INTO products (category_id, name, description, price, sku, preparation_time, sort_order) VALUES
 -- Appetizers
-((SELECT id FROM categories WHERE name = 'Appetizers'), 'Buffalo Wings', 'Crispy chicken wings with buffalo sauce', 12.99, 'APP001', 15, 1),
-((SELECT id FROM categories WHERE name = 'Appetizers'), 'Mozzarella Sticks', 'Breaded mozzarella with marinara sauce', 8.99, 'APP002', 10, 2),
-((SELECT id FROM categories WHERE name = 'Appetizers'), 'Nachos Supreme', 'Tortilla chips with cheese, jalapeños, and toppings', 11.49, 'APP003', 12, 3),
-((SELECT id FROM categories WHERE name = 'Appetizers'), 'Onion Rings', 'Crispy beer-battered onion rings', 7.99, 'APP004', 8, 4),
+((SELECT id FROM categories WHERE name = 'Appetizers'), 'Buffalo Wings', 'Crispy chicken wings with buffalo sauce', 3702.15, 'APP001', 15, 1),
+((SELECT id FROM categories WHERE name = 'Appetizers'), 'Mozzarella Sticks', 'Breaded mozzarella with marinara sauce', 2562.15, 'APP002', 10, 2),
+((SELECT id FROM categories WHERE name = 'Appetizers'), 'Nachos Supreme', 'Tortilla chips with cheese, jalapeños, and toppings', 3274.65, 'APP003', 12, 3),
+((SELECT id FROM categories WHERE name = 'Appetizers'), 'Onion Rings', 'Crispy beer-battered onion rings', 2277.15, 'APP004', 8, 4),
 
 -- Main Courses
-((SELECT id FROM categories WHERE name = 'Main Courses'), 'Grilled Chicken Breast', 'Seasoned grilled chicken with vegetables', 18.99, 'MAIN001', 20, 1),
-((SELECT id FROM categories WHERE name = 'Main Courses'), 'Beef Steak', 'Premium cut beef steak cooked to order', 26.99, 'MAIN002', 25, 2),
-((SELECT id FROM categories WHERE name = 'Main Courses'), 'Fish & Chips', 'Beer battered fish with crispy fries', 16.99, 'MAIN003', 18, 3),
-((SELECT id FROM categories WHERE name = 'Main Courses'), 'Pasta Carbonara', 'Creamy pasta with bacon and parmesan', 15.99, 'MAIN004', 15, 4),
-((SELECT id FROM categories WHERE name = 'Main Courses'), 'BBQ Ribs', 'Slow-cooked ribs with BBQ sauce', 22.99, 'MAIN005', 30, 5),
+((SELECT id FROM categories WHERE name = 'Main Courses'), 'Grilled Chicken Breast', 'Seasoned grilled chicken with vegetables', 5412.15, 'MAIN001', 20, 1),
+((SELECT id FROM categories WHERE name = 'Main Courses'), 'Beef Steak', 'Premium cut beef steak cooked to order', 7692.15, 'MAIN002', 25, 2),
+((SELECT id FROM categories WHERE name = 'Main Courses'), 'Fish & Chips', 'Beer battered fish with crispy fries', 4842.15, 'MAIN003', 18, 3),
+((SELECT id FROM categories WHERE name = 'Main Courses'), 'Pasta Carbonara', 'Creamy pasta with bacon and parmesan', 4557.15, 'MAIN004', 15, 4),
+((SELECT id FROM categories WHERE name = 'Main Courses'), 'BBQ Ribs', 'Slow-cooked ribs with BBQ sauce', 6552.15, 'MAIN005', 30, 5),
 
 -- Beverages
-((SELECT id FROM categories WHERE name = 'Beverages'), 'Coca Cola', 'Classic cola soft drink', 2.99, 'BEV001', 0, 1),
-((SELECT id FROM categories WHERE name = 'Beverages'), 'Fresh Orange Juice', 'Freshly squeezed orange juice', 4.99, 'BEV002', 2, 2),
-((SELECT id FROM categories WHERE name = 'Beverages'), 'Coffee', 'Freshly brewed coffee', 3.49, 'BEV003', 3, 3),
-((SELECT id FROM categories WHERE name = 'Beverages'), 'Iced Tea', 'Refreshing iced tea', 2.99, 'BEV004', 1, 4),
-((SELECT id FROM categories WHERE name = 'Beverages'), 'Milkshake - Vanilla', 'Creamy vanilla milkshake', 5.99, 'BEV005', 4, 5),
+((SELECT id FROM categories WHERE name = 'Beverages'), 'Coca Cola', 'Classic cola soft drink', 852.15, 'BEV001', 0, 1),
+((SELECT id FROM categories WHERE name = 'Beverages'), 'Fresh Orange Juice', 'Freshly squeezed orange juice', 1422.15, 'BEV002', 2, 2),
+((SELECT id FROM categories WHERE name = 'Beverages'), 'Coffee', 'Freshly brewed coffee', 994.65, 'BEV003', 3, 3),
+((SELECT id FROM categories WHERE name = 'Beverages'), 'Iced Tea', 'Refreshing iced tea', 852.15, 'BEV004', 1, 4),
+((SELECT id FROM categories WHERE name = 'Beverages'), 'Milkshake - Vanilla', 'Creamy vanilla milkshake', 1707.15, 'BEV005', 4, 5),
 
 -- Desserts
-((SELECT id FROM categories WHERE name = 'Desserts'), 'Chocolate Cake', 'Rich chocolate cake with frosting', 6.99, 'DES001', 5, 1),
-((SELECT id FROM categories WHERE name = 'Desserts'), 'Apple Pie', 'Classic apple pie with cinnamon', 5.99, 'DES002', 8, 2),
-((SELECT id FROM categories WHERE name = 'Desserts'), 'Ice Cream Sundae', 'Vanilla ice cream with toppings', 4.99, 'DES003', 3, 3),
-((SELECT id FROM categories WHERE name = 'Desserts'), 'Cheesecake', 'New York style cheesecake', 7.99, 'DES004', 5, 4),
+((SELECT id FROM categories WHERE name = 'Desserts'), 'Chocolate Cake', 'Rich chocolate cake with frosting', 1992.15, 'DES001', 5, 1),
+((SELECT id FROM categories WHERE name = 'Desserts'), 'Apple Pie', 'Classic apple pie with cinnamon', 1707.15, 'DES002', 8, 2),
+((SELECT id FROM categories WHERE name = 'Desserts'), 'Ice Cream Sundae', 'Vanilla ice cream with toppings', 1422.15, 'DES003', 3, 3),
+((SELECT id FROM categories WHERE name = 'Desserts'), 'Cheesecake', 'New York style cheesecake', 2277.15, 'DES004', 5, 4),
 
 -- Salads
-((SELECT id FROM categories WHERE name = 'Salads'), 'Caesar Salad', 'Romaine lettuce with caesar dressing', 9.99, 'SAL001', 8, 1),
-((SELECT id FROM categories WHERE name = 'Salads'), 'Greek Salad', 'Fresh vegetables with feta cheese', 11.99, 'SAL002', 10, 2),
-((SELECT id FROM categories WHERE name = 'Salads'), 'Garden Salad', 'Mixed greens with vegetables', 8.99, 'SAL003', 6, 3),
+((SELECT id FROM categories WHERE name = 'Salads'), 'Caesar Salad', 'Romaine lettuce with caesar dressing', 2847.15, 'SAL001', 8, 1),
+((SELECT id FROM categories WHERE name = 'Salads'), 'Greek Salad', 'Fresh vegetables with feta cheese', 3417.15, 'SAL002', 10, 2),
+((SELECT id FROM categories WHERE name = 'Salads'), 'Garden Salad', 'Mixed greens with vegetables', 2562.15, 'SAL003', 6, 3),
 
 -- Pizza
-((SELECT id FROM categories WHERE name = 'Pizza'), 'Margherita Pizza', 'Classic pizza with tomato, mozzarella, basil', 14.99, 'PIZ001', 16, 1),
-((SELECT id FROM categories WHERE name = 'Pizza'), 'Pepperoni Pizza', 'Pizza with pepperoni and cheese', 16.99, 'PIZ002', 16, 2),
-((SELECT id FROM categories WHERE name = 'Pizza'), 'Supreme Pizza', 'Pizza loaded with multiple toppings', 19.99, 'PIZ003', 20, 3),
-((SELECT id FROM categories WHERE name = 'Pizza'), 'Hawaiian Pizza', 'Pizza with ham and pineapple', 17.99, 'PIZ004', 16, 4);
+((SELECT id FROM categories WHERE name = 'Pizza'), 'Margherita Pizza', 'Classic pizza with tomato, mozzarella, basil', 4272.15, 'PIZ001', 16, 1),
+((SELECT id FROM categories WHERE name = 'Pizza'), 'Pepperoni Pizza', 'Pizza with pepperoni and cheese', 4842.15, 'PIZ002', 16, 2),
+((SELECT id FROM categories WHERE name = 'Pizza'), 'Supreme Pizza', 'Pizza loaded with multiple toppings', 5697.15, 'PIZ003', 20, 3),
+((SELECT id FROM categories WHERE name = 'Pizza'), 'Hawaiian Pizza', 'Pizza with ham and pineapple', 5127.15, 'PIZ004', 16, 4);
 
 -- Insert dining tables
 INSERT INTO dining_tables (table_number, seating_capacity, location) VALUES
@@ -86,21 +86,21 @@ SELECT
     price * 0.4 as unit_cost
 FROM products;
 
--- Sample orders (order numbers match production format YYYYMMDD-###; demo uses fixed date prefix)
+-- Sample orders (amounts in PKR;10% tax on subtotal for demo rows)
 INSERT INTO orders (order_number, table_id, user_id, order_type, status, subtotal, tax_amount, total_amount, guest_count) VALUES
-('20260101-001', (SELECT id FROM dining_tables WHERE table_number = 'T02'), (SELECT id FROM users WHERE username = 'server1'), 'dine_in', 'pending', 25.98, 2.60, 28.58, 2),
-('20260101-002', (SELECT id FROM dining_tables WHERE table_number = 'T05'), (SELECT id FROM users WHERE username = 'server2'), 'dine_in', 'preparing', 18.99, 1.90, 20.89, 2),
-('20260101-003', (SELECT id FROM dining_tables WHERE table_number = 'TAKEOUT'), (SELECT id FROM users WHERE username = 'counter1'), 'takeout', 'ready', 14.99, 1.50, 16.49, 1);
+('20260101-001', (SELECT id FROM dining_tables WHERE table_number = 'T02'), (SELECT id FROM users WHERE username = 'server1'), 'dine_in', 'pending', 10818.60, 1081.86, 11900.46, 2),
+('20260101-002', (SELECT id FROM dining_tables WHERE table_number = 'T05'), (SELECT id FROM users WHERE username = 'server2'), 'dine_in', 'preparing', 5412.15, 541.22, 5953.37, 2),
+('20260101-003', (SELECT id FROM dining_tables WHERE table_number = 'TAKEOUT'), (SELECT id FROM users WHERE username = 'counter1'), 'takeout', 'ready', 4272.15, 427.22, 4699.37, 1);
 
 INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price, status) VALUES
-((SELECT id FROM orders WHERE order_number = '20260101-001'), (SELECT id FROM products WHERE sku = 'APP001'), 1, 12.99, 12.99, 'draft'),
-((SELECT id FROM orders WHERE order_number = '20260101-001'), (SELECT id FROM products WHERE sku = 'MAIN001'), 1, 18.99, 18.99, 'draft'),
-((SELECT id FROM orders WHERE order_number = '20260101-001'), (SELECT id FROM products WHERE sku = 'BEV001'), 2, 2.99, 5.98, 'draft'),
-((SELECT id FROM orders WHERE order_number = '20260101-002'), (SELECT id FROM products WHERE sku = 'MAIN001'), 1, 18.99, 18.99, 'sent'),
-((SELECT id FROM orders WHERE order_number = '20260101-003'), (SELECT id FROM products WHERE sku = 'PIZ001'), 1, 14.99, 14.99, 'ready');
+((SELECT id FROM orders WHERE order_number = '20260101-001'), (SELECT id FROM products WHERE sku = 'APP001'), 1, 3702.15, 3702.15, 'draft'),
+((SELECT id FROM orders WHERE order_number = '20260101-001'), (SELECT id FROM products WHERE sku = 'MAIN001'), 1, 5412.15, 5412.15, 'draft'),
+((SELECT id FROM orders WHERE order_number = '20260101-001'), (SELECT id FROM products WHERE sku = 'BEV001'), 2, 852.15, 1704.30, 'draft'),
+((SELECT id FROM orders WHERE order_number = '20260101-002'), (SELECT id FROM products WHERE sku = 'MAIN001'), 1, 5412.15, 5412.15, 'sent'),
+((SELECT id FROM orders WHERE order_number = '20260101-003'), (SELECT id FROM products WHERE sku = 'PIZ001'), 1, 4272.15, 4272.15, 'ready');
 
 INSERT INTO payments (order_id, payment_method, amount, status, processed_by, processed_at) VALUES
-((SELECT id FROM orders WHERE order_number = '20260101-003'), 'cash', 16.49, 'completed', (SELECT id FROM users WHERE username = 'counter1'), CURRENT_TIMESTAMP);
+((SELECT id FROM orders WHERE order_number = '20260101-003'), 'cash', 4699.37, 'completed', (SELECT id FROM users WHERE username = 'counter1'), CURRENT_TIMESTAMP);
 
 UPDATE orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE order_number = '20260101-003';
 
@@ -194,6 +194,7 @@ INSERT INTO category_station_map (category_id, station_id) VALUES
 -- App Settings
 INSERT INTO app_settings (key, value) VALUES
 ('enabled_order_types', '[{"id": "dine_in", "label": "Dine In", "enabled": true}, {"id": "takeout", "label": "Takeaway", "enabled": true}, {"id": "delivery", "label": "Delivery", "enabled": false}, {"id": "foodpanda", "label": "Foodpanda", "enabled": false}]'::jsonb),
+('currency', '"PKR"'::jsonb),
 ('tax_rate_cash', '0.15'::jsonb),
 ('tax_rate_card', '0.05'::jsonb),
 ('tax_rate_online', '0.15'::jsonb),

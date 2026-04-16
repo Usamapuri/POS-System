@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/api/client'
 import type { StockCategory, StockItem, StockMovement, StockAlert, UserBrief, AdvancedStockReport } from '@/types'
+import { useCurrency } from '@/contexts/CurrencyContext'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -91,6 +92,7 @@ type StockStatusFilter = '' | 'low' | 'ok'
 
 export function StoreInventoryDashboard() {
   const qc = useQueryClient()
+  const { formatCurrency, currencyCode } = useCurrency()
   const [tab, setTab] = useState<Tab>('items')
   const [modal, setModal] = useState<ModalState>({ kind: 'none' })
   const [search, setSearch] = useState('')
@@ -213,7 +215,7 @@ export function StoreInventoryDashboard() {
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-purple-50"><TrendingUp className="w-5 h-5 text-purple-600" /></div>
               <div>
-                <p className="text-2xl font-bold">{advancedReport?.kpis?.total_stock_value != null ? `$${advancedReport.kpis.total_stock_value.toFixed(0)}` : '—'}</p>
+                <p className="text-2xl font-bold">{advancedReport?.kpis?.total_stock_value != null ? formatCurrency(advancedReport.kpis.total_stock_value) : '—'}</p>
                 <p className="text-xs text-muted-foreground">Stock Value</p>
               </div>
             </div>
@@ -307,6 +309,7 @@ function MenuItem({ icon, label, destructive, onClick }: { icon: React.ReactNode
 
 function ItemsTab({ items, categories, meta, loading, search, setSearch, filterCategory, setFilterCategory,
   filterStatus, setFilterStatus, page, setPage, setModal, qc, showToast, selectedIds, setSelectedIds }: any) {
+  const { formatCurrency } = useCurrency()
 
   const deleteMut = useMutation({
     mutationFn: (id: string) => apiClient.deleteStockItem(id),
@@ -413,7 +416,7 @@ function ItemsTab({ items, categories, meta, loading, search, setSearch, filterC
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right text-muted-foreground">{item.reorder_level} {item.unit}</td>
-                  <td className="px-4 py-3 text-right">{item.default_unit_cost != null ? `$${item.default_unit_cost.toFixed(2)}` : '—'}</td>
+                  <td className="px-4 py-3 text-right">{item.default_unit_cost != null ? formatCurrency(item.default_unit_cost) : '—'}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 justify-center">
                       <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setModal({ kind: 'purchase', item })}>
@@ -509,6 +512,7 @@ function AlertsTab({ alerts, setModal, items }: { alerts: StockAlert[]; setModal
 }
 
 function MovementsTab({ movements, meta, page, setPage, movType, setMovType, movFrom, setMovFrom, movTo, setMovTo }: any) {
+  const { formatCurrency } = useCurrency()
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3 items-center">
@@ -551,7 +555,7 @@ function MovementsTab({ movements, meta, page, setPage, movType, setMovType, mov
                 <td className={`px-4 py-2 text-right font-medium ${m.quantity < 0 ? 'text-red-600' : 'text-green-600'}`}>
                   {m.quantity > 0 ? '+' : ''}{m.quantity} {m.item_unit}
                 </td>
-                <td className="px-4 py-2 text-right">{m.total_cost != null ? `$${m.total_cost.toFixed(2)}` : '—'}</td>
+                <td className="px-4 py-2 text-right">{m.total_cost != null ? formatCurrency(m.total_cost) : '—'}</td>
                 <td className="px-4 py-2 text-muted-foreground">{m.issued_to_name ?? '—'}</td>
                 <td className="px-4 py-2 text-muted-foreground">{m.created_by_name ?? '—'}</td>
                 <td className="px-4 py-2 text-muted-foreground max-w-[200px] truncate">{m.note ?? ''}</td>
@@ -571,6 +575,7 @@ function ReportsTab({ report, loading, period, setPeriod }: {
   report: AdvancedStockReport | undefined; loading: boolean;
   period: string; setPeriod: (p: string) => void;
 }) {
+  const { formatCurrency } = useCurrency()
   const [varSearch, setVarSearch] = useState('')
   const [varSort, setVarSort] = useState<'variance' | 'name' | 'value'>('variance')
 
@@ -623,7 +628,7 @@ function ReportsTab({ report, loading, period, setPeriod }: {
                 <DollarSign className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold">${kpis.total_stock_value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                <p className="text-2xl font-bold">{formatCurrency(kpis.total_stock_value)}</p>
                 <p className="text-xs text-muted-foreground">Total Stock Value</p>
               </div>
             </div>
@@ -637,7 +642,7 @@ function ReportsTab({ report, loading, period, setPeriod }: {
               </div>
               <div>
                 <p className={`text-2xl font-bold ${kpis.total_waste_value > 0 ? 'text-red-600' : ''}`}>
-                  ${kpis.total_waste_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {formatCurrency(kpis.total_waste_value)}
                 </p>
                 <p className="text-xs text-muted-foreground">Waste & Spoilage Loss</p>
               </div>
@@ -679,7 +684,7 @@ function ReportsTab({ report, loading, period, setPeriod }: {
                         <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
                       ))}
                     </Pie>
-                    <ReTooltip formatter={(val: number) => `$${val.toFixed(2)}`} />
+                    <ReTooltip formatter={(val: number) => formatCurrency(val)} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="flex-1 space-y-1.5 text-sm min-w-0">
@@ -709,7 +714,7 @@ function ReportsTab({ report, loading, period, setPeriod }: {
                 <LineChart data={trendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                   <XAxis dataKey="week" tick={{ fontSize: 11 }} />
-                  <YAxis yAxisId="cost" tick={{ fontSize: 11 }} tickFormatter={v => `$${v}`} />
+                  <YAxis yAxisId="cost" tick={{ fontSize: 11 }} tickFormatter={v => formatCurrency(v)} />
                   <YAxis yAxisId="qty" orientation="right" tick={{ fontSize: 11 }} />
                   <ReTooltip />
                   <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
@@ -736,7 +741,7 @@ function ReportsTab({ report, loading, period, setPeriod }: {
               <select value={varSort} onChange={e => setVarSort(e.target.value as any)}
                 className="border rounded-md px-2 py-1.5 text-xs bg-background">
                 <option value="variance">Sort: Highest Variance</option>
-                <option value="value">Sort: Highest $ Impact</option>
+                <option value="value">Sort: Highest Value Impact</option>
                 <option value="name">Sort: Name A-Z</option>
               </select>
             </div>
@@ -784,7 +789,7 @@ function ReportsTab({ report, loading, period, setPeriod }: {
                         </span>
                         {v.unit_cost > 0 && absVar > 0 && (
                           <span className="block text-[10px] text-muted-foreground">
-                            ${(Math.abs(v.variance) * v.unit_cost).toFixed(2)}
+                            {formatCurrency(Math.abs(v.variance) * v.unit_cost)}
                           </span>
                         )}
                       </td>
@@ -807,7 +812,7 @@ function ReportsTab({ report, loading, period, setPeriod }: {
             <CardTitle className="text-sm font-semibold">Waste & Spoilage Summary</CardTitle>
             {wasteData.length > 0 && (
               <Badge variant="destructive" className="text-xs">
-                {wasteData.length} incident{wasteData.length !== 1 ? 's' : ''} &middot; ${wasteData.reduce((s, w) => s + w.lost_value, 0).toFixed(2)} lost
+                {wasteData.length} incident{wasteData.length !== 1 ? 's' : ''} &middot; {formatCurrency(wasteData.reduce((s, w) => s + w.lost_value, 0))} lost
               </Badge>
             )}
           </div>
@@ -844,7 +849,7 @@ function ReportsTab({ report, loading, period, setPeriod }: {
                         <td className="px-3 py-2 text-xs">
                           <Badge variant="outline" className="text-[10px] font-normal">{w.reason}</Badge>
                         </td>
-                        <td className="px-3 py-2 text-right text-xs tabular-nums font-semibold text-red-600">${w.lost_value.toFixed(2)}</td>
+                        <td className="px-3 py-2 text-right text-xs tabular-nums font-semibold text-red-600">{formatCurrency(w.lost_value)}</td>
                         <td className="px-3 py-2 text-center"><TrafficLight status={severity} /></td>
                       </tr>
                     )
@@ -907,6 +912,7 @@ function ModalOverlay({ children, onClose }: { children: React.ReactNode; onClos
 // ─── Form components ─────────────────────────────────────────────
 
 function AddItemForm({ categories, onClose, qc, showToast }: { categories: StockCategory[]; onClose: () => void; qc: any; showToast: (t: 'success' | 'error', m: string) => void }) {
+  const { currencyCode } = useCurrency()
   const [form, setForm] = useState({ name: '', unit: 'each', category_id: '', quantity_on_hand: 0, reorder_level: 0, default_unit_cost: 0, notes: '' })
   const [unitMode, setUnitMode] = useState<UnitMode>('quantity')
   const mut = useMutation({
@@ -941,7 +947,7 @@ function AddItemForm({ categories, onClose, qc, showToast }: { categories: Stock
       <div className="grid grid-cols-3 gap-4">
         <FormField label="Qty on Hand"><input type="number" step="any" value={form.quantity_on_hand} onChange={e => setForm(f => ({ ...f, quantity_on_hand: +e.target.value }))} /></FormField>
         <FormField label="Reorder Level"><input type="number" step="any" value={form.reorder_level} onChange={e => setForm(f => ({ ...f, reorder_level: +e.target.value }))} /></FormField>
-        <FormField label="Unit Cost ($)"><input type="number" step="0.01" value={form.default_unit_cost} onChange={e => setForm(f => ({ ...f, default_unit_cost: +e.target.value }))} /></FormField>
+        <FormField label={`Unit Cost (${currencyCode})`}><input type="number" step="0.01" value={form.default_unit_cost} onChange={e => setForm(f => ({ ...f, default_unit_cost: +e.target.value }))} /></FormField>
       </div>
       <FormField label="Notes"><textarea rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} /></FormField>
       <Button type="submit" className="w-full" disabled={mut.isPending || !form.name}>{mut.isPending ? 'Saving...' : 'Add Item'}</Button>
@@ -950,6 +956,7 @@ function AddItemForm({ categories, onClose, qc, showToast }: { categories: Stock
 }
 
 function EditItemForm({ item, categories, onClose, qc, showToast }: { item: StockItem; categories: StockCategory[]; onClose: () => void; qc: any; showToast: (t: 'success' | 'error', m: string) => void }) {
+  const { currencyCode } = useCurrency()
   const [form, setForm] = useState({ name: item.name, unit: item.unit, category_id: item.category_id ?? '', reorder_level: item.reorder_level, default_unit_cost: item.default_unit_cost ?? 0, notes: item.notes ?? '' })
   const isWeight = UNIT_OPTIONS.weight.some(o => o.value === item.unit)
   const [unitMode, setUnitMode] = useState<UnitMode>(isWeight ? 'weight' : 'quantity')
@@ -985,7 +992,7 @@ function EditItemForm({ item, categories, onClose, qc, showToast }: { item: Stoc
       </div>
       <div className="grid grid-cols-2 gap-4">
         <FormField label="Reorder Level"><input type="number" step="any" value={form.reorder_level} onChange={e => setForm(f => ({ ...f, reorder_level: +e.target.value }))} /></FormField>
-        <FormField label="Unit Cost ($)"><input type="number" step="0.01" value={form.default_unit_cost} onChange={e => setForm(f => ({ ...f, default_unit_cost: +e.target.value }))} /></FormField>
+        <FormField label={`Unit Cost (${currencyCode})`}><input type="number" step="0.01" value={form.default_unit_cost} onChange={e => setForm(f => ({ ...f, default_unit_cost: +e.target.value }))} /></FormField>
       </div>
       <FormField label="Notes"><textarea rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} /></FormField>
       <Button type="submit" className="w-full" disabled={mut.isPending || !form.name}>{mut.isPending ? 'Saving...' : 'Save Changes'}</Button>
@@ -994,6 +1001,7 @@ function EditItemForm({ item, categories, onClose, qc, showToast }: { item: Stoc
 }
 
 function PurchaseForm({ item, onClose, qc, showToast }: { item: StockItem; onClose: () => void; qc: any; showToast: (t: 'success' | 'error', m: string) => void }) {
+  const { formatCurrency, currencyCode } = useCurrency()
   const [form, setForm] = useState({ quantity: 0, unit_cost: item.default_unit_cost ?? 0, note: '' })
   const mut = useMutation({
     mutationFn: () => apiClient.purchaseStock(item.id, { quantity: form.quantity, unit_cost: form.unit_cost || undefined, note: form.note || undefined }),
@@ -1010,9 +1018,9 @@ function PurchaseForm({ item, onClose, qc, showToast }: { item: StockItem; onClo
       <p className="text-sm text-muted-foreground">Current stock: {item.quantity_on_hand} {item.unit}</p>
       <div className="grid grid-cols-2 gap-4">
         <FormField label={`Quantity (${item.unit})`} required><input type="number" step="any" min="0.01" value={form.quantity || ''} onChange={e => setForm(f => ({ ...f, quantity: +e.target.value }))} required /></FormField>
-        <FormField label="Unit Cost ($)"><input type="number" step="0.01" value={form.unit_cost || ''} onChange={e => setForm(f => ({ ...f, unit_cost: +e.target.value }))} /></FormField>
+        <FormField label={`Unit Cost (${currencyCode})`}><input type="number" step="0.01" value={form.unit_cost || ''} onChange={e => setForm(f => ({ ...f, unit_cost: +e.target.value }))} /></FormField>
       </div>
-      {form.quantity > 0 && form.unit_cost > 0 && <p className="text-sm font-medium">Total cost: ${(form.quantity * form.unit_cost).toFixed(2)}</p>}
+      {form.quantity > 0 && form.unit_cost > 0 && <p className="text-sm font-medium">Total cost: {formatCurrency(form.quantity * form.unit_cost)}</p>}
       <FormField label="Note"><input value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="e.g. Weekly supplier order" /></FormField>
       <Button type="submit" className="w-full" disabled={mut.isPending || form.quantity <= 0}>{mut.isPending ? 'Recording...' : 'Record Purchase'}</Button>
     </form>

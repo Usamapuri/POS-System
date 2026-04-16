@@ -1,4 +1,5 @@
 import type { Order } from '@/types'
+import { DEFAULT_CURRENCY, formatMoney } from '@/lib/formatMoney'
 
 export type CustomerReceiptSettings = {
   businessName: string
@@ -18,10 +19,6 @@ export function parseReceiptSettings(all: Record<string, unknown> | undefined): 
     ntn: s('receipt_ntn'),
     posNumber: s('receipt_pos_number'),
   }
-}
-
-function fmtMoney(n: number): string {
-  return new Intl.NumberFormat(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n)
 }
 
 function paymentLabel(method: string): string {
@@ -58,8 +55,15 @@ export function getCashierNameFromStorage(): string {
 export function printCustomerReceipt(
   order: Order,
   cfg: CustomerReceiptSettings,
-  opts: { cashierName: string; paymentMethod: string; paidAt: Date }
+  opts: {
+    cashierName: string
+    paymentMethod: string
+    paidAt: Date
+    /** Defaults to PKR / RS via formatMoney when omitted. */
+    formatAmount?: (n: number) => string
+  }
 ): void {
+  const fmt = opts.formatAmount ?? ((n: number) => formatMoney(n, DEFAULT_CURRENCY))
   const items = order.items ?? []
   const totalQty = items.filter((i) => i.status !== 'voided').reduce((s, i) => s + i.quantity, 0)
   const inv = order.order_number
@@ -72,8 +76,8 @@ export function printCustomerReceipt(
     .filter((i) => i.status !== 'voided')
     .map((i, idx) => {
       const name = (i.product?.name ?? 'Item').toUpperCase()
-      const line = fmtMoney(i.unit_price)
-      const tot = fmtMoney(i.total_price)
+      const line = fmt(i.unit_price)
+      const tot = fmt(i.total_price)
       return `<tr>
         <td>${idx + 1}</td>
         <td class="desc">${escapeHtml(name)}</td>
@@ -133,11 +137,11 @@ export function printCustomerReceipt(
   </table>
   <div class="totals">
     <div><span>Total QTY</span><span>${totalQty}</span></div>
-    <div><span>Subtotal</span><span>${fmtMoney(order.subtotal)}</span></div>
-    <div><span>Tax</span><span>${fmtMoney(order.tax_amount)}</span></div>
-    <div><span>Service</span><span>${fmtMoney(order.service_charge_amount ?? 0)}</span></div>
-    <div><span>Discount</span><span>-${fmtMoney(order.discount_amount)}</span></div>
-    <div class="grand"><span>Payable</span><span>${fmtMoney(order.total_amount)}</span></div>
+    <div><span>Subtotal</span><span>${fmt(order.subtotal)}</span></div>
+    <div><span>Tax</span><span>${fmt(order.tax_amount)}</span></div>
+    <div><span>Service</span><span>${fmt(order.service_charge_amount ?? 0)}</span></div>
+    <div><span>Discount</span><span>-${fmt(order.discount_amount)}</span></div>
+    <div class="grand"><span>Payable</span><span>${fmt(order.total_amount)}</span></div>
   </div>
 </body></html>`
 

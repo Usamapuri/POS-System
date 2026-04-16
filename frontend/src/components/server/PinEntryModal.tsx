@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import apiClient from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Ban, CheckCircle, X } from 'lucide-react'
+import { useCurrency } from '@/contexts/CurrencyContext'
 
 interface PinEntryModalProps {
   orderId: string
@@ -32,6 +33,7 @@ export function PinEntryModal({
   onSuccess,
   onClose,
 }: PinEntryModalProps) {
+  const { formatCurrency } = useCurrency()
   const [pin, setPin] = useState(['', '', '', ''])
   const [reason, setReason] = useState(VOID_REASONS[0])
   const [error, setError] = useState('')
@@ -140,7 +142,7 @@ export function PinEntryModal({
         <div className="p-4 border-b">
           <div className="font-medium text-gray-900">{itemName}</div>
           <div className="text-sm text-gray-500 mt-1">
-            Qty: {quantity} &times; ${unitPrice.toFixed(2)} = ${(quantity * unitPrice).toFixed(2)}
+            Qty: {quantity} &times; {formatCurrency(unitPrice)} = {formatCurrency(quantity * unitPrice)}
           </div>
         </div>
 

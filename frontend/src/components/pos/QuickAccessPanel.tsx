@@ -11,7 +11,7 @@ import {
   RotateCcw,
   Plus
 } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
+import { useCurrency } from '@/contexts/CurrencyContext'
 import type { Product } from '@/types'
 
 interface QuickAccessPanelProps {
@@ -27,6 +27,7 @@ export function QuickAccessPanel({
   onProductSelect, 
   className 
 }: QuickAccessPanelProps) {
+  const { formatCurrency } = useCurrency()
   const [recentItems, setRecentItems] = useState<Product[]>([])
   const [popularItems, setPopularItems] = useState<Product[]>([])
 

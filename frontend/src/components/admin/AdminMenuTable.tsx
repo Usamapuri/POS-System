@@ -30,6 +30,7 @@ import {
   Tag
 } from "lucide-react"
 import type { Product, Category } from "@/types"
+import { useCurrency } from "@/contexts/CurrencyContext"
 
 interface AdminMenuTableProps {
   data: Product[]
@@ -46,6 +47,7 @@ export function AdminMenuTable({
   onDelete,
   isLoading = false
 }: AdminMenuTableProps) {
+  const { formatCurrency } = useCurrency()
   const [sorting, setSorting] = useState<SortingState>([])
 
   const getCategoryName = (categoryId: string | null) => {
@@ -58,13 +60,6 @@ export function AdminMenuTable({
     if (!categoryId) return "bg-gray-100 text-gray-800"
     const category = categories.find(cat => cat.id === categoryId)
     return category?.color || "bg-gray-100 text-gray-800"
-  }
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount)
   }
 
   const columns: ColumnDef<Product>[] = [

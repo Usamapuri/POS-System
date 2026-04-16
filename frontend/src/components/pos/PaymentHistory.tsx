@@ -17,7 +17,7 @@ import {
   RefreshCw,
   Clock
 } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
+import { useCurrency } from '@/contexts/CurrencyContext'
 import { ReceiptDisplay } from './ReceiptDisplay'
 import apiClient from '@/api/client'
 import type { Order, Payment } from '@/types'
@@ -32,6 +32,7 @@ interface PaymentWithOrder extends Payment {
 }
 
 export function PaymentHistory({ isOpen, onClose }: PaymentHistoryProps) {
+  const { formatCurrency } = useCurrency()
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [methodFilter, setMethodFilter] = useState<string>('all')

@@ -7,8 +7,10 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { ChevronLeft, ChevronRight, Ban, Calendar } from 'lucide-react'
 import type { VoidLogEntry } from '@/types'
+import { useCurrency } from '@/contexts/CurrencyContext'
 
 export function VoidLog() {
+  const { formatCurrency } = useCurrency()
   const [page, setPage] = useState(1)
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
@@ -114,7 +116,7 @@ export function VoidLog() {
                           <span className={`font-semibold ${
                             severity === 'high' ? 'text-red-600' : severity === 'medium' ? 'text-yellow-600' : 'text-gray-700'
                           }`}>
-                            ${value.toFixed(2)}
+                            {formatCurrency(value)}
                           </span>
                         </td>
                         <td className="p-3">

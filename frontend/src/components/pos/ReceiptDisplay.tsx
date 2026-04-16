@@ -14,7 +14,7 @@ import {
   Wallet,
   Smartphone
 } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
+import { useCurrency } from '@/contexts/CurrencyContext'
 import type { Order, Payment, CartItem, DiningTable } from '@/types'
 
 interface ReceiptDisplayProps {
@@ -48,6 +48,7 @@ export function ReceiptDisplay({
   cashTendered,
   changeAmount
 }: ReceiptDisplayProps) {
+  const { formatCurrency } = useCurrency()
   if (!isOpen) return null
 
   const getPaymentIcon = (method: string) => {

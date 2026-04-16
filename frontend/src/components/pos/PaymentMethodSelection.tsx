@@ -11,7 +11,7 @@ import {
   ArrowLeft,
   CheckCircle
 } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
+import { useCurrency } from '@/contexts/CurrencyContext'
 
 export type PaymentMethod = 'cash' | 'credit_card' | 'debit_card' | 'digital_wallet'
 
@@ -35,6 +35,7 @@ export function PaymentMethodSelection({
   onMethodSelect, 
   onCancel 
 }: PaymentMethodSelectionProps) {
+  const { formatCurrency } = useCurrency()
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null)
   const [cashTendered, setCashTendered] = useState(totalAmount.toString())
   const [referenceNumber, setReferenceNumber] = useState('')

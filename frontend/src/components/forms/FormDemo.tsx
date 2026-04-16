@@ -15,6 +15,8 @@ import {
 } from '@/components/forms/FormComponents'
 import { createProductSchema, type CreateProductData } from '@/lib/form-schemas'
 import { toastHelpers } from '@/lib/toast-helpers'
+import { useCurrency } from '@/contexts/CurrencyContext'
+import { currencyInputPrefix } from '@/lib/formatMoney'
 
 const categoryOptions = [
   { value: '1', label: 'Appetizers' },
@@ -24,6 +26,7 @@ const categoryOptions = [
 ]
 
 export function FormDemo() {
+  const { currencyCode } = useCurrency()
   const form = useForm<CreateProductData>({
     resolver: zodResolver(createProductSchema),
     defaultValues: {
@@ -80,7 +83,7 @@ export function FormDemo() {
                     control={form.control}
                     name="price"
                     label="Price"
-                    currency="$"
+                    currency={currencyInputPrefix(currencyCode)}
                   />
                   
                   <NumberInputField

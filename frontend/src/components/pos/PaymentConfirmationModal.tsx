@@ -14,7 +14,7 @@ import {
   Smartphone
 } from 'lucide-react'
 import { PaymentMethodSelection, type PaymentMethod, type PaymentData } from './PaymentMethodSelection'
-import { formatCurrency } from '@/lib/utils'
+import { useCurrency } from '@/contexts/CurrencyContext'
 import apiClient from '@/api/client'
 import type { 
   CartItem, 
@@ -51,6 +51,7 @@ export function PaymentConfirmationModal({
   orderNotes,
   onSuccess
 }: PaymentConfirmationModalProps) {
+  const { formatCurrency } = useCurrency()
   const [currentStep, setCurrentStep] = useState<'payment' | 'processing' | 'success'>('payment')
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null)
   const [orderId, setOrderId] = useState<string>('')

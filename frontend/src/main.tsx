@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/toaster'
+import { CurrencyProvider } from '@/contexts/CurrencyContext'
 import './index.css'
 
 // Import the generated route tree
@@ -35,7 +36,9 @@ if (!rootElement.innerHTML) {
   root.render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <CurrencyProvider>
+          <RouterProvider router={router} />
+        </CurrencyProvider>
         <Toaster />
       </QueryClientProvider>
     </StrictMode>,

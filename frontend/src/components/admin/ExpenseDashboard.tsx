@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/api/client'
 import type { Expense, DailyClosing, PnLReport, CurrentDayStatus, ExpenseCategory } from '@/types'
+import { useCurrency } from '@/contexts/CurrencyContext'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -38,6 +39,7 @@ type ModalState =
   | { kind: 'closeDay' }
 
 function OverviewTab({ dayStatus, pnl }: { dayStatus?: CurrentDayStatus; pnl?: PnLReport }) {
+  const { formatCurrency } = useCurrency()
   const todaySales = dayStatus?.total_sales ?? 0
   const todayExpenses = dayStatus?.total_expenses ?? 0
   const todayProfit = dayStatus?.net_profit ?? 0
@@ -52,7 +54,7 @@ function OverviewTab({ dayStatus, pnl }: { dayStatus?: CurrentDayStatus; pnl?: P
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500 font-medium">Today's Revenue</p>
-                <p className="text-2xl font-bold text-green-600">${todaySales.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-green-600">{formatCurrency(todaySales)}</p>
               </div>
               <div className="p-3 bg-green-50 rounded-lg"><ArrowUpCircle className="w-6 h-6 text-green-600" /></div>
             </div>
@@ -63,7 +65,7 @@ function OverviewTab({ dayStatus, pnl }: { dayStatus?: CurrentDayStatus; pnl?: P
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500 font-medium">Today's Expenses</p>
-                <p className="text-2xl font-bold text-red-600">${todayExpenses.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-red-600">{formatCurrency(todayExpenses)}</p>
               </div>
               <div className="p-3 bg-red-50 rounded-lg"><ArrowDownCircle className="w-6 h-6 text-red-600" /></div>
             </div>
@@ -74,7 +76,7 @@ function OverviewTab({ dayStatus, pnl }: { dayStatus?: CurrentDayStatus; pnl?: P
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500 font-medium">Today's Profit</p>
-                <p className={`text-2xl font-bold ${todayProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>${todayProfit.toFixed(2)}</p>
+                <p className={`text-2xl font-bold ${todayProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(todayProfit)}</p>
               </div>
               <div className={`p-3 rounded-lg ${todayProfit >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
                 {todayProfit >= 0 ? <TrendingUp className="w-6 h-6 text-green-600" /> : <TrendingDown className="w-6 h-6 text-red-600" />}
@@ -87,7 +89,7 @@ function OverviewTab({ dayStatus, pnl }: { dayStatus?: CurrentDayStatus; pnl?: P
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500 font-medium">Period P&L</p>
-                <p className={`text-2xl font-bold ${mtdProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>${mtdProfit.toFixed(2)}</p>
+                <p className={`text-2xl font-bold ${mtdProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(mtdProfit)}</p>
               </div>
               <div className="p-3 bg-purple-50 rounded-lg"><BarChart3 className="w-6 h-6 text-purple-600" /></div>
             </div>
@@ -110,12 +112,12 @@ function OverviewTab({ dayStatus, pnl }: { dayStatus?: CurrentDayStatus; pnl?: P
                   <div className={`p-2 rounded-md ${m.color}`}>{m.icon}</div>
                   <span className="text-sm font-medium text-gray-700">{m.label}</span>
                 </div>
-                <span className="font-semibold text-gray-900">${m.value.toFixed(2)}</span>
+                <span className="font-semibold text-gray-900">{formatCurrency(m.value)}</span>
               </div>
             ))}
             <div className="flex items-center justify-between pt-2 border-t">
               <span className="text-sm font-medium text-gray-500">Total ({dayStatus?.total_orders ?? 0} orders)</span>
-              <span className="font-bold text-gray-900">${todaySales.toFixed(2)}</span>
+              <span className="font-bold text-gray-900">{formatCurrency(todaySales)}</span>
             </div>
           </CardContent>
         </Card>
@@ -130,13 +132,13 @@ function OverviewTab({ dayStatus, pnl }: { dayStatus?: CurrentDayStatus; pnl?: P
                   return (
                     <div key={ec.category} className="flex items-center justify-between p-2 rounded-lg bg-gray-50">
                       <Badge className={badge.color}>{badge.label}</Badge>
-                      <span className="font-semibold text-gray-900">${ec.total.toFixed(2)}</span>
+                      <span className="font-semibold text-gray-900">{formatCurrency(ec.total)}</span>
                     </div>
                   )
                 })}
                 <div className="flex items-center justify-between pt-2 border-t">
                   <span className="text-sm font-medium text-gray-500">Total Expenses</span>
-                  <span className="font-bold text-red-600">${todayExpenses.toFixed(2)}</span>
+                  <span className="font-bold text-red-600">{formatCurrency(todayExpenses)}</span>
                 </div>
               </>
             ) : (
@@ -173,6 +175,7 @@ function ExpensesTab({
   to: string; setTo: (t: string) => void; search: string; setSearch: (s: string) => void
   onAdd: () => void; onEdit: (e: Expense) => void; onDelete: (id: string) => void
 }) {
+  const { formatCurrency } = useCurrency()
   return (
     <div className="space-y-4">
       {/* Filters */}
@@ -220,7 +223,7 @@ function ExpensesTab({
                     <td className="p-3 text-gray-700">{e.expense_date}</td>
                     <td className="p-3"><Badge className={badge.color}>{badge.label}</Badge></td>
                     <td className="p-3 text-gray-700 max-w-xs truncate">{e.description || '—'}</td>
-                    <td className="p-3 text-right font-semibold text-red-600">${e.amount.toFixed(2)}</td>
+                    <td className="p-3 text-right font-semibold text-red-600">{formatCurrency(e.amount)}</td>
                     <td className="p-3 text-gray-600">{e.created_by_name || '—'}</td>
                     <td className="p-3">
                       {isAutoLinked ? (
@@ -273,6 +276,7 @@ function ClosingTab({
   dayStatus?: CurrentDayStatus; closings?: DailyClosing[]; meta?: any
   page: number; setPage: (p: number) => void; onClose: () => void
 }) {
+  const { formatCurrency } = useCurrency()
   return (
     <div className="space-y-6">
       {/* Current Day Status */}
@@ -301,7 +305,7 @@ function ClosingTab({
                 <div key={s.label} className="bg-gray-50 rounded-lg p-3">
                   <p className="text-xs text-gray-500">{s.label}</p>
                   <p className={`text-lg font-bold ${s.color}`}>
-                    {(s as any).isCurrency === false ? s.value : `$${Number(s.value).toFixed(2)}`}
+                    {(s as any).isCurrency === false ? s.value : formatCurrency(Number(s.value))}
                   </p>
                 </div>
               ))}
@@ -332,12 +336,12 @@ function ClosingTab({
               {closings && closings.length > 0 ? closings.map(dc => (
                 <tr key={dc.id} className="hover:bg-gray-50">
                   <td className="p-3 font-medium text-gray-900">{dc.closing_date}</td>
-                  <td className="p-3 text-right text-green-600 font-medium">${dc.total_sales.toFixed(2)}</td>
+                  <td className="p-3 text-right text-green-600 font-medium">{formatCurrency(dc.total_sales)}</td>
                   <td className="p-3 text-right text-gray-700">{dc.total_orders}</td>
-                  <td className="p-3 text-right text-red-600 font-medium">${dc.total_expenses.toFixed(2)}</td>
-                  <td className={`p-3 text-right font-bold ${dc.net_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>${dc.net_profit.toFixed(2)}</td>
+                  <td className="p-3 text-right text-red-600 font-medium">{formatCurrency(dc.total_expenses)}</td>
+                  <td className={`p-3 text-right font-bold ${dc.net_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(dc.net_profit)}</td>
                   <td className={`p-3 text-right ${(dc.cash_difference ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {dc.cash_difference != null ? `$${dc.cash_difference.toFixed(2)}` : '—'}
+                    {dc.cash_difference != null ? formatCurrency(dc.cash_difference) : '—'}
                   </td>
                   <td className="p-3 text-gray-600">{dc.closed_by_name || '—'}</td>
                 </tr>
@@ -368,6 +372,7 @@ function PnLTab({
   pnl?: PnLReport; period: string; setPeriod: (p: string) => void
   from: string; setFrom: (f: string) => void; to: string; setTo: (t: string) => void
 }) {
+  const { formatCurrency } = useCurrency()
   return (
     <div className="space-y-6">
       {/* Controls */}
@@ -405,7 +410,7 @@ function PnLTab({
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-1">{s.icon}<span className="text-xs text-gray-500">{s.label}</span></div>
                 <p className={`text-xl font-bold ${s.color}`}>
-                  {(s as any).isCurrency === false ? s.value : `$${Number(s.value).toFixed(2)}`}
+                  {(s as any).isCurrency === false ? s.value : formatCurrency(Number(s.value))}
                 </p>
               </CardContent>
             </Card>
@@ -433,10 +438,10 @@ function PnLTab({
                   {pnl?.rows && pnl.rows.length > 0 ? pnl.rows.map((r, i) => (
                     <tr key={i} className="hover:bg-gray-50">
                       <td className="p-3 text-gray-700">{formatPeriod(r.period, period)}</td>
-                      <td className="p-3 text-right text-green-600 font-medium">${r.revenue.toFixed(2)}</td>
+                      <td className="p-3 text-right text-green-600 font-medium">{formatCurrency(r.revenue)}</td>
                       <td className="p-3 text-right text-gray-700">{r.orders}</td>
-                      <td className="p-3 text-right text-red-600 font-medium">${r.expenses.toFixed(2)}</td>
-                      <td className={`p-3 text-right font-bold ${r.net_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>${r.net_profit.toFixed(2)}</td>
+                      <td className="p-3 text-right text-red-600 font-medium">{formatCurrency(r.expenses)}</td>
+                      <td className={`p-3 text-right font-bold ${r.net_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(r.net_profit)}</td>
                     </tr>
                   )) : (
                     <tr><td colSpan={5} className="p-8 text-center text-gray-400">No data for this period</td></tr>
@@ -457,7 +462,7 @@ function PnLTab({
                 return (
                   <div key={eb.category} className="flex items-center justify-between p-2 rounded-lg bg-gray-50">
                     <Badge className={badge.color}>{badge.label}</Badge>
-                    <span className="font-semibold text-gray-900">${eb.total.toFixed(2)}</span>
+                    <span className="font-semibold text-gray-900">{formatCurrency(eb.total)}</span>
                   </div>
                 )
               })
@@ -486,6 +491,7 @@ function formatPeriod(dateStr: string, period: string): string {
 // ---------- Modal Forms ----------
 
 function AddExpenseForm({ onClose, showToast, qc }: { onClose: () => void; showToast: (t: 'success' | 'error', m: string) => void; qc: any }) {
+  const { currencyCode } = useCurrency()
   const [form, setForm] = useState({ category: 'other' as string, amount: '', description: '', expense_date: new Date().toISOString().slice(0, 10) })
 
   const mut = useMutation({
@@ -516,7 +522,7 @@ function AddExpenseForm({ onClose, showToast, qc }: { onClose: () => void; showT
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Amount ($)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Amount ({currencyCode})</label>
             <input type="number" step="0.01" min="0" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
           </div>
           <div>
@@ -540,6 +546,7 @@ function AddExpenseForm({ onClose, showToast, qc }: { onClose: () => void; showT
 }
 
 function EditExpenseForm({ expense, onClose, showToast, qc }: { expense: Expense; onClose: () => void; showToast: (t: 'success' | 'error', m: string) => void; qc: any }) {
+  const { currencyCode } = useCurrency()
   const [form, setForm] = useState({ category: expense.category as string, amount: String(expense.amount), description: expense.description || '', expense_date: expense.expense_date })
 
   const mut = useMutation({
@@ -569,7 +576,7 @@ function EditExpenseForm({ expense, onClose, showToast, qc }: { expense: Expense
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Amount ($)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Amount ({currencyCode})</label>
             <input type="number" step="0.01" min="0" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
           </div>
           <div>
@@ -593,6 +600,7 @@ function EditExpenseForm({ expense, onClose, showToast, qc }: { expense: Expense
 }
 
 function CloseDayForm({ dayStatus, onClose, showToast, qc }: { dayStatus: CurrentDayStatus; onClose: () => void; showToast: (t: 'success' | 'error', m: string) => void; qc: any }) {
+  const { formatCurrency, currencyCode } = useCurrency()
   const [form, setForm] = useState({ opening_cash: '', actual_cash: '', notes: '' })
   const openingCash = parseFloat(form.opening_cash) || 0
   const expectedCash = openingCash + (dayStatus.cash_sales ?? 0)
@@ -621,28 +629,28 @@ function CloseDayForm({ dayStatus, onClose, showToast, qc }: { dayStatus: Curren
 
         {/* Day Summary */}
         <div className="grid grid-cols-3 gap-3 mb-4 p-3 bg-gray-50 rounded-lg">
-          <div><p className="text-xs text-gray-500">Sales</p><p className="font-bold text-green-600">${dayStatus.total_sales.toFixed(2)}</p></div>
-          <div><p className="text-xs text-gray-500">Expenses</p><p className="font-bold text-red-600">${dayStatus.total_expenses.toFixed(2)}</p></div>
-          <div><p className="text-xs text-gray-500">Net Profit</p><p className={`font-bold ${dayStatus.net_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>${dayStatus.net_profit.toFixed(2)}</p></div>
+          <div><p className="text-xs text-gray-500">Sales</p><p className="font-bold text-green-600">{formatCurrency(dayStatus.total_sales)}</p></div>
+          <div><p className="text-xs text-gray-500">Expenses</p><p className="font-bold text-red-600">{formatCurrency(dayStatus.total_expenses)}</p></div>
+          <div><p className="text-xs text-gray-500">Net Profit</p><p className={`font-bold ${dayStatus.net_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(dayStatus.net_profit)}</p></div>
         </div>
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Opening Cash in Drawer ($)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Opening Cash in Drawer ({currencyCode})</label>
             <input type="number" step="0.01" min="0" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.opening_cash} onChange={e => setForm({ ...form, opening_cash: e.target.value })} placeholder="Amount at start of day" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Actual Cash in Drawer Now ($)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Actual Cash in Drawer Now ({currencyCode})</label>
             <input type="number" step="0.01" min="0" className="w-full border rounded-lg px-3 py-2 text-sm" value={form.actual_cash} onChange={e => setForm({ ...form, actual_cash: e.target.value })} placeholder="Count the cash" />
           </div>
 
           {form.opening_cash && form.actual_cash && (
             <div className="p-3 bg-gray-50 rounded-lg space-y-1 text-sm">
-              <div className="flex justify-between"><span className="text-gray-500">Expected Cash:</span><span className="font-medium">${expectedCash.toFixed(2)}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Actual Cash:</span><span className="font-medium">${actualCash.toFixed(2)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Expected Cash:</span><span className="font-medium">{formatCurrency(expectedCash)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Actual Cash:</span><span className="font-medium">{formatCurrency(actualCash)}</span></div>
               <div className="flex justify-between border-t pt-1">
                 <span className="text-gray-500">Difference:</span>
-                <span className={`font-bold ${cashDiff >= 0 ? 'text-green-600' : 'text-red-600'}`}>${cashDiff >= 0 ? '+' : ''}${cashDiff.toFixed(2)}</span>
+                <span className={`font-bold ${cashDiff >= 0 ? 'text-green-600' : 'text-red-600'}`}>{cashDiff >= 0 ? '+' : ''}{formatCurrency(cashDiff)}</span>
               </div>
             </div>
           )}

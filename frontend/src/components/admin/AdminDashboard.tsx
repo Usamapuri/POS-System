@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import apiClient from '@/api/client'
+import { useCurrency } from '@/contexts/CurrencyContext'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { 
@@ -23,6 +24,7 @@ interface IncomeBreakdownItem {
 }
 
 export function AdminDashboard() {
+  const { formatCurrency } = useCurrency()
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month'>('today')
 
   // Fetch dashboard stats
@@ -36,13 +38,6 @@ export function AdminDashboard() {
     queryKey: ['incomeReport', selectedPeriod],
     queryFn: () => apiClient.getIncomeReport(selectedPeriod).then(res => res.data)
   })
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount)
-  }
 
   if (statsLoading) {
     return (

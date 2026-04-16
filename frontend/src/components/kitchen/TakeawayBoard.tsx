@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { kitchenSoundService } from '@/services/soundService';
 import apiClient from '@/api/client';
 import type { Order } from '@/types';
+import { useCurrency } from '@/contexts/CurrencyContext';
 
 interface TakeawayBoardProps {
   className?: string;
@@ -142,6 +143,7 @@ interface TakeawayOrderCardProps {
 }
 
 function TakeawayOrderCard({ order, onComplete }: TakeawayOrderCardProps) {
+  const { formatCurrency } = useCurrency();
   const getUrgencyLevel = (waitTime: number) => {
     if (waitTime >= 20) return { level: 'critical', color: 'bg-red-500', text: 'Very Urgent' };
     if (waitTime >= 15) return { level: 'high', color: 'bg-orange-500', text: 'Urgent' };
@@ -220,7 +222,7 @@ function TakeawayOrderCard({ order, onComplete }: TakeawayOrderCardProps) {
         {/* Total Amount */}
         <div className="flex justify-between items-center mb-3 text-sm">
           <span className="text-muted-foreground">Total:</span>
-          <span className="font-semibold">${order.total_amount.toFixed(2)}</span>
+          <span className="font-semibold">{formatCurrency(order.total_amount)}</span>
         </div>
 
         {/* Action Buttons */}

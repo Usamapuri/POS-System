@@ -2,7 +2,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Plus, Clock, Loader2, Package } from 'lucide-react'
-import { formatCurrency, getPreparationTimeDisplay } from '@/lib/utils'
+import { getPreparationTimeDisplay } from '@/lib/utils'
+import { useCurrency } from '@/contexts/CurrencyContext'
 import type { Product } from '@/types'
 
 interface ProductGridProps {
@@ -12,6 +13,7 @@ interface ProductGridProps {
 }
 
 export function ProductGrid({ products, onProductSelect, isLoading }: ProductGridProps) {
+  const { formatCurrency } = useCurrency()
   if (isLoading) {
     return (
       <div className="p-6">

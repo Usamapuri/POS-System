@@ -13,6 +13,7 @@ import { subscribeOrderReady } from '@/lib/kdsRealtime'
 import { KotPrintModal } from '@/components/counter/KotPrintModal'
 import { toastHelpers } from '@/lib/toast-helpers'
 import { isKotUnsentStatus } from './kotConstants'
+import { useCurrency } from '@/contexts/CurrencyContext'
 
 interface OrderTypeConfig {
   id: string
@@ -155,6 +156,7 @@ export function KOTServerInterface() {
   const [kotPrintOpen, setKotPrintOpen] = useState(false)
   const [lastFireKots, setLastFireKots] = useState<StationKOT[] | undefined>(undefined)
   const queryClient = useQueryClient()
+  const { formatCurrency } = useCurrency()
 
   const openKotPrint = (kots: StationKOT[] | undefined) => {
     setLastFireKots(kots)
@@ -505,7 +507,7 @@ export function KOTServerInterface() {
                           </div>
                         )}
                         {order.total_amount > 0 && (
-                          <div className="text-xs font-semibold text-gray-700">${Number(order.total_amount).toFixed(2)}</div>
+                          <div className="text-xs font-semibold text-gray-700">{formatCurrency(Number(order.total_amount))}</div>
                         )}
                       </div>
                     )}
@@ -683,7 +685,7 @@ export function KOTServerInterface() {
                 className="bg-white rounded-xl border border-gray-200 p-3 text-left hover:border-blue-300 hover:shadow-sm transition-all"
               >
                 <div className="font-medium text-sm text-gray-900 line-clamp-2">{product.name}</div>
-                <div className="text-lg font-bold text-blue-600 mt-1">${product.price.toFixed(2)}</div>
+                <div className="text-lg font-bold text-blue-600 mt-1">{formatCurrency(product.price)}</div>
                 {product.preparation_time > 0 && (
                   <div className="text-xs text-gray-400 mt-1">{product.preparation_time} min</div>
                 )}

@@ -65,7 +65,7 @@ dev:
 	@if [ ! -f .env ]; then \
 		echo "$(YELLOW)📝 Creating .env file...$(NC)"; \
 		cp .env.example .env 2>/dev/null || \
-		echo "DB_HOST=postgres\nDB_PORT=5432\nDB_USER=postgres\nDB_PASSWORD=postgres123\nDB_NAME=pos_system\nDB_SSLMODE=disable\nPORT=8080\nGIN_MODE=debug\nVITE_API_URL=http://localhost:8080" > .env; \
+		echo "DB_HOST=postgres\nDB_PORT=5432\nDB_USER=postgres\nDB_PASSWORD=postgres123\nDB_NAME=pos_system\nDB_SSLMODE=disable\nPORT=8080\nGIN_MODE=debug\nVITE_API_URL=http://localhost:8080/api/v1\nPOSTGRES_HOST_PORT=5432" > .env; \
 	fi
 	@docker compose -f $(COMPOSE_DEV) up --build
 	@echo "$(GREEN)✅ Development environment started!$(NC)"

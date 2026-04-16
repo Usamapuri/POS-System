@@ -105,7 +105,7 @@ export const posSettingsSchema = z.object({
   phone: z.string().optional(),
   email: emailSchema.optional(),
   tax_rate: z.number().min(0).max(1), // 0.08 for 8%
-  currency_symbol: requiredStringSchema.default('$'),
+  currency_symbol: requiredStringSchema.default('RS'),
   receipt_footer: z.string().optional(),
   auto_print_receipts: z.boolean().default(false),
   order_timeout_minutes: z.number().min(1).max(120).default(30),

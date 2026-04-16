@@ -12,7 +12,7 @@ import {
   Zap,
   Clock
 } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
+import { useCurrency } from '@/contexts/CurrencyContext'
 import type { Product } from '@/types'
 
 interface ProductSearchProps {
@@ -30,6 +30,7 @@ export function ProductSearch({
   onClose, 
   className 
 }: ProductSearchProps) {
+  const { formatCurrency } = useCurrency()
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [showResults, setShowResults] = useState(false)

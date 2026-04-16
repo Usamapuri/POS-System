@@ -19,6 +19,7 @@ import {
   Clock
 } from 'lucide-react'
 import apiClient from '@/api/client'
+import { useCurrency } from '@/contexts/CurrencyContext'
 
 interface SalesReportItem {
   date: string
@@ -33,6 +34,7 @@ interface OrdersReportItem {
 }
 
 export function AdminReports() {
+  const { formatCurrency } = useCurrency()
   const [activeTab, setActiveTab] = useState<'sales' | 'orders' | 'analytics'>('sales')
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month'>('today')
 
@@ -51,14 +53,6 @@ export function AdminReports() {
     queryKey: ['incomeReport', selectedPeriod],
     queryFn: () => apiClient.getIncomeReport(selectedPeriod).then(res => res.data),
   })
-
-  // Format currency helper
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount)
-  }
 
   // Calculate totals from real data
   const totalRevenue = salesData?.reduce((sum: number, item: SalesReportItem) => sum + item.revenue, 0) || 0

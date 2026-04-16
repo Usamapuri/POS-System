@@ -18,6 +18,8 @@ import {
   Check
 } from 'lucide-react'
 import apiClient from '@/api/client'
+import { useToast } from '@/hooks/use-toast'
+import { parseCurrencyFromSettings } from '@/lib/formatMoney'
 
 interface OrderTypeConfig {
   id: string
@@ -28,7 +30,7 @@ interface OrderTypeConfig {
 export function AdminSettings() {
   const [settings, setSettings] = useState({
     restaurant_name: 'My Restaurant',
-    currency: 'USD',
+    currency: 'PKR',
     tax_rate: '10.00',
     service_charge: '5.00',
     receipt_header: 'Thank you for dining with us!',
@@ -40,6 +42,7 @@ export function AdminSettings() {
   })
 
   const queryClient = useQueryClient()
+  const { toast } = useToast()
 
   const { data: allSettingsRes } = useQuery({
     queryKey: ['settings', 'all'],
@@ -81,6 +84,10 @@ export function AdminSettings() {
       ntn: str('receipt_ntn'),
       pos_number: str('receipt_pos_number'),
     })
+    setSettings((prev) => ({
+      ...prev,
+      currency: parseCurrencyFromSettings(d.currency),
+    }))
   }, [allSettingsRes])
 
   const saveCustomerReceipt = useMutation({
@@ -155,16 +162,30 @@ export function AdminSettings() {
     saveOrderTypesMutation.mutate(updated)
   }
 
+  const saveCurrencyMutation = useMutation({
+    mutationFn: (currency: string) => apiClient.updateSetting('currency', currency),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'all'] })
+      toast({ title: 'Saved', description: 'Currency preference updated.' })
+    },
+    onError: (e: unknown) => {
+      toast({
+        title: 'Save failed',
+        description: e instanceof Error ? e.message : String(e),
+        variant: 'destructive',
+      })
+    },
+  })
+
   const handleSave = () => {
-    console.log('Saving settings:', settings)
-    alert('Settings saved successfully!')
+    saveCurrencyMutation.mutate(settings.currency)
   }
 
   const handleReset = () => {
     // Reset to defaults
     setSettings({
       restaurant_name: 'My Restaurant',
-      currency: 'USD',
+      currency: 'PKR',
       tax_rate: '10.00',
       service_charge: '5.00',
       receipt_header: 'Thank you for dining with us!',
@@ -191,7 +212,7 @@ export function AdminSettings() {
             <RotateCcw className="w-4 h-4 mr-2" />
             Reset
           </Button>
-          <Button onClick={handleSave}>
+          <Button onClick={handleSave} disabled={saveCurrencyMutation.isPending}>
             <Save className="w-4 h-4 mr-2" />
             Save Changes
           </Button>
@@ -253,6 +274,7 @@ export function AdminSettings() {
                 value={settings.currency}
                 onChange={(e) => setSettings({...settings, currency: e.target.value})}
               >
+                <option value="PKR">PKR (RS)</option>
                 <option value="USD">USD ($)</option>
                 <option value="EUR">EUR (€)</option>
                 <option value="GBP">GBP (£)</option>

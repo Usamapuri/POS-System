@@ -17,6 +17,8 @@ import { createProductSchema, updateProductSchema, type CreateProductData, type 
 import { toastHelpers } from '@/lib/toast-helpers'
 import apiClient from '@/api/client'
 import type { Product, Category } from '@/types'
+import { useCurrency } from '@/contexts/CurrencyContext'
+import { currencyInputPrefix } from '@/lib/formatMoney'
 import { X } from 'lucide-react'
 
 interface ProductFormProps {
@@ -27,6 +29,7 @@ interface ProductFormProps {
 }
 
 export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: ProductFormProps) {
+  const { currencyCode } = useCurrency()
   const queryClient = useQueryClient()
   const isEditing = mode === 'edit' && product
 
@@ -182,7 +185,7 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
                 control={form.control}
                 name="price"
                 label="Price"
-                currency="$"
+                currency={currencyInputPrefix(currencyCode)}
                 description="Product selling price"
               />
               

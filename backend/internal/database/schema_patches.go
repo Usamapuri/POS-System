@@ -59,5 +59,12 @@ func ApplySchemaPatches(db *sql.DB) {
 		log.Printf("schema patch: add print_location check: %v", err)
 	}
 
+	if _, err := db.Exec(`
+		INSERT INTO app_settings (key, value) VALUES ('currency', '"PKR"'::jsonb)
+		ON CONFLICT (key) DO NOTHING
+	`); err != nil {
+		log.Printf("schema patch: app_settings.currency default: %v", err)
+	}
+
 	log.Println("Schema patches finished")
 }

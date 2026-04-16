@@ -1,5 +1,6 @@
 import { toast } from "@/hooks/use-toast"
 import { CheckCircle, XCircle, AlertTriangle, Info } from "lucide-react"
+import { formatMoney, DEFAULT_CURRENCY } from "@/lib/formatMoney"
 
 export const toastHelpers = {
   success: (title: string, description?: string) => {
@@ -65,7 +66,7 @@ export const toastHelpers = {
   paymentProcessed: (amount?: number) => {
     return toastHelpers.success(
       "Payment Processed",
-      amount ? `Payment of $${amount.toFixed(2)} processed successfully.` : "Payment processed successfully."
+      amount ? `Payment of ${formatMoney(amount, DEFAULT_CURRENCY)} processed successfully.` : "Payment processed successfully."
     )
   },
 

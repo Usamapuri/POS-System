@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { kitchenSoundService } from '@/services/soundService';
 import apiClient from '@/api/client';
 import type { Order } from '@/types';
+import { useCurrency } from '@/contexts/CurrencyContext';
 
 interface ReadyOrdersNotificationProps {
   className?: string;
@@ -163,6 +164,7 @@ interface ReadyOrderCardProps {
 }
 
 function ReadyOrderCard({ order, onServed }: ReadyOrderCardProps) {
+  const { formatCurrency } = useCurrency();
   const getUrgencyLevel = (readyTime: number) => {
     if (readyTime >= 15) return { level: 'critical', color: 'bg-red-500', text: 'Very Urgent' };
     if (readyTime >= 10) return { level: 'high', color: 'bg-orange-500', text: 'Urgent' };
@@ -226,7 +228,7 @@ function ReadyOrderCard({ order, onServed }: ReadyOrderCardProps) {
         {/* Order Summary */}
         <div className="mb-3">
           <div className="text-sm text-muted-foreground mb-1">
-            {order.items?.length || 0} items • ${order.total_amount.toFixed(2)}
+            {order.items?.length || 0} items • {formatCurrency(order.total_amount)}
           </div>
           
           {/* Item Preview */}
