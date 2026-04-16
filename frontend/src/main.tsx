@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/toaster'
+import { ThemeProvider } from '@/contexts/ThemeContext'
 import { CurrencyProvider } from '@/contexts/CurrencyContext'
 import './index.css'
 
@@ -36,10 +37,12 @@ if (!rootElement.innerHTML) {
   root.render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <CurrencyProvider>
-          <RouterProvider router={router} />
-        </CurrencyProvider>
-        <Toaster />
+        <ThemeProvider>
+          <CurrencyProvider>
+            <RouterProvider router={router} />
+          </CurrencyProvider>
+          <Toaster />
+        </ThemeProvider>
       </QueryClientProvider>
     </StrictMode>,
   )

@@ -83,10 +83,19 @@ export interface DiningTable {
   table_number: string;
   seating_capacity: number;
   location?: string;
+  zone?: string;
   is_occupied: boolean;
   has_active_order?: boolean;
+  map_x?: number;
+  map_y?: number;
+  map_w?: number;
+  map_h?: number;
+  map_rotation?: number;
+  shape?: 'rectangle' | 'square' | 'round' | string;
   created_at: string;
   updated_at: string;
+  /** Latest order created_at for this table (non-cancelled orders); server-computed */
+  last_booked_at?: string | null;
 }
 
 // Order Types

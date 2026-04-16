@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useRouter, useLocation } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { UserMenu } from '@/components/ui/user-menu'
@@ -19,7 +20,8 @@ import {
   Warehouse,
   Receipt,
   Radio,
-  FileWarning
+  FileWarning,
+  Store
 } from 'lucide-react'
 import type { User as UserType } from '@/types'
 import apiClient from '@/api/client'
@@ -129,6 +131,15 @@ export function AdminSidebar({ user }: AdminSidebarProps) {
   const router = useRouter()
   const location = useLocation()
 
+  const { data: settingsRes } = useQuery({
+    queryKey: ['settings', 'all'],
+    queryFn: () => apiClient.getAllSettings(),
+    staleTime: 1000 * 60 * 5,
+  })
+
+  const businessName = (settingsRes?.data as Record<string, unknown>)?.receipt_business_name as string || ''
+  const logoUrl = (settingsRes?.data as Record<string, unknown>)?.receipt_logo_url as string || ''
+
   // Responsive checks
   useEffect(() => {
     const checkScreenSize = () => {
@@ -167,34 +178,63 @@ export function AdminSidebar({ user }: AdminSidebarProps) {
           : `relative ${sidebarCollapsed ? 'w-16' : 'w-64'}`
       }`}>
         
-        {/* Header */}
-        <div className="p-4 border-b border-border">
-          <div className="flex items-center justify-between">
-            {!sidebarCollapsed && (
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                  <LayoutDashboard className="w-5 h-5 text-primary-foreground" />
+        {/* Header - Logo + Collapse Button */}
+        <div className="px-4 py-5 border-b border-border space-y-3">
+          {/* Logo - Full Width */}
+          {!sidebarCollapsed && (
+            <div className="w-full rounded-lg overflow-hidden border border-border shadow-sm bg-white dark:bg-gray-800">
+              {logoUrl ? (
+                <img 
+                  src={logoUrl} 
+                  alt="Restaurant logo" 
+                  className="w-full h-auto object-contain"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none'
+                    const parent = e.currentTarget.parentElement
+                    if (parent) {
+                      parent.innerHTML = '<div class="w-full h-12 flex items-center justify-center bg-primary"><svg class="w-6 h-6 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg></div>'
+                    }
+                  }}
+                />
+              ) : (
+                <div className="w-full h-12 flex items-center justify-center bg-primary">
+                  <Store className="w-6 h-6 text-primary-foreground" />
                 </div>
-                <div>
-                  <h1 className="font-bold text-foreground">Admin Panel</h1>
-                  <p className="text-xs text-muted-foreground">Restaurant Management</p>
+              )}
+            </div>
+          )}
+          {sidebarCollapsed && !isMobile && !isTablet && (
+            <div className="w-full rounded-lg overflow-hidden border border-border shadow-sm bg-white dark:bg-gray-800">
+              {logoUrl ? (
+                <img 
+                  src={logoUrl} 
+                  alt="Restaurant logo" 
+                  className="w-full h-auto object-contain"
+                />
+              ) : (
+                <div className="w-full aspect-square flex items-center justify-center bg-primary">
+                  <Store className="w-5 h-5 text-primary-foreground" />
                 </div>
-              </div>
-            )}
-            
-            {/* Collapse/Expand Button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className="h-8 w-8 p-0"
-            >
-              {sidebarCollapsed ? 
-                <ChevronRight className="h-4 w-4" /> : 
+              )}
+            </div>
+          )}
+          
+          {/* Collapse/Expand Button */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className="w-full h-8 flex items-center justify-center gap-2"
+          >
+            {sidebarCollapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <>
                 <ChevronLeft className="h-4 w-4" />
-              }
-            </Button>
-          </div>
+                {!isMobile && !isTablet && <span className="text-xs">Collapse</span>}
+              </>
+            )}
+          </Button>
         </div>
 
         {/* Navigation */}

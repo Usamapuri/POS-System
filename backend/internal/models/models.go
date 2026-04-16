@@ -61,10 +61,19 @@ type DiningTable struct {
 	TableNumber     string    `json:"table_number"`
 	SeatingCapacity int       `json:"seating_capacity"`
 	Location        *string   `json:"location"`
+	Zone            *string   `json:"zone,omitempty"`
 	IsOccupied      bool      `json:"is_occupied"`
 	HasActiveOrder  bool      `json:"has_active_order"`
+	MapX            *float64  `json:"map_x,omitempty"`
+	MapY            *float64  `json:"map_y,omitempty"`
+	MapW            *float64  `json:"map_w,omitempty"`
+	MapH            *float64  `json:"map_h,omitempty"`
+	MapRotation     *int      `json:"map_rotation,omitempty"`
+	Shape           *string   `json:"shape,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+	// LastBookedAt is the latest order created_at for this table (non-cancelled orders only); computed in API, not stored.
+	LastBookedAt *time.Time `json:"last_booked_at,omitempty"`
 }
 
 // Order represents a customer order

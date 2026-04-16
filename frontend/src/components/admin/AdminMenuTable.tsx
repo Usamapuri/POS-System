@@ -38,6 +38,10 @@ interface AdminMenuTableProps {
   onEdit: (product: Product) => void
   onDelete: (product: Product) => void
   isLoading?: boolean
+  selectedIds: Set<string>
+  onToggleSelect: (productId: string) => void
+  onToggleSelectAllPage: () => void
+  allPageSelected: boolean
 }
 
 export function AdminMenuTable({
@@ -45,7 +49,11 @@ export function AdminMenuTable({
   categories,
   onEdit,
   onDelete,
-  isLoading = false
+  isLoading = false,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAllPage,
+  allPageSelected,
 }: AdminMenuTableProps) {
   const { formatCurrency } = useCurrency()
   const [sorting, setSorting] = useState<SortingState>([])
@@ -63,6 +71,32 @@ export function AdminMenuTable({
   }
 
   const columns: ColumnDef<Product>[] = [
+    {
+      id: "select",
+      header: () => (
+        <input
+          type="checkbox"
+          checked={allPageSelected}
+          onChange={onToggleSelectAllPage}
+          disabled={isLoading || data.length === 0}
+          className="rounded border-gray-300 cursor-pointer"
+          aria-label="Select all products on this page"
+        />
+      ),
+      cell: ({ row }) => {
+        const id = String(row.original.id)
+        return (
+          <input
+            type="checkbox"
+            checked={selectedIds.has(id)}
+            onChange={() => onToggleSelect(id)}
+            className="rounded border-gray-300 cursor-pointer"
+            aria-label={`Select ${row.original.name}`}
+          />
+        )
+      },
+      enableSorting: false,
+    },
     {
       accessorKey: "name",
       header: ({ column }) => {
@@ -301,9 +335,12 @@ export function AdminMenuTable({
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => {
+                               {headerGroup.headers.map((header) => {
                   return (
-                    <TableHead key={header.id} className="px-4">
+                    <TableHead
+                      key={header.id}
+                      className={`px-4 ${header.column.id === 'select' ? 'w-10' : ''}`}
+                    >
                       {header.isPlaceholder
                         ? null
                         : flexRender(
@@ -332,7 +369,7 @@ export function AdminMenuTable({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
-                  className="hover:bg-gray-50"
+                  className={`hover:bg-gray-50 ${selectedIds.has(String(row.original.id)) ? "bg-primary/5" : ""}`}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>

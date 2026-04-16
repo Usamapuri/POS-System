@@ -6,18 +6,50 @@ export type CustomerReceiptSettings = {
   address: string
   ntn: string
   posNumber: string
+  logoUrl: string
+  logoWidthPercent: number
+  paperWidthMm: number
 }
 
 export function parseReceiptSettings(all: Record<string, unknown> | undefined): CustomerReceiptSettings {
+  const clampLogoWidth = (v: number): number => {
+    if (!Number.isFinite(v)) return 75
+    if (v < 70) return 70
+    if (v > 80) return 80
+    return Math.round(v)
+  }
+
   if (!all) {
-    return { businessName: 'Restaurant', address: '', ntn: '', posNumber: '' }
+    return {
+      businessName: 'Restaurant',
+      address: '',
+      ntn: '',
+      posNumber: '',
+      logoUrl: '',
+      logoWidthPercent: 75,
+      paperWidthMm: 80,
+    }
   }
   const s = (k: string) => (typeof all[k] === 'string' ? (all[k] as string) : '')
+  const n = (k: string, fallback: number) => {
+    const raw = all[k]
+    if (typeof raw === 'number') return raw
+    if (typeof raw === 'string') {
+      const parsed = Number(raw)
+      if (Number.isFinite(parsed)) return parsed
+    }
+    return fallback
+  }
+  const logoRaw = s('receipt_logo_url').trim()
+  const hasSafeLogoUrl = /^(https?:\/\/|data:image\/)/i.test(logoRaw)
   return {
     businessName: s('receipt_business_name') || 'Restaurant',
     address: s('receipt_address'),
     ntn: s('receipt_ntn'),
     posNumber: s('receipt_pos_number'),
+    logoUrl: hasSafeLogoUrl ? logoRaw : '',
+    logoWidthPercent: clampLogoWidth(n('receipt_logo_width_percent', 75)),
+    paperWidthMm: 80,
   }
 }
 
@@ -94,12 +126,19 @@ export function printCustomerReceipt(
     .filter(Boolean)
     .map((l) => `<div>${l}</div>`)
     .join('')
+  const logoMarkup = cfg.logoUrl
+    ? `<div class="logo-wrap"><img src="${escapeHtml(cfg.logoUrl)}" alt="Business logo" class="logo"/></div>`
+    : ''
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Receipt ${escapeHtml(inv)}</title>
 <style>
-  @page { size: 80mm auto; margin: 4mm; }
-  body { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 10px; margin: 0; padding: 8px; color: #000; }
+  @page { size: ${cfg.paperWidthMm}mm auto; margin: 3mm 3mm 4mm; }
+  html, body { width: ${cfg.paperWidthMm}mm; max-width: ${cfg.paperWidthMm}mm; }
+  body { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 10px; margin: 0; padding: 0; color: #000; box-sizing: border-box; }
+  .receipt { width: 100%; box-sizing: border-box; padding: 2mm 1.5mm; }
   .center { text-align: center; }
+  .logo-wrap { margin: 0 0 4px; }
+  .logo { display: block; margin: 0 auto; width: ${cfg.logoWidthPercent}%; max-width: 100%; max-height: 22mm; object-fit: contain; object-position: center; }
   .brand { font-size: 14px; font-weight: 700; letter-spacing: 0.02em; margin-bottom: 4px; }
   .meta { width: 100%; margin: 8px 0; border-collapse: collapse; }
   .meta td { padding: 2px 0; vertical-align: top; }
@@ -116,7 +155,9 @@ export function printCustomerReceipt(
   .totals .grand { font-weight: 700; border-top: 1px dashed #000; padding-top: 6px; margin-top: 6px; font-size: 11px; }
   hr.sep { border: none; border-top: 1px solid #000; margin: 8px 0; }
 </style></head><body>
+  <div class="receipt">
   <div class="center">
+    ${logoMarkup}
     <div class="brand">${escapeHtml(cfg.businessName)}</div>
     ${addrLines ? `<div style="font-size:9px;line-height:1.3">${addrLines}</div>` : ''}
   </div>
@@ -142,6 +183,7 @@ export function printCustomerReceipt(
     <div><span>Service</span><span>${fmt(order.service_charge_amount ?? 0)}</span></div>
     <div><span>Discount</span><span>-${fmt(order.discount_amount)}</span></div>
     <div class="grand"><span>Payable</span><span>${fmt(order.total_amount)}</span></div>
+  </div>
   </div>
 </body></html>`
 

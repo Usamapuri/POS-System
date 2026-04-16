@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,14 @@ import { PaginationControlsComponent } from '@/components/ui/pagination-controls
 import { usePagination } from '@/hooks/usePagination'
 import { ProductListSkeleton, CategoryListSkeleton, SearchingSkeleton } from '@/components/ui/skeletons'
 import { InlineLoading } from '@/components/ui/loading-spinner'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import type { Product, Category } from '@/types'
 
 type ViewMode = 'list' | 'product-form' | 'category-form'
@@ -46,6 +54,10 @@ export function AdminMenuManagement() {
   const [showCreateProductForm, setShowCreateProductForm] = useState(false)
   const [showCreateCategoryForm, setShowCreateCategoryForm] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set())
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkAvailabilityOpen, setBulkAvailabilityOpen] = useState(false)
+  const [bulkBusy, setBulkBusy] = useState(false)
 
   const queryClient = useQueryClient()
 
@@ -114,6 +126,123 @@ export function AdminMenuManagement() {
 
   const categories = Array.isArray(categoriesData) ? categoriesData : (categoriesData as any)?.data || []
   const categoriesPaginationInfo = (categoriesData as any)?.pagination || { total: 0 }
+
+  useEffect(() => {
+    setSelectedProductIds(new Set())
+  }, [productsPagination.page, productsPagination.pageSize, debouncedSearch])
+
+  useEffect(() => {
+    if (activeTab !== 'products') {
+      setSelectedProductIds(new Set())
+    }
+  }, [activeTab])
+
+  const toggleProductSelect = useCallback((id: string) => {
+    setSelectedProductIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const toggleAllProductsOnPage = useCallback(() => {
+    setSelectedProductIds((prev) => {
+      const next = new Set(prev)
+      const allSelected =
+        products.length > 0 && products.every((p: Product) => next.has(String(p.id)))
+      if (allSelected) {
+        products.forEach((p: Product) => next.delete(String(p.id)))
+      } else {
+        products.forEach((p: Product) => next.add(String(p.id)))
+      }
+      return next
+    })
+  }, [products])
+
+  const allProductsPageSelected =
+    products.length > 0 && products.every((p: Product) => selectedProductIds.has(String(p.id)))
+
+  const bulkSelectedProducts = useMemo(() => {
+    return products.filter((p: Product) => selectedProductIds.has(String(p.id)))
+  }, [products, selectedProductIds])
+
+  const runBulkDelete = async () => {
+    const ids = [...selectedProductIds]
+    const idToName = new Map(bulkSelectedProducts.map((p: Product) => [String(p.id), p.name]))
+    setBulkBusy(true)
+    try {
+      const results = await Promise.allSettled(ids.map((id) => apiClient.deleteProduct(id)))
+      let ok = 0
+      const fails: string[] = []
+      results.forEach((r, i) => {
+        const id = ids[i]
+        const label = idToName.get(id) || id
+        if (r.status === 'fulfilled') {
+          if (r.value.success) ok++
+          else fails.push(`${label}: ${r.value.message || 'Failed'}`)
+        } else {
+          const err = r.reason instanceof Error ? r.reason.message : String(r.reason)
+          fails.push(`${label}: ${err}`)
+        }
+      })
+      queryClient.invalidateQueries({ queryKey: ['admin-products'] })
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      setSelectedProductIds(new Set())
+      setBulkDeleteOpen(false)
+      if (fails.length === 0) {
+        toastHelpers.success('Products deleted', `${ok} product(s) removed.`)
+      } else {
+        toastHelpers.warning(
+          `Deleted ${ok}, ${fails.length} failed`,
+          fails.slice(0, 4).join('; ') + (fails.length > 4 ? '…' : '')
+        )
+      }
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const runBulkSetAvailability = async (isAvailable: boolean) => {
+    const ids = [...selectedProductIds]
+    const idToName = new Map(bulkSelectedProducts.map((p: Product) => [String(p.id), p.name]))
+    setBulkBusy(true)
+    try {
+      const results = await Promise.allSettled(
+        ids.map((id) => apiClient.updateProduct(id, { is_available: isAvailable }))
+      )
+      let ok = 0
+      const fails: string[] = []
+      results.forEach((r, i) => {
+        const id = ids[i]
+        const label = idToName.get(id) || id
+        if (r.status === 'fulfilled') {
+          if (r.value.success) ok++
+          else fails.push(`${label}: ${r.value.message || 'Failed'}`)
+        } else {
+          const err = r.reason instanceof Error ? r.reason.message : String(r.reason)
+          fails.push(`${label}: ${err}`)
+        }
+      })
+      queryClient.invalidateQueries({ queryKey: ['admin-products'] })
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      setSelectedProductIds(new Set())
+      setBulkAvailabilityOpen(false)
+      if (fails.length === 0) {
+        toastHelpers.success(
+          'Availability updated',
+          `${ok} product(s) marked ${isAvailable ? 'available' : 'unavailable'}.`
+        )
+      } else {
+        toastHelpers.warning(
+          `Updated ${ok}, ${fails.length} failed`,
+          fails.slice(0, 4).join('; ') + (fails.length > 4 ? '…' : '')
+        )
+      }
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   // Delete product mutation
   const deleteProductMutation = useMutation({
@@ -272,6 +401,34 @@ export function AdminMenuManagement() {
             </CardContent>
           </Card>
 
+          {displayMode === 'table' && selectedProductIds.size > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-4 py-2.5">
+              <span className="text-sm font-medium">
+                {selectedProductIds.size} product{selectedProductIds.size !== 1 ? 's' : ''} selected
+              </span>
+              <div className="flex-1" />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                onClick={() => setBulkAvailabilityOpen(true)}
+              >
+                Set availability…
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-8"
+                onClick={() => setBulkDeleteOpen(true)}
+              >
+                Delete selected…
+              </Button>
+              <Button size="sm" variant="ghost" className="h-8" onClick={() => setSelectedProductIds(new Set())}>
+                Clear
+              </Button>
+            </div>
+          )}
+
           {/* Products List */}
           <div className="space-y-4">
             {displayMode === 'table' ? (
@@ -281,6 +438,10 @@ export function AdminMenuManagement() {
                 onEdit={setEditingProduct}
                 onDelete={handleDeleteProduct}
                 isLoading={isLoadingProducts}
+                selectedIds={selectedProductIds}
+                onToggleSelect={toggleProductSelect}
+                onToggleSelectAllPage={toggleAllProductsOnPage}
+                allPageSelected={allProductsPageSelected}
               />
             ) : isLoadingProducts ? (
               <ProductListSkeleton />
@@ -505,6 +666,58 @@ export function AdminMenuManagement() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={bulkDeleteOpen} onOpenChange={(o) => !bulkBusy && setBulkDeleteOpen(o)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {selectedProductIds.size} product(s)?</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>This cannot be undone. Products on active orders cannot be deleted.</p>
+                <ul className="list-disc pl-4 space-y-1 text-foreground">
+                  {bulkSelectedProducts.slice(0, 5).map((p: Product) => (
+                    <li key={p.id}>{p.name}</li>
+                  ))}
+                </ul>
+                {bulkSelectedProducts.length > 5 && (
+                  <p>and {bulkSelectedProducts.length - 5} more…</p>
+                )}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setBulkDeleteOpen(false)} disabled={bulkBusy}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => void runBulkDelete()} disabled={bulkBusy}>
+              {bulkBusy ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkAvailabilityOpen} onOpenChange={(o) => !bulkBusy && setBulkAvailabilityOpen(o)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Set availability for {selectedProductIds.size} product(s)</DialogTitle>
+            <DialogDescription>
+              Applies to all selected products on this page. Unavailable products are hidden from the default menu where
+              filtered.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setBulkAvailabilityOpen(false)} disabled={bulkBusy}>
+              Cancel
+            </Button>
+            <Button variant="secondary" onClick={() => void runBulkSetAvailability(false)} disabled={bulkBusy}>
+              {bulkBusy ? 'Updating…' : 'Mark unavailable'}
+            </Button>
+            <Button onClick={() => void runBulkSetAvailability(true)} disabled={bulkBusy}>
+              {bulkBusy ? 'Updating…' : 'Mark available'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

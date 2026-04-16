@@ -12,8 +12,10 @@ import { PinEntryModal } from './PinEntryModal'
 import { subscribeOrderReady } from '@/lib/kdsRealtime'
 import { KotPrintModal } from '@/components/counter/KotPrintModal'
 import { toastHelpers } from '@/lib/toast-helpers'
+import { TableFloorMap } from '@/components/tables/TableFloorMap'
 import { isKotUnsentStatus } from './kotConstants'
 import { useCurrency } from '@/contexts/CurrencyContext'
+import { buildFloorTabs } from '@/lib/managedFloors'
 
 interface OrderTypeConfig {
   id: string
@@ -155,6 +157,7 @@ export function KOTServerInterface() {
   const [fireBusy, setFireBusy] = useState(false)
   const [kotPrintOpen, setKotPrintOpen] = useState(false)
   const [lastFireKots, setLastFireKots] = useState<StationKOT[] | undefined>(undefined)
+  const [layoutLocationFilter, setLayoutLocationFilter] = useState<string>('all')
   const queryClient = useQueryClient()
   const { formatCurrency } = useCurrency()
 
@@ -213,6 +216,27 @@ export function KOTServerInterface() {
       return res.data || []
     },
   })
+
+  const { data: floorSettingRes } = useQuery({
+    queryKey: ['settings', 'managed_floors'],
+    queryFn: () => apiClient.getSetting('managed_floors'),
+  })
+
+  const floorTabs = useMemo(
+    () =>
+      buildFloorTabs(
+        floorSettingRes?.data,
+        (tables as DiningTable[]).map((t) => t.location || 'General')
+      ),
+    [floorSettingRes?.data, tables]
+  )
+
+  useEffect(() => {
+    if (layoutLocationFilter === 'all') return
+    if (!floorTabs.includes(layoutLocationFilter)) {
+      setLayoutLocationFilter('all')
+    }
+  }, [floorTabs, layoutLocationFilter])
 
   const createOrderMutation = useMutation({
     mutationFn: async () => {
@@ -423,27 +447,97 @@ export function KOTServerInterface() {
 
   // Phase: Table Selection
   if (state.phase === 'table_select') {
-    const availableTables = tables.filter((t: any) => !t.is_occupied)
-    const occupiedTables = tables.filter((t: any) => t.is_occupied)
+    const visibleTables =
+      layoutLocationFilter === 'all'
+        ? tables
+        : tables.filter((t: any) => (t.location || 'General') === layoutLocationFilter)
+    const availableTables = visibleTables.filter((t: any) => !(t.has_active_order ?? t.is_occupied))
+    const occupiedTables = visibleTables.filter((t: any) => t.has_active_order ?? t.is_occupied)
+    const hasLayout = tables.some((t: any) => typeof t.map_x === 'number' && typeof t.map_y === 'number')
     return (
-      <div className="min-h-[calc(100vh-4rem)] flex flex-col p-6 bg-gray-50">
+      <div className="min-h-[calc(100vh-4rem)] flex flex-col p-6 bg-gray-50 dark:bg-gray-900">
         <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-900">Select a Table</h2>
-          <p className="text-gray-500 mt-1">Choose an available table to start a new order, or tap an occupied table to continue</p>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Select a Table</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Choose an available table to start a new order, or tap an occupied table to continue</p>
         </div>
 
-        {/* Available Tables */}
+        <div className="mb-3 flex flex-wrap gap-2 items-center">
+          <div className="flex gap-2 overflow-x-auto">
+            <Button
+              variant={layoutLocationFilter === 'all' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setLayoutLocationFilter('all')}
+            >
+              All areas
+            </Button>
+            {floorTabs.map((loc) => (
+              <Button
+                key={loc}
+                variant={layoutLocationFilter === loc ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setLayoutLocationFilter(loc)}
+                className="whitespace-nowrap"
+              >
+                {loc}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {hasLayout ? (
+          <div className="mb-5">
+            <div className="flex gap-2 items-center text-xs mb-2">
+              <span className="rounded-full px-2 py-1 font-medium bg-green-100 text-green-800">Available</span>
+              <span className="rounded-full px-2 py-1 font-medium bg-emerald-100 text-emerald-900">Occupied</span>
+              <span className="rounded-full px-2 py-1 font-medium bg-yellow-100 text-yellow-800">Pending</span>
+            </div>
+            <TableFloorMap
+              tables={visibleTables}
+              selectedTableId={state.tableId ?? undefined}
+              viewportHeight={420}
+              showControls
+              onSelect={(table) => {
+                const order = (table as any).current_order
+                const occupied = table.has_active_order ?? table.is_occupied
+                dispatch({ type: 'SELECT_TABLE', tableId: table.id, tableName: table.table_number })
+                if (!occupied) {
+                  return
+                }
+                if (order?.id) {
+                  dispatch({ type: 'SET_GUEST_COUNT', guestCount: order.guest_count || 1 })
+                  ;(async () => {
+                    const res = await apiClient.getOrder(order.id)
+                    if (res.success && res.data) {
+                      const mapped: KOTItem[] = (res.data.items || []).map((oi: OrderItem) => ({
+                        id: oi.id,
+                        product_id: oi.product_id,
+                        product_name: oi.product?.name || '',
+                        quantity: oi.quantity,
+                        unit_price: oi.unit_price,
+                        special_instructions: oi.special_instructions || '',
+                        status: oi.status as ItemStatus,
+                        category_id: oi.product?.category_id,
+                      }))
+                      dispatch({ type: 'ORDER_CREATED', orderId: order.id, items: mapped })
+                    }
+                  })()
+                }
+              }}
+            />
+          </div>
+        ) : null}
+
         {availableTables.length > 0 && (
           <>
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Available Tables</h3>
+            <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Available Tables</h3>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4 mb-8">
               {availableTables.map((table: any) => (
                 <button
                   key={table.id}
                   onClick={() => dispatch({ type: 'SELECT_TABLE', tableId: table.id, tableName: table.table_number })}
-                  className="p-4 rounded-xl border-2 border-gray-200 bg-white hover:border-blue-500 hover:shadow-md cursor-pointer text-center transition-all"
+                  className="p-4 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-500 hover:shadow-md cursor-pointer text-center transition-all"
                 >
-                  <div className="text-lg font-bold text-gray-900">{table.table_number}</div>
+                  <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{table.table_number}</div>
                   <div className="text-xs text-gray-400 mt-1">{table.seating_capacity} seats</div>
                   {table.location && <div className="text-xs text-gray-400">{table.location}</div>}
                 </button>
@@ -452,10 +546,9 @@ export function KOTServerInterface() {
           </>
         )}
 
-        {/* Occupied Tables */}
         {occupiedTables.length > 0 && (
           <>
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Occupied Tables</h3>
+            <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Occupied Tables</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {occupiedTables.map((table: any) => {
                 const order = table.current_order
@@ -489,7 +582,7 @@ export function KOTServerInterface() {
                     className="p-4 rounded-xl border-2 border-orange-200 bg-orange-50 hover:border-orange-400 hover:shadow-md cursor-pointer text-left transition-all"
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <div className="text-lg font-bold text-gray-900">{table.table_number}</div>
+                      <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{table.table_number}</div>
                       <Badge variant="secondary" className="text-[10px] bg-orange-100 text-orange-700">
                         {order?.status?.toUpperCase() || 'ACTIVE'}
                       </Badge>
@@ -518,7 +611,7 @@ export function KOTServerInterface() {
           </>
         )}
 
-        {tables.length === 0 && (
+        {visibleTables.length === 0 && (
           <div className="text-center py-12 text-gray-400">No tables configured</div>
         )}
       </div>
@@ -528,7 +621,7 @@ export function KOTServerInterface() {
   // Phase: Guest Count
   if (state.phase === 'guest_count') {
     return (
-      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-gray-50">
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <Card className="w-96">
           <CardContent className="pt-6">
             <div className="text-center mb-6">
@@ -586,14 +679,14 @@ export function KOTServerInterface() {
 
   // Phase: Ordering (3-column layout)
   return (
-    <div className="h-[calc(100vh-4rem)] flex overflow-hidden bg-gray-50">
+    <div className="h-[calc(100vh-4rem)] flex overflow-hidden bg-gray-50 dark:bg-gray-900">
       {/* Left: Categories + Products */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top bar */}
-        <div className="p-3 bg-white border-b flex items-center gap-3">
+        <div className="p-3 bg-white dark:bg-gray-800 border-b dark:border-gray-700 flex items-center gap-3">
           {/* Order Type Tabs */}
           {enabledOrderTypes.length > 1 && (
-            <div className="flex bg-gray-100 rounded-lg p-0.5 mr-2">
+            <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5 mr-2">
               {enabledOrderTypes.map(type => {
                 const Icon = ORDER_TYPE_ICONS[type.id] || Store
                 return (
@@ -602,8 +695,8 @@ export function KOTServerInterface() {
                     onClick={() => setOrderType(type.id)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
                       orderType === type.id
-                        ? 'bg-white text-gray-900 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
+                        ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
@@ -633,7 +726,7 @@ export function KOTServerInterface() {
         </div>
 
         {/* Category chips */}
-        <div className="p-3 bg-white border-b overflow-x-auto">
+        <div className="p-3 bg-white dark:bg-gray-800 border-b dark:border-gray-700 overflow-x-auto">
           <div className="flex gap-2">
             <button
               onClick={() => setSelectedCategory('all')}
@@ -663,9 +756,9 @@ export function KOTServerInterface() {
         </div>
 
         {/* Search */}
-        <div className="p-3 bg-white border-b">
+        <div className="p-3 bg-white dark:bg-gray-800 border-b dark:border-gray-700">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
             <Input
               placeholder="Search menu..."
               value={searchTerm}
@@ -682,9 +775,9 @@ export function KOTServerInterface() {
               <button
                 key={product.id}
                 onClick={() => dispatch({ type: 'ADD_ITEM', product })}
-                className="bg-white rounded-xl border border-gray-200 p-3 text-left hover:border-blue-300 hover:shadow-sm transition-all"
+                className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-3 text-left hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-sm transition-all"
               >
-                <div className="font-medium text-sm text-gray-900 line-clamp-2">{product.name}</div>
+                <div className="font-medium text-sm text-gray-900 dark:text-gray-100 line-clamp-2">{product.name}</div>
                 <div className="text-lg font-bold text-blue-600 mt-1">{formatCurrency(product.price)}</div>
                 {product.preparation_time > 0 && (
                   <div className="text-xs text-gray-400 mt-1">{product.preparation_time} min</div>

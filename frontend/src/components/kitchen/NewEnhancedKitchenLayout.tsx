@@ -193,7 +193,7 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
           >
             <div
               className={cn(
-                'w-5 h-5 rounded-full bg-white transition-transform',
+                'w-5 h-5 rounded-full bg-white dark:bg-gray-200 transition-transform',
                 soundEnabled ? 'translate-x-6' : 'translate-x-1'
               )}
             />
@@ -288,7 +288,7 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
         </div>
         <div className="min-h-[280px] flex-1 space-y-3 overflow-y-auto p-3">
           {list.length === 0 ? (
-            <div className="flex h-32 flex-col items-center justify-center rounded-lg border border-dashed border-slate-300/80 bg-white/60 text-center">
+            <div className="flex h-32 flex-col items-center justify-center rounded-lg border border-dashed border-slate-300/80 dark:border-slate-600 bg-white/60 dark:bg-gray-800/60 text-center">
               <p className="text-xs font-medium text-slate-400">No tickets</p>
             </div>
           ) : (
@@ -315,8 +315,8 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-200/60 pb-4">
-      <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-6">
+    <div className="flex min-h-screen flex-col bg-slate-200/60 dark:bg-gray-900 pb-4">
+      <div className="shrink-0 border-b border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3 shadow-sm sm:px-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center">
@@ -324,8 +324,8 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
                 <ChefHat className="h-7 w-7 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">Kitchen Display</h1>
-                <p className="text-sm text-slate-500">
+                <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">Kitchen Display</h1>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
                   {user.first_name} {user.last_name} · {lineTotal} active ticket{lineTotal !== 1 ? 's' : ''}
                   {isFetching && !isLoading ? ' · updating…' : ''}
                 </p>

@@ -59,7 +59,14 @@ CREATE TABLE IF NOT EXISTS dining_tables (
     table_number VARCHAR(20) UNIQUE NOT NULL,
     seating_capacity INTEGER DEFAULT 4,
     location VARCHAR(50),
+    zone VARCHAR(100),
     is_occupied BOOLEAN DEFAULT false,
+    map_x DOUBLE PRECISION,
+    map_y DOUBLE PRECISION,
+    map_w DOUBLE PRECISION,
+    map_h DOUBLE PRECISION,
+    map_rotation INTEGER,
+    shape VARCHAR(20),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

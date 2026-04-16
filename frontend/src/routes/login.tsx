@@ -66,7 +66,7 @@ function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex">
       {/* Left Panel - Branding */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 to-indigo-700 p-12 text-white relative overflow-hidden">
         <div className="relative z-10 flex flex-col justify-center max-w-lg">
@@ -160,7 +160,7 @@ function LoginPage() {
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                     >
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -197,13 +197,13 @@ function LoginPage() {
 
               <div className="border-t pt-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-medium text-gray-700">Quick Access Demo Accounts</h3>
-                  <div className="text-xs text-gray-500">Click to login instantly</div>
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Quick Access Demo Accounts</h3>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Click to login instantly</div>
                 </div>
                 
                 {/* Featured Roles - Server & Cashier */}
                 <div className="mb-4">
-                  <div className="text-xs text-gray-600 mb-2 font-medium">🌟 Featured Roles</div>
+                  <div className="text-xs text-gray-600 dark:text-gray-400 mb-2 font-medium">🌟 Featured Roles</div>
                   <div className="grid grid-cols-2 gap-3">
                     {[
                       { 
@@ -257,7 +257,7 @@ function LoginPage() {
 
                 {/* Other Roles */}
                 <div>
-                  <div className="text-xs text-gray-600 mb-2 font-medium">Other Demo Accounts</div>
+                  <div className="text-xs text-gray-600 dark:text-gray-400 mb-2 font-medium">Other Demo Accounts</div>
                   <div className="grid gap-2">
                     {[
                       { username: 'admin', role: 'Admin', icon: Settings, bg: 'bg-red-50 text-red-700 border-red-100', desc: '👑 Full system access', password: 'admin123' },

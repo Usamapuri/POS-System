@@ -7,6 +7,14 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Package, AlertTriangle, TrendingUp, Plus, Search, ArrowDownCircle, ArrowUpCircle,
   Boxes, BarChart3, ShoppingCart, Tag, X, ChevronLeft, ChevronRight, CheckCircle2, XCircle,
   MoreVertical, Trash2, Pencil, DollarSign, Recycle, RefreshCw,
@@ -310,6 +318,8 @@ function MenuItem({ icon, label, destructive, onClick }: { icon: React.ReactNode
 function ItemsTab({ items, categories, meta, loading, search, setSearch, filterCategory, setFilterCategory,
   filterStatus, setFilterStatus, page, setPage, setModal, qc, showToast, selectedIds, setSelectedIds }: any) {
   const { formatCurrency } = useCurrency()
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkBusy, setBulkBusy] = useState(false)
 
   const deleteMut = useMutation({
     mutationFn: (id: string) => apiClient.deleteStockItem(id),
@@ -334,6 +344,44 @@ function ItemsTab({ items, categories, meta, loading, search, setSearch, filterC
       if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
+  }
+
+  const bulkSelectedItems = items.filter((i: StockItem) => selectedIds.has(i.id))
+
+  async function runBulkDeleteStock() {
+    const ids = [...selectedIds] as string[]
+    const idToName = new Map(bulkSelectedItems.map((i: StockItem) => [i.id, i.name]))
+    setBulkBusy(true)
+    try {
+      const results = await Promise.allSettled(ids.map((id) => apiClient.deleteStockItem(id)))
+      let ok = 0
+      const fails: string[] = []
+      results.forEach((r, i) => {
+        const id = ids[i]
+        const label = idToName.get(id) || id
+        if (r.status === 'fulfilled') {
+          if (r.value.success) ok++
+          else fails.push(`${label}: ${r.value.message || 'Failed'}`)
+        } else {
+          const err = r.reason instanceof Error ? r.reason.message : String(r.reason)
+          fails.push(`${label}: ${err}`)
+        }
+      })
+      qc.invalidateQueries({ queryKey: ['stockItems'] })
+      qc.invalidateQueries({ queryKey: ['stockCategories'] })
+      setSelectedIds(new Set())
+      setBulkDeleteOpen(false)
+      if (fails.length === 0) {
+        showToast('success', `Deleted ${ok} item(s).`)
+      } else {
+        showToast(
+          'error',
+          `Deleted ${ok}; ${fails.length} failed. ${fails.slice(0, 3).join('; ')}${fails.length > 3 ? '…' : ''}`
+        )
+      }
+    } finally {
+      setBulkBusy(false)
+    }
   }
 
   return (
@@ -363,17 +411,60 @@ function ItemsTab({ items, categories, meta, loading, search, setSearch, filterC
         <div className="flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-lg px-4 py-2.5">
           <span className="text-sm font-medium">{selectedIds.size} item{selectedIds.size > 1 ? 's' : ''} selected</span>
           <div className="flex-1" />
-          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => {
-            const first = items.find((i: StockItem) => selectedIds.has(i.id))
-            if (first) setModal({ kind: 'purchase', item: first })
-          }}>
-            <ArrowDownCircle className="w-3 h-3 mr-1" /> Bulk Purchase
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            disabled={selectedIds.size !== 1}
+            title={
+              selectedIds.size !== 1
+                ? 'Select exactly one item to record a purchase for that line'
+                : 'Record purchase for the selected item'
+            }
+            onClick={() => {
+              const first = items.find((i: StockItem) => selectedIds.has(i.id))
+              if (first) setModal({ kind: 'purchase', item: first })
+            }}
+          >
+            <ArrowDownCircle className="w-3 h-3 mr-1" /> Record purchase
+          </Button>
+          <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => setBulkDeleteOpen(true)}>
+            <Trash2 className="w-3 h-3 mr-1" /> Delete selected…
           </Button>
           <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>
             Clear
           </Button>
         </div>
       )}
+
+      <Dialog open={bulkDeleteOpen} onOpenChange={(o) => !bulkBusy && setBulkDeleteOpen(o)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {selectedIds.size} inventory item(s)?</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>This cannot be undone. Stock history may be affected depending on server rules.</p>
+                <ul className="list-disc pl-4 space-y-1 text-foreground">
+                  {bulkSelectedItems.slice(0, 5).map((i: StockItem) => (
+                    <li key={i.id}>{i.name}</li>
+                  ))}
+                </ul>
+                {bulkSelectedItems.length > 5 && (
+                  <p>and {bulkSelectedItems.length - 5} more…</p>
+                )}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setBulkDeleteOpen(false)} disabled={bulkBusy}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => void runBulkDeleteStock()} disabled={bulkBusy}>
+              {bulkBusy ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Table */}
       <div className="border rounded-lg overflow-hidden">

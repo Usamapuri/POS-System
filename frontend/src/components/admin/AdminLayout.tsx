@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { UserMenu } from '@/components/ui/user-menu'
-// import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card' // Removed - not used in simplified layout
 import { 
   LayoutDashboard, 
   Users, 
@@ -134,6 +134,15 @@ export function AdminLayout({ user }: AdminLayoutProps) {
   const [isMobile, setIsMobile] = useState(false)
   const [isTablet, setIsTablet] = useState(false)
 
+  const { data: settingsRes } = useQuery({
+    queryKey: ['settings', 'all'],
+    queryFn: () => apiClient.getAllSettings(),
+    staleTime: 1000 * 60 * 5,
+  })
+
+  const businessName = (settingsRes?.data as Record<string, unknown>)?.receipt_business_name as string || ''
+  const logoUrl = (settingsRes?.data as Record<string, unknown>)?.receipt_logo_url as string || ''
+
   // Responsive breakpoint detection
   useEffect(() => {
     const checkScreenSize = () => {
@@ -209,39 +218,48 @@ export function AdminLayout({ user }: AdminLayoutProps) {
           ? `fixed left-0 top-0 h-full ${sidebarCollapsed ? '-translate-x-full w-0' : 'translate-x-0 w-80'}` 
           : `relative ${sidebarCollapsed ? 'w-16' : 'w-64'}`
       }`}>
-        {/* Header */}
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div className={`bg-primary rounded-lg flex items-center justify-center ${
-                (isMobile || isTablet) ? 'w-10 h-10' : 'w-8 h-8'
+        {/* Header - Logo + Toggle */}
+        <div className="px-4 py-5 space-y-3">
+          {/* Logo - Full Width */}
+          <div className="w-full rounded-lg overflow-hidden border border-border shadow-sm bg-white dark:bg-gray-800">
+            {logoUrl ? (
+              <img 
+                src={logoUrl} 
+                alt="Restaurant logo" 
+                className="w-full h-auto object-contain"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none'
+                  const parent = e.currentTarget.parentElement
+                  if (parent) {
+                    parent.innerHTML = '<div class="w-full h-12 flex items-center justify-center bg-primary"><svg class="w-6 h-6 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg></div>'
+                  }
+                }}
+              />
+            ) : (
+              <div className={`w-full flex items-center justify-center bg-primary ${
+                (isMobile || isTablet) ? 'h-16' : 'h-12'
               }`}>
-                <ShoppingCart className={`text-primary-foreground ${
-                  (isMobile || isTablet) ? 'w-6 h-6' : 'w-5 h-5'
+                <Store className={`text-primary-foreground ${
+                  (isMobile || isTablet) ? 'w-8 h-8' : 'w-6 h-6'
                 }`} />
               </div>
-              {(!sidebarCollapsed || (isMobile || isTablet)) && (
-                <div>
-                  <span className={`font-bold ${
-                    (isMobile || isTablet) ? 'text-2xl' : 'text-xl'
-                  }`}>POS Admin</span>
-                  <p className={`text-muted-foreground ${
-                    (isMobile || isTablet) ? 'text-sm' : 'text-xs'
-                  }`}>Restaurant Management</p>
-                </div>
-              )}
-            </div>
-            
-            {/* Toggle Button - Larger on tablet */}
-            <Button
-              variant="ghost"
-              size={isTablet ? "default" : "sm"}
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className={isTablet ? "p-2 h-10 w-10" : "p-1 h-8 w-8"}
-            >
-              <Menu className={isTablet ? "w-5 h-5" : "w-4 h-4"} />
-            </Button>
+            )}
           </div>
+          
+          {/* Toggle Button */}
+          <Button
+            variant="ghost"
+            size={isTablet ? "default" : "sm"}
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className={`w-full flex items-center justify-center gap-2 ${isTablet ? "h-10" : "h-8"}`}
+          >
+            <Menu className={isTablet ? "w-5 h-5" : "w-4 h-4"} />
+            {(!sidebarCollapsed || isMobile || isTablet) && (
+              <span className={isTablet ? "text-sm" : "text-xs"}>
+                {sidebarCollapsed ? 'Expand' : 'Collapse'}
+              </span>
+            )}
+          </Button>
         </div>
 
         {/* Navigation */}

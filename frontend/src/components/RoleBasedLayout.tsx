@@ -79,49 +79,49 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
       case 'admin':
         return {
           title: 'Administrator',
-          color: 'bg-red-100 text-red-800',
+          color: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
           icon: <Settings className="w-4 h-4" />,
           description: 'Full system access and management'
         }
       case 'manager':
         return {
           title: 'Manager',
-          color: 'bg-purple-100 text-purple-800',
+          color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
           icon: <LayoutDashboard className="w-4 h-4" />,
           description: 'Operations management and reporting'
         }
       case 'server':
         return {
           title: 'Server',
-          color: 'bg-blue-100 text-blue-800',
+          color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
           icon: <Users className="w-4 h-4" />,
           description: 'Dine-in order creation'
         }
       case 'counter':
         return {
           title: 'Counter/Checkout',
-          color: 'bg-green-100 text-green-800',
+          color: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
           icon: <CreditCard className="w-4 h-4" />,
           description: 'Order creation and payment processing'
         }
       case 'kitchen':
         return {
           title: 'Kitchen Staff',
-          color: 'bg-orange-100 text-orange-800',
+          color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
           icon: <ChefHat className="w-4 h-4" />,
           description: 'Order preparation and status updates'
         }
       case 'store_manager':
         return {
           title: 'Store Manager',
-          color: 'bg-teal-100 text-teal-800',
+          color: 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300',
           icon: <Warehouse className="w-4 h-4" />,
           description: 'Inventory and supplies management'
         }
       default:
         return {
           title: 'Staff',
-          color: 'bg-gray-100 text-gray-800',
+          color: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300',
           icon: <User className="w-4 h-4" />,
           description: 'General access'
         }

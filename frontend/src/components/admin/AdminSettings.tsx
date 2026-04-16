@@ -15,10 +15,14 @@ import {
   Save,
   RotateCcw,
   UtensilsCrossed,
-  Check
+  Check,
+  Moon,
+  Sun,
+  Monitor
 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { useToast } from '@/hooks/use-toast'
+import { useTheme } from '@/contexts/ThemeContext'
 import { DEFAULT_DISPLAY_CURRENCY, parseCurrencyFromSettings, setDisplayCurrency } from '@/lib/currency'
 
 interface OrderTypeConfig {
@@ -37,12 +41,12 @@ export function AdminSettings() {
     receipt_footer: 'Visit again soon!',
     notification_email: 'admin@restaurant.com',
     backup_frequency: 'daily',
-    theme: 'light',
     language: 'en'
   })
 
   const queryClient = useQueryClient()
   const { toast } = useToast()
+  const { theme, setTheme } = useTheme()
 
   const { data: allSettingsRes } = useQuery({
     queryKey: ['settings', 'all'],
@@ -61,6 +65,8 @@ export function AdminSettings() {
     address: '',
     ntn: '',
     pos_number: '',
+    logo_url: '',
+    logo_width_percent: '75',
   })
 
   useEffect(() => {
@@ -83,6 +89,11 @@ export function AdminSettings() {
       address: str('receipt_address'),
       ntn: str('receipt_ntn'),
       pos_number: str('receipt_pos_number'),
+      logo_url: str('receipt_logo_url'),
+      logo_width_percent:
+        typeof d.receipt_logo_width_percent === 'number'
+          ? String(Math.round(d.receipt_logo_width_percent))
+          : str('receipt_logo_width_percent') || '75',
     })
     setSettings((prev) => ({
       ...prev,
@@ -101,10 +112,13 @@ export function AdminSettings() {
 
   const saveCustomerReceipt = useMutation({
     mutationFn: async () => {
+      const logoWidth = Math.min(80, Math.max(70, Number(customerReceipt.logo_width_percent || '75') || 75))
       await apiClient.updateSetting('receipt_business_name', customerReceipt.business_name)
       await apiClient.updateSetting('receipt_address', customerReceipt.address)
       await apiClient.updateSetting('receipt_ntn', customerReceipt.ntn)
       await apiClient.updateSetting('receipt_pos_number', customerReceipt.pos_number)
+      await apiClient.updateSetting('receipt_logo_url', customerReceipt.logo_url)
+      await apiClient.updateSetting('receipt_logo_width_percent', logoWidth)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'all'] })
@@ -202,7 +216,6 @@ export function AdminSettings() {
       receipt_footer: 'Visit again soon!',
       notification_email: 'admin@restaurant.com',
       backup_frequency: 'daily',
-      theme: 'light',
       language: 'en'
     })
   }
@@ -421,6 +434,55 @@ export function AdminSettings() {
                 />
               </div>
             </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Logo URL</label>
+                <Input
+                  value={customerReceipt.logo_url}
+                  onChange={(e) => setCustomerReceipt({ ...customerReceipt, logo_url: e.target.value })}
+                  placeholder="https://yourcdn.com/logo.png"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Use a public URL (PNG/SVG preferred). Logo prints above business name.
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Logo width (%)</label>
+                <Input
+                  type="number"
+                  min={70}
+                  max={80}
+                  value={customerReceipt.logo_width_percent}
+                  onChange={(e) =>
+                    setCustomerReceipt({ ...customerReceipt, logo_width_percent: e.target.value })
+                  }
+                  placeholder="75"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">Recommended range: 70 to 80.</p>
+              </div>
+            </div>
+            <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Header preview</p>
+              <div className="mx-auto w-64 border border-dashed border-border rounded-sm bg-background px-3 py-2 text-center">
+                {customerReceipt.logo_url ? (
+                  <img
+                    src={customerReceipt.logo_url}
+                    alt="Receipt logo preview"
+                    className="mx-auto mb-2 h-14 max-w-full object-contain"
+                    style={{ width: `${Math.min(80, Math.max(70, Number(customerReceipt.logo_width_percent) || 75))}%` }}
+                  />
+                ) : null}
+                <div className="text-sm font-semibold">
+                  {customerReceipt.business_name || 'Business name'}
+                </div>
+                {customerReceipt.address ? (
+                  <div className="text-[11px] text-muted-foreground whitespace-pre-line">{customerReceipt.address}</div>
+                ) : null}
+                {customerReceipt.ntn ? (
+                  <div className="text-[11px] text-muted-foreground">NTN / STRN: {customerReceipt.ntn}</div>
+                ) : null}
+              </div>
+            </div>
             <Button
               type="button"
               onClick={() => saveCustomerReceipt.mutate()}
@@ -464,15 +526,44 @@ export function AdminSettings() {
           <CardContent className="space-y-4">
             <div>
               <label className="text-sm font-medium mb-2 block">Theme</label>
-              <select
-                className="w-full p-2 border border-input rounded-md bg-background"
-                value={settings.theme}
-                onChange={(e) => setSettings({...settings, theme: e.target.value})}
-              >
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-                <option value="system">System</option>
-              </select>
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  type="button"
+                  variant={theme === 'light' ? 'default' : 'outline'}
+                  className="flex items-center gap-2 justify-center"
+                  onClick={() => {
+                    setTheme('light')
+                    toast({ title: 'Theme updated', description: 'Switched to light mode' })
+                  }}
+                >
+                  <Sun className="w-4 h-4" />
+                  Light
+                </Button>
+                <Button
+                  type="button"
+                  variant={theme === 'dark' ? 'default' : 'outline'}
+                  className="flex items-center gap-2 justify-center"
+                  onClick={() => {
+                    setTheme('dark')
+                    toast({ title: 'Theme updated', description: 'Switched to dark mode' })
+                  }}
+                >
+                  <Moon className="w-4 h-4" />
+                  Dark
+                </Button>
+                <Button
+                  type="button"
+                  variant={theme === 'system' ? 'default' : 'outline'}
+                  className="flex items-center gap-2 justify-center"
+                  onClick={() => {
+                    setTheme('system')
+                    toast({ title: 'Theme updated', description: 'Following system preference' })
+                  }}
+                >
+                  <Monitor className="w-4 h-4" />
+                  System
+                </Button>
+              </div>
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Backup Frequency</label>

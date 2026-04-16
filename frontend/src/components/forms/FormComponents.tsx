@@ -22,6 +22,54 @@ import { Switch } from '@/components/ui/switch'
 import { Loader2 } from 'lucide-react'
 import { getCurrencySymbolPrefix } from '@/lib/currency'
 
+/** Digits + at most one '.'; strips leading zeros on the integer part (0999 → 999); keeps 0.x */
+function sanitizeDecimalTyping(raw: string): string {
+  const cleaned = raw.replace(/[^0-9.]/g, '')
+  const dot = cleaned.indexOf('.')
+  let intPart: string
+  let frac: string
+  if (dot === -1) {
+    intPart = cleaned
+    frac = ''
+  } else {
+    intPart = cleaned.slice(0, dot)
+    frac = cleaned.slice(dot + 1).replace(/\./g, '')
+  }
+  intPart = intPart.replace(/^0+(?=\d)/, '')
+  if (dot === -1) return intPart
+  return frac.length > 0 ? `${intPart}.${frac}` : `${intPart}.`
+}
+
+function formatPriceDisplay(n: unknown): string {
+  if (n == null || typeof n !== 'number' || Number.isNaN(n)) return ''
+  if (n === 0) return ''
+  const rounded = Math.round(n * 100) / 100
+  return String(rounded)
+}
+
+function parsePriceOnBlur(text: string): number {
+  const t = text.replace(/\.$/, '')
+  if (t === '' || t === '.') return 0
+  const n = parseFloat(t)
+  return Number.isFinite(n) ? n : 0
+}
+
+function sanitizeIntegerTyping(raw: string): string {
+  return raw.replace(/\D/g, '').replace(/^0+(?=\d)/, '')
+}
+
+function formatIntDisplay(n: unknown): string {
+  if (n == null || typeof n !== 'number' || Number.isNaN(n)) return ''
+  return String(Math.trunc(n))
+}
+
+function clampInt(n: number, min?: number, max?: number): number {
+  let x = n
+  if (min != null && x < min) x = min
+  if (max != null && x > max) x = max
+  return x
+}
+
 // Generic form field wrapper
 interface FormFieldWrapperProps<T extends FieldValues> {
   control: Control<T>
@@ -108,7 +156,72 @@ interface NumberInputFieldProps<T extends FieldValues> {
   description?: string
   min?: number
   max?: number
-  step?: number
+}
+
+function IntegerTextInput({
+  value,
+  onChange,
+  onBlur,
+  name,
+  inputRef,
+  placeholder,
+  min,
+  max,
+}: {
+  value: number
+  onChange: (v: number) => void
+  onBlur: () => void
+  name: string
+  inputRef: React.Ref<HTMLInputElement>
+  placeholder?: string
+  min?: number
+  max?: number
+}) {
+  const [text, setText] = React.useState(() => formatIntDisplay(value))
+  const [focused, setFocused] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!focused) {
+      setText(formatIntDisplay(value))
+    }
+  }, [value, focused])
+
+  return (
+    <Input
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      name={name}
+      ref={inputRef}
+      placeholder={placeholder}
+      value={text}
+      onFocus={() => setFocused(true)}
+      onChange={(e) => {
+        const s = sanitizeIntegerTyping(e.target.value)
+        setText(s)
+        if (s === '') {
+          onChange(0)
+          return
+        }
+        const n = parseInt(s, 10)
+        if (!Number.isNaN(n)) {
+          onChange(n)
+        }
+      }}
+      onBlur={() => {
+        setFocused(false)
+        const raw = sanitizeIntegerTyping(text)
+        let n = raw === '' ? NaN : parseInt(raw, 10)
+        if (Number.isNaN(n)) {
+          n = min != null ? min : 0
+        }
+        n = clampInt(n, min, max)
+        onChange(n)
+        onBlur()
+        setText(formatIntDisplay(n))
+      }}
+    />
+  )
 }
 
 export function NumberInputField<T extends FieldValues>({
@@ -119,7 +232,6 @@ export function NumberInputField<T extends FieldValues>({
   description,
   min,
   max,
-  step = 1,
 }: NumberInputFieldProps<T>) {
   return (
     <FormField
@@ -129,14 +241,15 @@ export function NumberInputField<T extends FieldValues>({
         <FormItem>
           <FormLabel>{label}</FormLabel>
           <FormControl>
-            <Input
-              type="number"
+            <IntegerTextInput
+              value={typeof field.value === 'number' ? field.value : 0}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              name={field.name}
+              inputRef={field.ref}
               placeholder={placeholder}
               min={min}
               max={max}
-              step={step}
-              {...field}
-              onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
             />
           </FormControl>
           {description && <FormDescription>{description}</FormDescription>}
@@ -157,11 +270,92 @@ interface PriceInputFieldProps<T extends FieldValues> {
   currency?: string
 }
 
+function PriceTextInput({
+  value,
+  onChange,
+  onBlur,
+  name,
+  inputRef,
+  placeholder,
+  symbol,
+}: {
+  value: number
+  onChange: (v: number) => void
+  onBlur: () => void
+  name: string
+  inputRef: React.Ref<HTMLInputElement>
+  placeholder?: string
+  symbol: string
+}) {
+  const [text, setText] = React.useState(() => formatPriceDisplay(value))
+  const [focused, setFocused] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!focused) {
+      setText(formatPriceDisplay(value))
+    }
+  }, [value, focused])
+
+  const pushPriceFromString = (s: string) => {
+    if (s === '' || s === '.') {
+      onChange(0)
+      return
+    }
+    if (s.endsWith('.')) {
+      const head = s.slice(0, -1)
+      if (head === '') {
+        onChange(0)
+        return
+      }
+      const n = parseFloat(head)
+      if (!Number.isNaN(n)) {
+        onChange(n)
+      }
+      return
+    }
+    const n = parseFloat(s)
+    if (!Number.isNaN(n)) {
+      onChange(n)
+    }
+  }
+
+  return (
+    <div className="relative">
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+        {symbol}
+      </span>
+      <Input
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        name={name}
+        ref={inputRef}
+        placeholder={placeholder}
+        className="pl-8"
+        value={text}
+        onFocus={() => setFocused(true)}
+        onChange={(e) => {
+          const s = sanitizeDecimalTyping(e.target.value)
+          setText(s)
+          pushPriceFromString(s)
+        }}
+        onBlur={() => {
+          setFocused(false)
+          const n = parsePriceOnBlur(text)
+          onChange(n)
+          onBlur()
+          setText(formatPriceDisplay(n))
+        }}
+      />
+    </div>
+  )
+}
+
 export function PriceInputField<T extends FieldValues>({
   control,
   name,
   label,
-  placeholder = "0.00",
+  placeholder = '0.00',
   description,
   currency,
 }: PriceInputFieldProps<T>) {
@@ -174,20 +368,15 @@ export function PriceInputField<T extends FieldValues>({
         <FormItem>
           <FormLabel>{label}</FormLabel>
           <FormControl>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                {symbol}
-              </span>
-              <Input
-                type="number"
-                placeholder={placeholder}
-                min="0"
-                step="0.01"
-                className="pl-8"
-                {...field}
-                onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-              />
-            </div>
+            <PriceTextInput
+              value={typeof field.value === 'number' ? field.value : 0}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              name={field.name}
+              inputRef={field.ref}
+              placeholder={placeholder}
+              symbol={symbol}
+            />
           </FormControl>
           {description && <FormDescription>{description}</FormDescription>}
           <FormMessage />

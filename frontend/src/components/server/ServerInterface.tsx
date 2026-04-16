@@ -22,6 +22,7 @@ import {
 import { formatCurrency } from '@/lib/utils'
 import type { Product, DiningTable } from '@/types'
 import { useCurrency } from '@/contexts/CurrencyContext'
+import { TableFloorMap } from '@/components/tables/TableFloorMap'
 
 interface CartItem {
   product: Product
@@ -451,42 +452,49 @@ export function ServerInterface() {
                 </div>
               </div>
 
-              {/* Table Grid */}
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-40 sm:max-h-48 overflow-y-auto">
-                {tablesWithStatus.map(table => {
-                  const canSelect = table.statusInfo.status === 'available' || table.statusInfo.status === 'seated'
-                  return (
-                    <Button
-                      key={table.id}
-                      onClick={() => canSelect && setSelectedTable(table)}
-                      disabled={!canSelect}
-                      className={`h-12 sm:h-14 flex flex-col p-1.5 sm:p-2 relative min-h-[48px] touch-manipulation ${
-                        canSelect ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
-                      } ${
-                        selectedTable?.id === table.id ? 'ring-2 ring-primary' : ''
-                      }`}
-                    >
-                      <div className="font-semibold text-xs sm:text-sm">T{table.table_number}</div>
-                      <div className="text-[10px] sm:text-xs">{table.seating_capacity} seats</div>
-                      
-                      {/* Status indicator */}
-                      <div className={`absolute -top-1 -right-1 w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full ${
-                        table.statusInfo.status === 'available' ? 'bg-green-500' :
-                        table.statusInfo.status === 'seated' ? 'bg-blue-500' :
-                        table.statusInfo.status === 'pending' ? 'bg-yellow-500' :
-                        'bg-emerald-500'
-                      }`} />
-                      
-                      {/* Active order indicator */}
-                      {table.activeOrder && (
-                        <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 text-[9px] sm:text-[10px] bg-yellow-200 text-yellow-800 px-1 py-0.5 rounded truncate max-w-full">
-                          #{table.activeOrder.order_number?.slice(-4)}
-                        </div>
-                      )}
-                    </Button>
-                  )
-                })}
-              </div>
+              {tablesWithStatus.some((table) => typeof table.map_x === 'number' && typeof table.map_y === 'number') ? (
+                <TableFloorMap
+                  tables={tablesWithStatus}
+                  selectedTableId={selectedTable?.id}
+                  canSelect={(table) => {
+                    const statusInfo = getTableStatus(table)
+                    return statusInfo.status === 'available' || statusInfo.status === 'seated'
+                  }}
+                  onSelect={(table) => setSelectedTable(table)}
+                />
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-40 sm:max-h-48 overflow-y-auto">
+                  {tablesWithStatus.map(table => {
+                    const canSelect = table.statusInfo.status === 'available' || table.statusInfo.status === 'seated'
+                    return (
+                      <Button
+                        key={table.id}
+                        onClick={() => canSelect && setSelectedTable(table)}
+                        disabled={!canSelect}
+                        className={`h-12 sm:h-14 flex flex-col p-1.5 sm:p-2 relative min-h-[48px] touch-manipulation ${
+                          canSelect ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
+                        } ${
+                          selectedTable?.id === table.id ? 'ring-2 ring-primary' : ''
+                        }`}
+                      >
+                        <div className="font-semibold text-xs sm:text-sm">T{table.table_number}</div>
+                        <div className="text-[10px] sm:text-xs">{table.seating_capacity} seats</div>
+                        <div className={`absolute -top-1 -right-1 w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full ${
+                          table.statusInfo.status === 'available' ? 'bg-green-500' :
+                          table.statusInfo.status === 'seated' ? 'bg-blue-500' :
+                          table.statusInfo.status === 'pending' ? 'bg-yellow-500' :
+                          'bg-emerald-500'
+                        }`} />
+                        {table.activeOrder && (
+                          <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 text-[9px] sm:text-[10px] bg-yellow-200 text-yellow-800 px-1 py-0.5 rounded truncate max-w-full">
+                            #{table.activeOrder.order_number?.slice(-4)}
+                          </div>
+                        )}
+                      </Button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
 

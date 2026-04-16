@@ -19,13 +19,14 @@ import {
   CreditCard,
   DollarSign,
   Check,
-  Table as TableIcon,
   Search,
   Package,
   Car,
   Users,
   Receipt,
   Globe,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import type {
   Product,
@@ -76,6 +77,9 @@ export function CounterInterface() {
   const [lastFireKots, setLastFireKots] = useState<StationKOT[] | undefined>(undefined)
   /** When set, cart adds lines to this existing table order (occupied table flow). */
   const [continuingOrderId, setContinuingOrderId] = useState<string | null>(null)
+  /** Full order data when continuing an existing order (includes items already sent to kitchen). */
+  const [existingOrder, setExistingOrder] = useState<Order | null>(null)
+  const [existingItemsExpanded, setExistingItemsExpanded] = useState(false)
 
   const queryClient = useQueryClient()
   const { formatCurrency } = useCurrency()
@@ -183,6 +187,14 @@ export function CounterInterface() {
         setDineInSession(null)
         setCustomerName('')
         setContinuingOrderId(null)
+        setExistingOrder(null)
+        setExistingItemsExpanded(false)
+      } else {
+        setExistingOrder(null)
+        setExistingItemsExpanded(false)
+        setContinuingOrderId(null)
+        setSelectedTable(null)
+        setDineInSession(null)
       }
 
       try {
@@ -280,9 +292,9 @@ export function CounterInterface() {
   )
 
   const sortedTables = useMemo(() => {
-    return [...tables].sort((a, b) =>
-      String(a.table_number).localeCompare(String(b.table_number), undefined, { numeric: true })
-    )
+    const arr = [...tables]
+    arr.sort((a, b) => String(a.table_number).localeCompare(String(b.table_number), undefined, { numeric: true }))
+    return arr
   }, [tables])
 
   const canUseCart =
@@ -320,6 +332,8 @@ export function CounterInterface() {
 
   const handleFreeTable = (table: DiningTable) => {
     setContinuingOrderId(null)
+    setExistingOrder(null)
+    setExistingItemsExpanded(false)
     setSelectedTable(table)
     setDineInSession(null)
     setSessionModalOpen(true)
@@ -331,6 +345,8 @@ export function CounterInterface() {
       if (res.success && res.data) {
         const o = res.data
         setContinuingOrderId(o.id)
+        setExistingOrder(o)
+        setExistingItemsExpanded(false)
         setSelectedTable(table)
         const disp =
           o.user && (o.user.first_name || o.user.last_name)
@@ -638,15 +654,11 @@ export function CounterInterface() {
       <div className="w-1/3 flex flex-col flex-1 min-h-0 bg-card border-l border-border min-w-[320px]">
         {activeTab === 'create' ? (
           <>
-            <div className="p-4 border-b border-border space-y-3">
+            <div className="shrink-0 p-4 border-b border-border space-y-3">
               {orderType === 'dine_in' ? (
                 <>
-                  <h3 className="font-semibold flex items-center gap-2">
-                    <TableIcon className="w-4 h-4" />
-                    Table
-                  </h3>
-                  <div className="grid grid-cols-3 gap-2 max-h-[220px] overflow-y-auto pr-1">
-                    {sortedTables.slice(0, 24).map((table) => {
+                  <div className="grid grid-cols-3 gap-2 max-h-[200px] overflow-y-auto">
+                    {sortedTables.map((table) => {
                       const occ = table.has_active_order ?? table.is_occupied
                       return (
                         <Button
@@ -671,12 +683,6 @@ export function CounterInterface() {
                       )
                     })}
                   </div>
-                  {continuingOrderId && (
-                    <p className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
-                      Adding to an existing table order. Cart lines are new items only. Removing items already sent to
-                      the kitchen requires a manager (void). Place additions with &quot;Add items &amp; fire KOT&quot;.
-                    </p>
-                  )}
                   {selectedTable && dineInSession && (
                     <div className="rounded-md bg-muted/60 p-3 text-sm space-y-1">
                       <div>
@@ -705,17 +711,62 @@ export function CounterInterface() {
                 </div>
               )}
 
-              {!canUseCart && orderType === 'dine_in' && (
-                <p className="text-sm text-amber-600 dark:text-amber-400">
-                  Choose a table and confirm guest count and server to add items.
-                </p>
-              )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4">
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+              {existingOrder?.items && existingOrder.items.filter((i) => i.status !== 'voided').length > 0 && (
+                <div className="rounded-md border border-border bg-muted/20">
+                  <button
+                    type="button"
+                    onClick={() => setExistingItemsExpanded((prev) => !prev)}
+                    className="w-full flex items-center justify-between p-3 text-left hover:bg-muted/40 transition-colors rounded-md"
+                  >
+                    <span className="text-sm font-medium">
+                      Order #{existingOrder.order_number} items ({existingOrder.items.filter((i) => i.status !== 'voided').length})
+                    </span>
+                    {existingItemsExpanded ? (
+                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </button>
+                  {existingItemsExpanded && (
+                    <div className="px-3 pb-3 space-y-2">
+                      {existingOrder.items
+                        .filter((i) => i.status !== 'voided')
+                        .map((item) => (
+                          <div
+                            key={item.id}
+                            className="flex items-center justify-between gap-2 py-1.5 text-sm border-b border-border last:border-0"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <span className="truncate">{item.product?.name ?? 'Item'}</span>
+                              <span className="text-muted-foreground ml-2">x{item.quantity}</span>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-muted-foreground">{formatCurrency(item.total_price)}</span>
+                              <span
+                                className={cn(
+                                  'text-xs px-1.5 py-0.5 rounded capitalize',
+                                  item.status === 'sent' && 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+                                  item.status === 'preparing' && 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
+                                  item.status === 'ready' && 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+                                  item.status === 'served' && 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                                )}
+                              >
+                                {item.status}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <h3 className="font-semibold flex items-center gap-2">
                 <ShoppingCart className="w-4 h-4" />
-                Items ({cart.length})
+                {continuingOrderId ? 'New items' : 'Cart'} ({cart.length})
               </h3>
               {cart.length === 0 ? (
                 <p className="text-muted-foreground text-sm">Cart is empty</p>
@@ -760,7 +811,7 @@ export function CounterInterface() {
             </div>
 
             {cart.length > 0 && (
-              <div className="p-4 border-t border-border space-y-3">
+              <div className="shrink-0 p-4 border-t border-border space-y-3">
                 <div className="text-sm font-medium text-muted-foreground">Payment type (for tax preview)</div>
                 <div className="grid grid-cols-3 gap-2">
                   {(

@@ -53,7 +53,14 @@ CREATE TABLE dining_tables (
     table_number VARCHAR(20) UNIQUE NOT NULL,
     seating_capacity INTEGER DEFAULT 4,
     location VARCHAR(50), -- e.g., 'main floor', 'patio', 'private room'
+    zone VARCHAR(100), -- finer grouping inside location/floor
     is_occupied BOOLEAN DEFAULT false,
+    map_x DOUBLE PRECISION,
+    map_y DOUBLE PRECISION,
+    map_w DOUBLE PRECISION,
+    map_h DOUBLE PRECISION,
+    map_rotation INTEGER,
+    shape VARCHAR(20), -- rectangle | square | round
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

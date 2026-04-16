@@ -25,6 +25,13 @@ func ApplySchemaPatches(db *sql.DB) {
 		`ALTER TABLE orders ADD CONSTRAINT orders_checkout_payment_method_check CHECK (checkout_payment_method IS NULL OR checkout_payment_method IN ('cash', 'card', 'online'))`,
 		`ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_payment_method_check`,
 		`ALTER TABLE payments ADD CONSTRAINT payments_payment_method_check CHECK (payment_method IN ('cash', 'credit_card', 'debit_card', 'digital_wallet', 'online'))`,
+		`ALTER TABLE dining_tables ADD COLUMN IF NOT EXISTS zone VARCHAR(100)`,
+		`ALTER TABLE dining_tables ADD COLUMN IF NOT EXISTS map_x DOUBLE PRECISION`,
+		`ALTER TABLE dining_tables ADD COLUMN IF NOT EXISTS map_y DOUBLE PRECISION`,
+		`ALTER TABLE dining_tables ADD COLUMN IF NOT EXISTS map_w DOUBLE PRECISION`,
+		`ALTER TABLE dining_tables ADD COLUMN IF NOT EXISTS map_h DOUBLE PRECISION`,
+		`ALTER TABLE dining_tables ADD COLUMN IF NOT EXISTS map_rotation INTEGER`,
+		`ALTER TABLE dining_tables ADD COLUMN IF NOT EXISTS shape VARCHAR(20)`,
 	}
 	for _, q := range stmts {
 		if _, err := db.Exec(q); err != nil {

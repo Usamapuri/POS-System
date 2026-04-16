@@ -1236,9 +1236,16 @@ func deleteProduct(db *sql.DB) gin.HandlerFunc {
 func createTable(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			TableNumber     string  `json:"table_number" binding:"required"`
-			SeatingCapacity int     `json:"seating_capacity"`
-			Location        *string `json:"location"`
+			TableNumber     string   `json:"table_number" binding:"required"`
+			SeatingCapacity int      `json:"seating_capacity"`
+			Location        *string  `json:"location"`
+			Zone            *string  `json:"zone"`
+			MapX            *float64 `json:"map_x"`
+			MapY            *float64 `json:"map_y"`
+			MapW            *float64 `json:"map_w"`
+			MapH            *float64 `json:"map_h"`
+			MapRotation     *int     `json:"map_rotation"`
+			Shape           *string  `json:"shape"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -1252,10 +1259,10 @@ func createTable(db *sql.DB) gin.HandlerFunc {
 
 		var tableID string
 		err := db.QueryRow(`
-			INSERT INTO dining_tables (table_number, seating_capacity, location)
-			VALUES ($1, $2, $3)
+			INSERT INTO dining_tables (table_number, seating_capacity, location, zone, map_x, map_y, map_w, map_h, map_rotation, shape)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			RETURNING id
-		`, req.TableNumber, req.SeatingCapacity, req.Location).Scan(&tableID)
+		`, req.TableNumber, req.SeatingCapacity, req.Location, req.Zone, req.MapX, req.MapY, req.MapW, req.MapH, req.MapRotation, req.Shape).Scan(&tableID)
 
 		if err != nil {
 			c.JSON(500, gin.H{
@@ -1280,10 +1287,17 @@ func updateTable(db *sql.DB) gin.HandlerFunc {
 		tableID := c.Param("id")
 
 		var req struct {
-			TableNumber     *string `json:"table_number"`
-			SeatingCapacity *int    `json:"seating_capacity"`
-			Location        *string `json:"location"`
-			IsOccupied      *bool   `json:"is_occupied"`
+			TableNumber     *string  `json:"table_number"`
+			SeatingCapacity *int     `json:"seating_capacity"`
+			Location        *string  `json:"location"`
+			Zone            *string  `json:"zone"`
+			IsOccupied      *bool    `json:"is_occupied"`
+			MapX            *float64 `json:"map_x"`
+			MapY            *float64 `json:"map_y"`
+			MapW            *float64 `json:"map_w"`
+			MapH            *float64 `json:"map_h"`
+			MapRotation     *int     `json:"map_rotation"`
+			Shape           *string  `json:"shape"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -1315,9 +1329,44 @@ func updateTable(db *sql.DB) gin.HandlerFunc {
 			args = append(args, req.Location)
 			argCount++
 		}
+		if req.Zone != nil {
+			updates = append(updates, fmt.Sprintf("zone = $%d", argCount))
+			args = append(args, req.Zone)
+			argCount++
+		}
 		if req.IsOccupied != nil {
 			updates = append(updates, fmt.Sprintf("is_occupied = $%d", argCount))
 			args = append(args, *req.IsOccupied)
+			argCount++
+		}
+		if req.MapX != nil {
+			updates = append(updates, fmt.Sprintf("map_x = $%d", argCount))
+			args = append(args, *req.MapX)
+			argCount++
+		}
+		if req.MapY != nil {
+			updates = append(updates, fmt.Sprintf("map_y = $%d", argCount))
+			args = append(args, *req.MapY)
+			argCount++
+		}
+		if req.MapW != nil {
+			updates = append(updates, fmt.Sprintf("map_w = $%d", argCount))
+			args = append(args, *req.MapW)
+			argCount++
+		}
+		if req.MapH != nil {
+			updates = append(updates, fmt.Sprintf("map_h = $%d", argCount))
+			args = append(args, *req.MapH)
+			argCount++
+		}
+		if req.MapRotation != nil {
+			updates = append(updates, fmt.Sprintf("map_rotation = $%d", argCount))
+			args = append(args, *req.MapRotation)
+			argCount++
+		}
+		if req.Shape != nil {
+			updates = append(updates, fmt.Sprintf("shape = $%d", argCount))
+			args = append(args, *req.Shape)
 			argCount++
 		}
 
@@ -1917,12 +1966,19 @@ func getAdminTables(db *sql.DB) gin.HandlerFunc {
 
 		// Build query with filters
 		queryBuilder := `
-			SELECT t.id, t.table_number, t.seating_capacity, t.location, t.is_occupied, 
+			SELECT t.id, t.table_number, t.seating_capacity, t.location, t.zone, t.is_occupied,
+			       t.map_x, t.map_y, t.map_w, t.map_h, t.map_rotation, t.shape,
 			       t.created_at, t.updated_at,
 			       o.id as order_id, o.order_number, o.customer_name, o.status as order_status,
 			       o.created_at as order_created_at, o.total_amount
 			FROM dining_tables t
-			LEFT JOIN orders o ON t.id = o.table_id AND o.status NOT IN ('completed', 'cancelled')
+			LEFT JOIN LATERAL (
+				SELECT id, order_number, customer_name, status, created_at, total_amount
+				FROM orders
+				WHERE table_id = t.id AND status NOT IN ('completed', 'cancelled')
+				ORDER BY created_at DESC
+				LIMIT 1
+			) o ON true
 			WHERE 1=1
 		`
 
@@ -1988,7 +2044,8 @@ func getAdminTables(db *sql.DB) gin.HandlerFunc {
 			var totalAmount sql.NullFloat64
 
 			err := rows.Scan(
-				&table.ID, &table.TableNumber, &table.SeatingCapacity, &table.Location, &table.IsOccupied,
+				&table.ID, &table.TableNumber, &table.SeatingCapacity, &table.Location, &table.Zone, &table.IsOccupied,
+				&table.MapX, &table.MapY, &table.MapW, &table.MapH, &table.MapRotation, &table.Shape,
 				&table.CreatedAt, &table.UpdatedAt,
 				&orderID, &orderNumber, &customerName, &orderStatus, &orderCreatedAt, &totalAmount,
 			)
@@ -2007,7 +2064,15 @@ func getAdminTables(db *sql.DB) gin.HandlerFunc {
 				"table_number":     table.TableNumber,
 				"seating_capacity": table.SeatingCapacity,
 				"location":         table.Location,
+				"zone":             table.Zone,
 				"is_occupied":      table.IsOccupied,
+				"has_active_order": orderID.Valid,
+				"map_x":            table.MapX,
+				"map_y":            table.MapY,
+				"map_w":            table.MapW,
+				"map_h":            table.MapH,
+				"map_rotation":     table.MapRotation,
+				"shape":            table.Shape,
 				"created_at":       table.CreatedAt,
 				"updated_at":       table.UpdatedAt,
 				"current_order":    nil,

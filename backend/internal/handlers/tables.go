@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 
 	"pos-backend/internal/models"
@@ -25,12 +26,14 @@ func (h *TableHandler) GetTables(c *gin.Context) {
 	availableOnly := c.Query("available_only") == "true"
 
 	queryBuilder := `
-		SELECT t.id, t.table_number, t.seating_capacity, t.location, t.is_occupied, 
+		SELECT t.id, t.table_number, t.seating_capacity, t.location, t.zone, t.is_occupied,
+		       t.map_x, t.map_y, t.map_w, t.map_h, t.map_rotation, t.shape,
 		       t.created_at, t.updated_at,
 		       o.id as order_id, o.order_number, o.customer_name, o.status as order_status,
 		       o.created_at as order_created_at, o.total_amount, o.guest_count,
 		       CASE WHEN o.id IS NOT NULL THEN true ELSE false END as has_active_order,
-		       u.id as server_id, u.first_name as server_first_name, u.last_name as server_last_name, u.role as server_role
+		       u.id as server_id, u.first_name as server_first_name, u.last_name as server_last_name, u.role as server_role,
+		       lb.last_booked_at
 		FROM dining_tables t
 		LEFT JOIN LATERAL (
 			SELECT id, order_number, customer_name, status, created_at, total_amount, guest_count, user_id
@@ -40,6 +43,11 @@ func (h *TableHandler) GetTables(c *gin.Context) {
 			LIMIT 1
 		) o ON true
 		LEFT JOIN users u ON o.user_id = u.id
+		LEFT JOIN LATERAL (
+			SELECT MAX(created_at) AS last_booked_at
+			FROM orders
+			WHERE table_id = t.id AND status <> 'cancelled'
+		) lb ON true
 		WHERE 1=1
 	`
 
@@ -48,7 +56,7 @@ func (h *TableHandler) GetTables(c *gin.Context) {
 
 	if location != "" {
 		argIndex++
-		queryBuilder += ` AND t.location ILIKE $` + string(rune(argIndex+'0'))
+		queryBuilder += fmt.Sprintf(` AND t.location ILIKE $%d`, argIndex)
 		args = append(args, "%"+location+"%")
 	}
 
@@ -80,12 +88,15 @@ func (h *TableHandler) GetTables(c *gin.Context) {
 		var guestCount sql.NullInt32
 		var hasActiveOrder bool
 		var serverID, serverFirstName, serverLastName, serverRole sql.NullString
+		var lastBookedAt sql.NullTime
 
 		err := rows.Scan(
-			&table.ID, &table.TableNumber, &table.SeatingCapacity, &table.Location, &table.IsOccupied,
+			&table.ID, &table.TableNumber, &table.SeatingCapacity, &table.Location, &table.Zone, &table.IsOccupied,
+			&table.MapX, &table.MapY, &table.MapW, &table.MapH, &table.MapRotation, &table.Shape,
 			&table.CreatedAt, &table.UpdatedAt,
 			&orderID, &orderNumber, &customerName, &orderStatus, &orderCreatedAt, &totalAmount, &guestCount, &hasActiveOrder,
 			&serverID, &serverFirstName, &serverLastName, &serverRole,
+			&lastBookedAt,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{
@@ -101,11 +112,23 @@ func (h *TableHandler) GetTables(c *gin.Context) {
 			"table_number":     table.TableNumber,
 			"seating_capacity": table.SeatingCapacity,
 			"location":         table.Location,
+			"zone":             table.Zone,
 			"is_occupied":      table.IsOccupied,
 			"has_active_order": hasActiveOrder,
+			"map_x":            table.MapX,
+			"map_y":            table.MapY,
+			"map_w":            table.MapW,
+			"map_h":            table.MapH,
+			"map_rotation":     table.MapRotation,
+			"shape":            table.Shape,
 			"created_at":       table.CreatedAt,
 			"updated_at":       table.UpdatedAt,
 			"current_order":    nil,
+		}
+		if lastBookedAt.Valid {
+			tableData["last_booked_at"] = lastBookedAt.Time
+		} else {
+			tableData["last_booked_at"] = nil
 		}
 
 		if orderID.Valid {
@@ -154,14 +177,25 @@ func (h *TableHandler) GetTable(c *gin.Context) {
 	var table models.DiningTable
 
 	query := `
-		SELECT id, table_number, seating_capacity, location, is_occupied, created_at, updated_at
-		FROM dining_tables
-		WHERE id = $1
+		SELECT t.id, t.table_number, t.seating_capacity, t.location, t.zone, t.is_occupied,
+		       t.map_x, t.map_y, t.map_w, t.map_h, t.map_rotation, t.shape,
+		       t.created_at, t.updated_at,
+		       lb.last_booked_at
+		FROM dining_tables t
+		LEFT JOIN LATERAL (
+			SELECT MAX(created_at) AS last_booked_at
+			FROM orders
+			WHERE table_id = t.id AND status <> 'cancelled'
+		) lb ON true
+		WHERE t.id = $1
 	`
 
+	var lastBookedAt sql.NullTime
 	err = h.db.QueryRow(query, tableID).Scan(
-		&table.ID, &table.TableNumber, &table.SeatingCapacity, &table.Location,
-		&table.IsOccupied, &table.CreatedAt, &table.UpdatedAt,
+		&table.ID, &table.TableNumber, &table.SeatingCapacity, &table.Location, &table.Zone,
+		&table.IsOccupied, &table.MapX, &table.MapY, &table.MapW, &table.MapH, &table.MapRotation, &table.Shape,
+		&table.CreatedAt, &table.UpdatedAt,
+		&lastBookedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -212,11 +246,23 @@ func (h *TableHandler) GetTable(c *gin.Context) {
 		"table_number":     table.TableNumber,
 		"seating_capacity": table.SeatingCapacity,
 		"location":         table.Location,
+		"zone":             table.Zone,
 		"is_occupied":      table.IsOccupied,
 		"has_active_order": currentOrder != nil,
+		"map_x":            table.MapX,
+		"map_y":            table.MapY,
+		"map_w":            table.MapW,
+		"map_h":            table.MapH,
+		"map_rotation":     table.MapRotation,
+		"shape":            table.Shape,
 		"created_at":       table.CreatedAt,
 		"updated_at":       table.UpdatedAt,
 		"current_order":    currentOrder,
+	}
+	if lastBookedAt.Valid {
+		response["last_booked_at"] = lastBookedAt.Time
+	} else {
+		response["last_booked_at"] = nil
 	}
 
 	c.JSON(http.StatusOK, models.APIResponse{
@@ -229,9 +275,11 @@ func (h *TableHandler) GetTable(c *gin.Context) {
 // GetTablesByLocation retrieves tables grouped by location
 func (h *TableHandler) GetTablesByLocation(c *gin.Context) {
 	query := `
-		SELECT t.id, t.table_number, t.seating_capacity, t.location, t.is_occupied, 
+		SELECT t.id, t.table_number, t.seating_capacity, t.location, t.zone, t.is_occupied,
+		       t.map_x, t.map_y, t.map_w, t.map_h, t.map_rotation, t.shape,
 		       t.created_at, t.updated_at,
-		       o.id as order_id, o.order_number, o.customer_name, o.status as order_status
+		       o.id as order_id, o.order_number, o.customer_name, o.status as order_status,
+		       lb.last_booked_at
 		FROM dining_tables t
 		LEFT JOIN LATERAL (
 			SELECT id, order_number, customer_name, status
@@ -240,6 +288,11 @@ func (h *TableHandler) GetTablesByLocation(c *gin.Context) {
 			ORDER BY created_at DESC
 			LIMIT 1
 		) o ON true
+		LEFT JOIN LATERAL (
+			SELECT MAX(created_at) AS last_booked_at
+			FROM orders
+			WHERE table_id = t.id AND status <> 'cancelled'
+		) lb ON true
 		ORDER BY t.location ASC, t.table_number ASC
 	`
 
@@ -261,11 +314,14 @@ func (h *TableHandler) GetTablesByLocation(c *gin.Context) {
 		var table models.DiningTable
 		var orderID, orderNumber, customerName, orderStatus sql.NullString
 		var location sql.NullString
+		var lastBookedAt sql.NullTime
 
 		err := rows.Scan(
-			&table.ID, &table.TableNumber, &table.SeatingCapacity, &location, &table.IsOccupied,
+			&table.ID, &table.TableNumber, &table.SeatingCapacity, &location, &table.Zone, &table.IsOccupied,
+			&table.MapX, &table.MapY, &table.MapW, &table.MapH, &table.MapRotation, &table.Shape,
 			&table.CreatedAt, &table.UpdatedAt,
 			&orderID, &orderNumber, &customerName, &orderStatus,
+			&lastBookedAt,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{
@@ -284,6 +340,10 @@ func (h *TableHandler) GetTablesByLocation(c *gin.Context) {
 			table.Location = &defaultLocation
 		}
 		table.HasActiveOrder = orderID.Valid
+		if lastBookedAt.Valid {
+			t := lastBookedAt.Time
+			table.LastBookedAt = &t
+		}
 
 		locationKey := *table.Location
 		locationMap[locationKey] = append(locationMap[locationKey], table)
