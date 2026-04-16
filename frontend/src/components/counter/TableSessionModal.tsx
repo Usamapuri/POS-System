@@ -68,6 +68,19 @@ export function TableSessionModal({ open, table, onOpenChange, onConfirm }: Prop
     }
   }, [open])
 
+  useEffect(() => {
+    if (!open) return
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onOpenChange(false)
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, onOpenChange])
+
   if (!open || !table) return null
 
   const guestCount = Math.max(1, parseInt(nopStr || '1', 10) || 1)
@@ -93,8 +106,14 @@ export function TableSessionModal({ open, table, onOpenChange, onConfirm }: Prop
   })()
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-card border border-border rounded-xl shadow-lg max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={() => onOpenChange(false)}
+    >
+      <div
+        className="bg-card border border-border rounded-xl shadow-lg max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-6"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div>
           <h2 className="text-xl font-semibold">Table session</h2>
           <p className="text-muted-foreground text-sm mt-1">
