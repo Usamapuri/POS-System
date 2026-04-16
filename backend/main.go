@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"os"
 	"strings"
@@ -21,29 +22,32 @@ func main() {
 		log.Println("No .env file found, using environment variables")
 	}
 
-	// Database configuration
-	dbConfig := database.Config{
-		Host:     getEnv("DB_HOST", "postgres"),
-		Port:     getEnv("DB_PORT", "5432"),
-		User:     getEnv("DB_USER", "postgres"),
-		Password: getEnv("DB_PASSWORD", "postgres123"),
-		DBName:   getEnv("DB_NAME", "pos_system"),
-		SSLMode:  getEnv("DB_SSLMODE", "disable"),
+	// Database: prefer Railway/Heroku-style DATABASE_URL; else discrete DB_* vars.
+	var db *sql.DB
+	var err error
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		db, err = database.OpenPostgres(dsn)
+	} else {
+		dbConfig := database.Config{
+			Host:     getEnv("DB_HOST", "postgres"),
+			Port:     getEnv("DB_PORT", "5432"),
+			User:     getEnv("DB_USER", "postgres"),
+			Password: getEnv("DB_PASSWORD", "postgres123"),
+			DBName:   getEnv("DB_NAME", "pos_system"),
+			SSLMode:  getEnv("DB_SSLMODE", "disable"),
+		}
+		db, err = database.Connect(dbConfig)
 	}
-
-	// Initialize database connection
-	db, err := database.Connect(dbConfig)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
-	// Test database connection
-	if err := db.Ping(); err != nil {
-		log.Fatalf("Failed to ping database: %v", err)
-	}
-
 	log.Println("Successfully connected to database")
+
+	if err := database.BootstrapIfEmpty(db); err != nil {
+		log.Fatalf("Database bootstrap failed: %v", err)
+	}
 
 	database.ApplySchemaPatches(db)
 

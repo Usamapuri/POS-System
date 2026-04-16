@@ -43,6 +43,23 @@ func Connect(config Config) (*sql.DB, error) {
 	return db, nil
 }
 
+// OpenPostgres opens a pool from a libpq connection string or postgres:// URL (e.g. Railway DATABASE_URL).
+func OpenPostgres(dsn string) (*sql.DB, error) {
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database connection: %w", err)
+	}
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+	log.Println("Database connection established successfully (DATABASE_URL)")
+	return db, nil
+}
+
 func IsConnectionError(err error) bool {
 	if err == nil {
 		return false
