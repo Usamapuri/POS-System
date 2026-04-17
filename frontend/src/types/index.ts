@@ -456,6 +456,16 @@ export interface AdvancedStockReport {
     total_stock_value: number;
     total_waste_value: number;
     turnover_rate: number;
+    /** Sum of ABS(issue qty) × default unit cost in the selected period */
+    issued_value_period?: number;
+    /** Active items at or below reorder level */
+    low_stock_count?: number;
+    /** Days used for period filters (from query param, clamped server-side) */
+    period_days?: number;
+    /** Estimated days of stock at average daily issued-value burn; null if no issues in period */
+    days_cover_estimate?: number | null;
+    /** Waste value as % of issued value in period; null if no issues */
+    waste_pct_of_issued?: number | null;
   };
   category_values: { name: string; value: number }[] | null;
   trends: { week: string; purchase_cost: number; issued_qty: number }[] | null;
