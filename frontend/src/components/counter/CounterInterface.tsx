@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/api/client'
 import { Button } from '@/components/ui/button'
@@ -6,6 +6,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { TableSessionModal, type TableSession } from '@/components/counter/TableSessionModal'
 import { KotPrintModal } from '@/components/counter/KotPrintModal'
+import { CounterPaymentPanel } from '@/components/counter/CounterPaymentPanel'
+import { CounterOrderTypeToggle } from '@/components/counter/CounterOrderTypeToggle'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { computeCartTotals, mergePricingSettings } from '@/lib/counterPricing'
 import { subscribeOrderReady } from '@/lib/kdsRealtime'
 import { cn } from '@/lib/utils'
@@ -17,16 +24,13 @@ import {
   Minus,
   ShoppingCart,
   CreditCard,
-  DollarSign,
   Check,
   Search,
   Package,
-  Car,
-  Users,
-  Receipt,
-  Globe,
   ChevronDown,
   ChevronUp,
+  Info,
+  GripVertical,
 } from 'lucide-react'
 import type {
   Product,
@@ -130,8 +134,26 @@ function pickOnAccentText(accent: string): '#ffffff' | '#0a0a0a' {
   return luminance > 0.55 ? '#0a0a0a' : '#ffffff'
 }
 
+function orderPayableRemaining(order: Order | null): number {
+  if (!order) return 0
+  const paid =
+    order.payments?.filter((p) => p.status === 'completed').reduce((s, p) => s + p.amount, 0) ?? 0
+  return Math.max(0, order.total_amount - paid)
+}
+
+const COUNTER_CHECKOUT_RAIL_KEY = 'pos-counter-checkout-rail-px'
+const COUNTER_RAIL_DEFAULT = 448
+const COUNTER_RAIL_MIN = 300
+
+function readCheckoutRailWidth(): number {
+  if (typeof window === 'undefined') return COUNTER_RAIL_DEFAULT
+  const raw = localStorage.getItem(COUNTER_CHECKOUT_RAIL_KEY)
+  const n = raw ? parseInt(raw, 10) : NaN
+  return Number.isFinite(n) && n >= COUNTER_RAIL_MIN ? n : COUNTER_RAIL_DEFAULT
+}
+
 export function CounterInterface() {
-  const [activeTab, setActiveTab] = useState<'create' | 'payment'>('create')
+  const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [orderType, setOrderType] = useState<'dine_in' | 'takeout' | 'delivery'>('dine_in')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [selectedTable, setSelectedTable] = useState<DiningTable | null>(null)
@@ -162,9 +184,13 @@ export function CounterInterface() {
   /** Brief highlight on cart row after add / quantity bump (slightly longer than product tile). */
   const [lastCartFlashProductId, setLastCartFlashProductId] = useState<string | null>(null)
   const cartFlashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const cartRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const cartRowRefs = useRef<Record<string, HTMLTableRowElement | null>>({})
   const [cartLiveAnnouncement, setCartLiveAnnouncement] = useState<{ text: string; id: number }>({ text: '', id: 0 })
   const [existingItemsExpanded, setExistingItemsExpanded] = useState(false)
+
+  const [checkoutRailPx, setCheckoutRailPx] = useState(readCheckoutRailWidth)
+  const counterSplitRef = useRef<HTMLDivElement>(null)
+  const railDragRef = useRef<{ startX: number; startW: number; maxW: number } | null>(null)
 
   const queryClient = useQueryClient()
   const { formatCurrency } = useCurrency()
@@ -230,6 +256,11 @@ export function CounterInterface() {
     },
   })
 
+  const ordersToCloseStrip = useMemo(() => {
+    if (orderType === 'dine_in') return []
+    return pendingOrders.filter((o) => o.order_type === orderType)
+  }, [orderType, pendingOrders])
+
   const { data: paymentOrderDetail, isFetching: paymentOrderFetching } = useQuery({
     queryKey: ['order', selectedOrder?.id, 'payment-panel'],
     queryFn: async () => {
@@ -237,7 +268,7 @@ export function CounterInterface() {
       if (!r.success || !r.data) throw new Error(r.message || 'Failed to load order')
       return r.data
     },
-    enabled: Boolean(activeTab === 'payment' && selectedOrder),
+    enabled: Boolean(selectedOrder && checkoutOpen),
   })
 
   const orderForPayment = paymentOrderDetail ?? selectedOrder ?? null
@@ -251,6 +282,9 @@ export function CounterInterface() {
         quantity: item.quantity,
         special_instructions: item.special_instructions,
       }))
+      if (orderType === 'dine_in' && !continuingOrderId) {
+        throw new Error('Confirm the table session first (order was not opened).')
+      }
       if (continuingOrderId) {
         const res = await apiClient.addItemsToOrder(continuingOrderId, lines)
         if (!res.success) {
@@ -320,6 +354,7 @@ export function CounterInterface() {
       apiClient.processCounterPayment(orderId, paymentData),
     onSuccess: async (_data, variables) => {
       setSelectedOrder(null)
+      setCheckoutOpen(false)
       setCashReceived('')
       setReferenceNumber('')
       queryClient.invalidateQueries({ queryKey: ['orders'] })
@@ -452,6 +487,8 @@ export function CounterInterface() {
   }
 
   const handleFreeTable = (table: DiningTable) => {
+    setCheckoutOpen(false)
+    setSelectedOrder(null)
     setContinuingOrderId(null)
     setExistingOrder(null)
     setExistingItemsExpanded(false)
@@ -461,6 +498,8 @@ export function CounterInterface() {
   }
 
   const handleOccupiedTable = async (table: DiningTable) => {
+    setCheckoutOpen(false)
+    setSelectedOrder(null)
     try {
       const res = await apiClient.getActiveOrderForTable(table.id)
       if (res.success && res.data) {
@@ -477,6 +516,10 @@ export function CounterInterface() {
           guestCount: Math.max(1, o.guest_count ?? 1),
           serverId: o.user_id ?? '',
           serverDisplayName: disp,
+          customerName: o.customer_name,
+          customerEmail: o.customer_email,
+          customerPhone: o.customer_phone,
+          guestBirthday: o.guest_birthday,
         })
         setCart([])
         setOrderNotes('')
@@ -487,6 +530,57 @@ export function CounterInterface() {
     }
   }
 
+  const handleTableSessionConfirm = async (s: TableSession) => {
+    if (!selectedTable) return
+    try {
+      const res = await apiClient.openCounterTableTab({
+        table_id: selectedTable.id,
+        guest_count: s.guestCount,
+        assigned_server_id: s.serverId,
+        customer_name: s.customerName,
+        customer_email: s.customerEmail,
+        customer_phone: s.customerPhone,
+        guest_birthday: s.guestBirthday,
+      })
+      if (!res.success || !res.data) {
+        toastHelpers.error('Table', res.message || 'Could not open table tab')
+        return
+      }
+      setDineInSession(s)
+      setContinuingOrderId(res.data.id)
+      setExistingOrder(res.data)
+      setSessionModalOpen(false)
+      toastHelpers.success('Table opened', `Order #${res.data.order_number}`)
+      queryClient.invalidateQueries({ queryKey: ['tables'] })
+    } catch (e) {
+      toastHelpers.error('Table', e instanceof Error ? e.message : 'Request failed')
+    }
+  }
+
+  const cancelOpenTabMutation = useMutation({
+    mutationFn: (orderId: string) => apiClient.cancelCounterOpenTab(orderId),
+    onSuccess: (res) => {
+      if (!res.success) {
+        toastHelpers.error('Cancel tab', res.message || 'Could not cancel')
+        return
+      }
+      setContinuingOrderId(null)
+      setExistingOrder(null)
+      setDineInSession(null)
+      setSelectedTable(null)
+      setCart([])
+      setOrderNotes('')
+      setCheckoutOpen(false)
+      setSelectedOrder(null)
+      queryClient.invalidateQueries({ queryKey: ['tables'] })
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      toastHelpers.success('Session cancelled', 'Table is free again.')
+    },
+    onError: (e: Error) => {
+      toastHelpers.error('Cancel tab', e.message || 'Request failed')
+    },
+  })
+
   const handleSubmitCart = () => {
     if (cart.length === 0 || !canUseCart) return
     if (orderType === 'dine_in' && (!selectedTable || !dineInSession)) return
@@ -494,6 +588,7 @@ export function CounterInterface() {
   }
 
   const selectPaymentOrder = (order: Order) => {
+    setCheckoutOpen(true)
     setSelectedOrder(order)
     const intent = order.checkout_payment_method ?? 'cash'
     setPaymentCheckoutIntent(intent)
@@ -567,13 +662,86 @@ export function CounterInterface() {
   const changeDue =
     cashReceived && selectedOrder ? Math.max(0, parseFloat(cashReceived || '0') - payAmount) : 0
 
+  const clampCheckoutRail = useCallback((w: number, containerWidth: number) => {
+    const max = Math.max(
+      COUNTER_RAIL_MIN + 160,
+      Math.min(820, Math.floor(containerWidth * 0.56))
+    )
+    return Math.min(max, Math.max(COUNTER_RAIL_MIN, Math.round(w)))
+  }, [])
+
+  const beginCheckoutRailDrag = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      const root = counterSplitRef.current
+      if (!root) return
+      const cw = root.getBoundingClientRect().width
+      const maxW = Math.max(
+        COUNTER_RAIL_MIN + 160,
+        Math.min(820, Math.floor(cw * 0.56))
+      )
+      railDragRef.current = { startX: e.clientX, startW: checkoutRailPx, maxW }
+      const onMove = (ev: MouseEvent) => {
+        const d = railDragRef.current
+        if (!d) return
+        const delta = d.startX - ev.clientX
+        const nw = d.startW + delta
+        setCheckoutRailPx(Math.min(d.maxW, Math.max(COUNTER_RAIL_MIN, Math.round(nw))))
+      }
+      const onUp = () => {
+        railDragRef.current = null
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+        document.body.style.removeProperty('-webkit-user-select')
+        window.removeEventListener('mousemove', onMove)
+        window.removeEventListener('mouseup', onUp)
+        setCheckoutRailPx((w) => {
+          const cw2 = counterSplitRef.current?.getBoundingClientRect().width ?? 1200
+          const clamped = clampCheckoutRail(w, cw2)
+          try {
+            localStorage.setItem(COUNTER_CHECKOUT_RAIL_KEY, String(clamped))
+          } catch {
+            /* ignore */
+          }
+          return clamped
+        })
+      }
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+      document.body.style.setProperty('-webkit-user-select', 'none')
+      window.addEventListener('mousemove', onMove)
+      window.addEventListener('mouseup', onUp)
+    },
+    [checkoutRailPx, clampCheckoutRail]
+  )
+
+  const resetCheckoutRailWidth = useCallback(() => {
+    setCheckoutRailPx(COUNTER_RAIL_DEFAULT)
+    try {
+      localStorage.setItem(COUNTER_CHECKOUT_RAIL_KEY, String(COUNTER_RAIL_DEFAULT))
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    const onResize = () => {
+      setCheckoutRailPx((w) => {
+        const cw = counterSplitRef.current?.getBoundingClientRect().width ?? 1200
+        return clampCheckoutRail(w, cw)
+      })
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [clampCheckoutRail])
+
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-row bg-background">
       <TableSessionModal
         open={sessionModalOpen}
         table={selectedTable}
         onOpenChange={setSessionModalOpen}
-        onConfirm={(s) => setDineInSession(s)}
+        onConfirm={handleTableSessionConfirm}
       />
 
       <KotPrintModal open={kotPrintOpen} onOpenChange={setKotPrintOpen} kots={lastFireKots} />
@@ -612,111 +780,90 @@ export function CounterInterface() {
         </div>
       )}
 
-      <div className="w-2/3 border-r border-border overflow-hidden flex flex-col min-w-0">
-        <div className="p-4 border-b border-border bg-card">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-2xl font-bold">Counter / Checkout</h1>
-              <p className="text-muted-foreground">Create orders and process payments</p>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant={activeTab === 'create' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setActiveTab('create')}
-              >
-                Create Order
-              </Button>
-              <Button
-                variant={activeTab === 'payment' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setActiveTab('payment')}
-              >
-                Process Payment
-              </Button>
-            </div>
+      <div ref={counterSplitRef} className="flex h-full min-h-0 min-w-0 flex-1 flex-row self-stretch">
+        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-border bg-background">
+        <div className="shrink-0 border-b border-border bg-card/95 px-4 py-3 backdrop-blur-sm sm:px-5 sm:py-4">
+          <div className="mb-3">
+            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Counter / Checkout</h1>
+            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
+              Choose order type, then add items from the menu. Checkout opens from the table session or from orders
+              to close.
+            </p>
           </div>
 
-          {activeTab === 'create' && (
-            <>
-              <div className="flex gap-2 mb-4 flex-wrap">
-                <Button
-                  variant={orderType === 'dine_in' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => {
-                    setOrderType('dine_in')
-                    setDineInSession(null)
-                    setSelectedTable(null)
-                  }}
-                >
-                  <Users className="w-4 h-4 mr-1" />
-                  Dine-In
-                </Button>
-                <Button
-                  variant={orderType === 'takeout' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => {
-                    setOrderType('takeout')
-                    setDineInSession(null)
-                    setSelectedTable(null)
-                  }}
-                >
-                  <Package className="w-4 h-4 mr-1" />
-                  Takeout
-                </Button>
-                <Button
-                  variant={orderType === 'delivery' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => {
-                    setOrderType('delivery')
-                    setDineInSession(null)
-                    setSelectedTable(null)
-                  }}
-                >
-                  <Car className="w-4 h-4 mr-1" />
-                  Delivery
-                </Button>
-              </div>
+          <div className="mb-4">
+            <CounterOrderTypeToggle
+              value={orderType}
+              onChange={(next) => {
+                setOrderType(next)
+                setDineInSession(null)
+                setSelectedTable(null)
+                setCheckoutOpen(false)
+                setSelectedOrder(null)
+              }}
+            />
+          </div>
 
-              <div className="relative mb-4">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                <Input
-                  placeholder="Search products..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 h-11"
-                />
+          {ordersToCloseStrip.length > 0 && (
+            <div className="mb-3">
+              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">
+                Orders to close
               </div>
-
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                <Button
-                  variant={selectedCategory === 'all' ? 'default' : 'outline'}
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => setSelectedCategory('all')}
-                >
-                  All
-                </Button>
-                {(categories as Category[]).map((category) => (
+              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+                {ordersToCloseStrip.map((order) => (
                   <Button
-                    key={category.id}
-                    variant={selectedCategory === category.id ? 'default' : 'outline'}
+                    key={order.id}
+                    type="button"
                     size="sm"
-                    className="shrink-0"
-                    onClick={() => setSelectedCategory(category.id)}
+                    variant={selectedOrder?.id === order.id && checkoutOpen ? 'default' : 'outline'}
+                    className="shrink-0 h-auto min-h-11 flex-col items-stretch py-2 px-3"
+                    disabled={checkoutIntentMutation.isPending}
+                    onClick={() => selectPaymentOrder(order)}
                   >
-                    {category.name}
+                    <span className="font-semibold">#{order.order_number}</span>
+                    <span className="text-xs opacity-90 tabular-nums">{formatCurrency(order.total_amount)}</span>
                   </Button>
                 ))}
               </div>
-            </>
+            </div>
           )}
+
+          <div className="relative mb-4">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
+            <Input
+              placeholder="Search products..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 h-11"
+            />
+          </div>
+
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            <Button
+              variant={selectedCategory === 'all' ? 'default' : 'outline'}
+              size="sm"
+              className="shrink-0"
+              onClick={() => setSelectedCategory('all')}
+            >
+              All
+            </Button>
+            {(categories as Category[]).map((category) => (
+              <Button
+                key={category.id}
+                variant={selectedCategory === category.id ? 'default' : 'outline'}
+                size="sm"
+                className="shrink-0"
+                onClick={() => setSelectedCategory(category.id)}
+              >
+                {category.name}
+              </Button>
+            ))}
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3">
-          {activeTab === 'create' ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
-              {filteredProducts.map((product) => {
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+            {filteredProducts.map((product) => {
                 const cat = product.category_id ? categoryById.get(product.category_id) : undefined
                 const bg = categoryColor(cat, product.name)
                 const disabled = !product.is_available || !canUseCart
@@ -729,8 +876,8 @@ export function CounterInterface() {
                     onClick={() => addToCart(product)}
                     className={cn(
                       'flex min-h-[108px] flex-col rounded-lg border border-border border-l-4 p-2.5 text-left shadow-sm select-none',
-                      'transition-[transform,box-shadow,filter,outline] duration-100',
-                      'active:scale-[0.96] active:brightness-[0.97] active:ring-2 active:ring-primary/40 active:ring-offset-2',
+                      'transition-[transform,box-shadow,filter,outline] duration-100 [@media(prefers-reduced-motion:reduce)]:transition-none',
+                      'active:scale-[0.96] active:brightness-[0.97] active:ring-2 active:ring-primary/40 active:ring-offset-2 [@media(prefers-reduced-motion:reduce)]:active:scale-100',
                       'disabled:pointer-events-none disabled:opacity-40'
                     )}
                     style={{
@@ -772,60 +919,54 @@ export function CounterInterface() {
                   </button>
                 )
               })}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">Orders ready for payment</h3>
-              {pendingOrders.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Receipt className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>No orders ready for payment</p>
-                </div>
-              ) : (
-                pendingOrders.map((order) => (
-                  <button
-                    key={order.id}
-                    type="button"
-                    disabled={checkoutIntentMutation.isPending}
-                    className={`w-full text-left rounded-lg border p-4 transition-all ${
-                      selectedOrder?.id === order.id ? 'ring-2 ring-primary border-primary' : 'border-border hover:bg-muted/50'
-                    }`}
-                    onClick={() => selectPaymentOrder(order)}
-                  >
-                    <div className="flex justify-between gap-2">
-                      <div>
-                        <div className="font-semibold">#{order.order_number}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {order.table?.table_number && `Table ${order.table.table_number} · `}
-                          {order.items?.length ?? 0} items
-                        </div>
-                      </div>
-                      <div className="text-lg font-bold">{formatCurrency(order.total_amount)}</div>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
+          </div>
         </div>
-      </div>
+        </div>
 
-      <div className="w-1/3 flex flex-col flex-1 min-h-0 bg-card border-l border-border min-w-[320px]">
-        {activeTab === 'create' ? (
-          <>
-            <div className="shrink-0 p-4 border-b border-border space-y-3">
-              {orderType === 'dine_in' ? (
-                <>
-                  <div className="grid grid-cols-3 gap-2 max-h-[200px] overflow-y-auto">
-                    {sortedTables.map((table) => {
-                      const occ = table.has_active_order ?? table.is_occupied
-                      return (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-valuenow={checkoutRailPx}
+          aria-valuemin={COUNTER_RAIL_MIN}
+          aria-valuemax={820}
+          title="Drag to resize checkout panel. Double-click to reset width."
+          className="group relative z-10 flex w-3 shrink-0 cursor-col-resize select-none flex-col items-center border-x border-transparent bg-transparent hover:border-border/80 hover:bg-muted/50"
+          onMouseDown={beginCheckoutRailDrag}
+          onDoubleClick={(e) => {
+            e.preventDefault()
+            resetCheckoutRailWidth()
+          }}
+        >
+          <span className="sr-only">Resize checkout column</span>
+          <div className="pointer-events-none absolute inset-y-10 left-1/2 w-px -translate-x-1/2 rounded-full bg-border group-hover:bg-primary/60" />
+          <GripVertical
+            className="pointer-events-none relative my-auto h-5 w-5 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100"
+            aria-hidden
+          />
+        </div>
+
+        <div
+          style={{ width: checkoutRailPx, maxWidth: '100%' }}
+          className="flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-l border-border bg-gradient-to-b from-card via-card to-muted/[0.35] shadow-[inset_1px_0_0_0_hsl(var(--border))]"
+        >
+          <div className="shrink-0 space-y-3 border-b border-border/80 bg-card/90 px-4 py-3 backdrop-blur-sm sm:px-5 sm:py-4">
+            {orderType === 'dine_in' ? (
+              <>
+                <div className="grid max-h-[240px] grid-cols-2 gap-2.5 overflow-y-auto overscroll-contain pr-0.5 sm:grid-cols-3">
+                  {sortedTables.map((table) => {
+                    const occ = table.has_active_order ?? table.is_occupied
+                    const previewLines =
+                      selectedTable?.id === table.id && existingOrder?.items
+                        ? existingOrder.items.filter((i) => i.status !== 'voided')
+                        : null
+                    return (
+                      <div key={table.id} className="relative">
                         <Button
-                          key={table.id}
                           type="button"
                           variant={selectedTable?.id === table.id ? 'default' : 'outline'}
                           className={cn(
-                            'h-14 flex-col text-xs',
+                            'min-h-[3.75rem] flex-col gap-0.5 px-1.5 py-2 text-sm font-semibold leading-tight w-full sm:min-h-[4rem]',
+                            occ && 'pr-9',
                             occ &&
                               'opacity-95 border-emerald-400/70 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/35 dark:border-emerald-700/80 dark:text-emerald-100'
                           )}
@@ -835,44 +976,230 @@ export function CounterInterface() {
                           }}
                         >
                           {table.table_number}
-                          <span className="opacity-80">
+                          <span className="text-[11px] font-medium opacity-80 sm:text-xs">
                             {occ ? 'Open · add items' : `${table.seating_capacity} seats`}
                           </span>
                         </Button>
-                      )
-                    })}
-                  </div>
-                  {selectedTable && dineInSession && (
-                    <div className="rounded-md bg-muted/60 p-3 text-sm space-y-1">
-                      <div>
-                        <span className="text-muted-foreground">Table </span>
-                        <span className="font-semibold">{selectedTable.table_number}</span>
+                        {occ && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="icon"
+                                className="absolute right-0.5 top-1/2 h-7 w-7 -translate-y-1/2 z-10 shadow-sm"
+                                aria-label="Quick bill preview"
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Info className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="end"
+                              className="w-[min(100vw-2rem,22rem)] p-0"
+                              onCloseAutoFocus={(e) => e.preventDefault()}
+                            >
+                              <div className="p-3 max-h-64 overflow-y-auto space-y-2">
+                                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                  Table {table.table_number}
+                                </div>
+                                {previewLines && previewLines.length > 0 ? (
+                                  <table className="w-full text-xs border border-border border-collapse">
+                                    <thead>
+                                      <tr className="bg-muted/60 border-b border-border">
+                                        <th className="text-left font-medium py-1 px-1.5">Item</th>
+                                        <th className="text-right font-medium py-1 px-1.5 w-10">Qty</th>
+                                        <th className="text-center font-medium py-1 px-1.5 w-16">Status</th>
+                                        <th className="text-right font-medium py-1 px-1.5 w-16">Amt</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {previewLines.map((item) => (
+                                        <tr key={item.id} className="border-b border-border last:border-b-0">
+                                          <td className="py-1 px-1.5 max-w-[100px] truncate">
+                                            {item.product?.name ?? 'Item'}
+                                          </td>
+                                          <td className="py-1 px-1.5 text-right tabular-nums">{item.quantity}</td>
+                                          <td className="py-1 px-1.5 text-center text-[10px] capitalize">
+                                            {item.status}
+                                          </td>
+                                          <td className="py-1 px-1.5 text-right tabular-nums">
+                                            {formatCurrency(item.total_price)}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">
+                                    Select this table to load the open tab, then open preview again for line items.
+                                  </p>
+                                )}
+                              </div>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
                       </div>
+                    )
+                  })}
+                </div>
+                  {selectedTable && dineInSession && (
+                    <div className="space-y-2.5 rounded-xl border border-border/70 bg-muted/30 p-3.5 text-[15px] leading-relaxed shadow-sm ring-1 ring-black/[0.04] dark:bg-muted/20 dark:ring-white/[0.06] sm:p-4">
                       <div>
-                        <span className="text-muted-foreground">Guests </span>
+                        <span className="text-sm text-muted-foreground">Table </span>
+                        <span className="text-lg font-semibold tracking-tight">{selectedTable.table_number}</span>
+                      </div>
+                      {existingOrder && (
+                        <div>
+                          <span className="text-sm text-muted-foreground">Order </span>
+                          <span className="text-lg font-semibold tracking-tight">#{existingOrder.order_number}</span>
+                          {existingOrder.table_opened_at && (
+                            <span className="mt-1 block text-sm text-muted-foreground">
+                              Opened{' '}
+                              {new Date(existingOrder.table_opened_at).toLocaleString(undefined, {
+                                dateStyle: 'medium',
+                                timeStyle: 'short',
+                              })}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <div>
+                        <span className="text-sm text-muted-foreground">Guests </span>
                         <span className="font-semibold">{dineInSession.guestCount}</span>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Server / Waiter </span>
+                        <span className="text-sm text-muted-foreground">Server </span>
                         <span className="font-semibold">{dineInSession.serverDisplayName}</span>
                       </div>
+                      {(dineInSession.customerName ||
+                        dineInSession.customerEmail ||
+                        dineInSession.customerPhone ||
+                        dineInSession.guestBirthday) && (
+                        <div className="space-y-1 border-t border-border/60 pt-2 text-sm">
+                          {dineInSession.customerName && (
+                            <div>
+                              <span className="text-muted-foreground">Guest </span>
+                              {dineInSession.customerName}
+                            </div>
+                          )}
+                          {dineInSession.customerEmail && (
+                            <div className="truncate" title={dineInSession.customerEmail}>
+                              {dineInSession.customerEmail}
+                            </div>
+                          )}
+                          {dineInSession.customerPhone && <div>{dineInSession.customerPhone}</div>}
+                          {dineInSession.guestBirthday && <div>Birthday: {dineInSession.guestBirthday}</div>}
+                        </div>
+                      )}
+                      {existingOrder?.is_open_tab && !existingOrder.kot_first_sent_at && continuingOrderId && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full mt-1"
+                          disabled={cancelOpenTabMutation.isPending}
+                          onClick={() => cancelOpenTabMutation.mutate(continuingOrderId)}
+                        >
+                          Cancel table session
+                        </Button>
+                      )}
+                      {existingOrder &&
+                        continuingOrderId &&
+                        !checkoutOpen &&
+                        orderPayableRemaining(existingOrder) > 0 && (
+                          <Button
+                            type="button"
+                            className="w-full mt-2 h-11 text-sm font-semibold"
+                            onClick={() => selectPaymentOrder(existingOrder)}
+                          >
+                            Checkout / Pay
+                          </Button>
+                        )}
                     </div>
                   )}
                 </>
               ) : (
                 <div>
-                  <Label className="text-sm">Customer (optional)</Label>
+                  <Label className="text-sm font-medium">Customer (optional)</Label>
                   <Input
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
-                    className="mt-1 h-11"
+                    className="mt-1.5 h-11 text-base"
                   />
                 </div>
               )}
 
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+            <div
+              className="counter-checkout-rail-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 sm:py-5"
+              aria-label="Order and checkout"
+            >
+              {checkoutOpen && selectedOrder && payOrder && (
+                <section className="space-y-3">
+                  <div className="sticky top-0 z-20 -mx-2 flex items-center justify-between gap-3 border-b border-border/70 bg-gradient-to-b from-card/95 to-card/80 px-2 pb-3 backdrop-blur-md supports-[backdrop-filter]:bg-card/75">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Payment</p>
+                      <h3 className="text-base font-semibold tracking-tight sm:text-lg">Checkout</h3>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 font-medium"
+                      onClick={() => {
+                        setCheckoutOpen(false)
+                        setSelectedOrder(null)
+                      }}
+                    >
+                      Close
+                    </Button>
+                  </div>
+                  <CounterPaymentPanel
+                    payOrder={payOrder}
+                    paymentCheckoutIntent={paymentCheckoutIntent}
+                    onPaymentIntent={onPaymentIntent}
+                    paymentOrderFetching={paymentOrderFetching}
+                    billableItems={billableItems}
+                    paymentTotals={paymentTotals}
+                    formatCurrency={formatCurrency}
+                    payAmount={payAmount}
+                    referenceNumber={referenceNumber}
+                    onReferenceNumberChange={setReferenceNumber}
+                    discountMode={discountMode}
+                    onDiscountModeChange={setDiscountMode}
+                    discountValue={discountValue}
+                    onDiscountValueChange={setDiscountValue}
+                    discountMutationPending={discountMutation.isPending}
+                    onApplyDiscount={() => {
+                      if (!selectedOrder) return
+                      const raw = parseFloat(discountValue || '0')
+                      if (Number.isNaN(raw) || raw < 0) return
+                      if (discountMode === 'percent') {
+                        if (raw === 0) {
+                          discountMutation.mutate({ orderId: selectedOrder.id, discount_amount: 0 })
+                        } else {
+                          discountMutation.mutate({ orderId: selectedOrder.id, discount_percent: raw })
+                        }
+                      } else {
+                        discountMutation.mutate({
+                          orderId: selectedOrder.id,
+                          discount_amount: raw,
+                        })
+                      }
+                    }}
+                    processPaymentPending={processPaymentMutation.isPending}
+                    onPrimaryPay={() => {
+                      if (paymentCheckoutIntent === 'cash') setCashModalOpen(true)
+                      else if (paymentCheckoutIntent === 'card') runCardPayment()
+                      else runOnlinePayment()
+                    }}
+                  />
+                </section>
+              )}
+
               {existingOrder?.items && existingOrder.items.filter((i) => i.status !== 'voided').length > 0 && (
                 <div className="rounded-md border border-border bg-muted/20">
                   <button
@@ -890,34 +1217,77 @@ export function CounterInterface() {
                     )}
                   </button>
                   {existingItemsExpanded && (
-                    <div className="px-3 pb-3 space-y-2">
-                      {existingOrder.items
-                        .filter((i) => i.status !== 'voided')
-                        .map((item) => (
-                          <div
-                            key={item.id}
-                            className="flex items-center justify-between gap-2 py-1.5 text-sm border-b border-border last:border-0"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <span className="truncate">{item.product?.name ?? 'Item'}</span>
-                              <span className="text-muted-foreground ml-2">x{item.quantity}</span>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-muted-foreground">{formatCurrency(item.total_price)}</span>
-                              <span
-                                className={cn(
-                                  'text-xs px-1.5 py-0.5 rounded capitalize',
-                                  item.status === 'sent' && 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-                                  item.status === 'preparing' && 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
-                                  item.status === 'ready' && 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
-                                  item.status === 'served' && 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
-                                )}
+                    <div className="overflow-x-auto px-2 pb-3">
+                      <table className="w-full min-w-[300px] table-fixed border-collapse border border-border text-sm">
+                        <colgroup>
+                          <col style={{ width: '40%' }} />
+                          <col style={{ width: '12%' }} />
+                          <col style={{ width: '24%' }} />
+                          <col style={{ width: '24%' }} />
+                        </colgroup>
+                        <thead>
+                          <tr className="border-b border-border bg-muted/60">
+                            <th className="px-2 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Item
+                            </th>
+                            <th className="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Qty
+                            </th>
+                            <th className="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Amount
+                            </th>
+                            <th className="px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Status
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {existingOrder.items
+                            .filter((i) => i.status !== 'voided')
+                            .map((item) => {
+                              const exCat = item.product?.category_id
+                                ? categoryById.get(item.product.category_id)
+                                : undefined
+                              const exAccent = categoryColor(exCat, item.product?.name ?? 'Item')
+                              return (
+                              <tr
+                                key={item.id}
+                                className="border-b border-border last:border-b-0 border-l-[3px]"
+                                style={{
+                                  borderLeftColor: exAccent,
+                                  backgroundColor: `color-mix(in srgb, ${exAccent} 10%, var(--card))`,
+                                }}
                               >
-                                {item.status}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
+                                <td className="min-w-0 px-2 py-2">
+                                  <span className="line-clamp-2 font-medium leading-snug">
+                                    {item.product?.name ?? 'Item'}
+                                  </span>
+                                </td>
+                                <td className="px-2 py-2 text-right text-sm tabular-nums">{item.quantity}</td>
+                                <td className="px-2 py-2 text-right text-sm font-medium tabular-nums">
+                                  {formatCurrency(item.total_price)}
+                                </td>
+                                <td className="px-2 py-2 text-center">
+                                  <span
+                                    className={cn(
+                                      'inline-block rounded px-1.5 py-0.5 text-[11px] font-medium capitalize sm:text-xs',
+                                      item.status === 'sent' && 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+                                      item.status === 'preparing' &&
+                                        'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
+                                      item.status === 'ready' &&
+                                        'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+                                      item.status === 'served' &&
+                                        'bg-muted text-muted-foreground dark:bg-muted/80'
+                                    )}
+                                  >
+                                    {item.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
@@ -926,70 +1296,105 @@ export function CounterInterface() {
               <span key={cartLiveAnnouncement.id} className="sr-only" aria-live="polite" aria-atomic="true">
                 {cartLiveAnnouncement.text}
               </span>
-              <h3 className="font-semibold flex items-center gap-2">
-                <ShoppingCart className="w-4 h-4" />
+              <h3 className="flex items-center gap-2 text-base font-semibold tracking-tight">
+                <ShoppingCart className="h-5 w-5 shrink-0 text-muted-foreground" />
                 {continuingOrderId ? 'New items' : 'Cart'} ({cart.length})
               </h3>
               {cart.length === 0 ? (
                 <p className="text-muted-foreground text-sm">Cart is empty</p>
               ) : (
-                <div className="space-y-2">
-                  {cart.map((item) => {
-                    const lineCat = item.product.category_id ? categoryById.get(item.product.category_id) : undefined
-                    const lineAccent = categoryColor(lineCat, item.product.name)
-                    const lineFill = lightenAccent(lineAccent)
-                    const onAccent = pickOnAccentText(lineFill)
-                    const showCartFlash = lastCartFlashProductId === item.product.id
-                    return (
-                      <div
-                        key={item.product.id}
-                        ref={(el) => {
-                          cartRowRefs.current[item.product.id] = el
-                        }}
-                        className={cn(
-                          'flex items-center justify-between gap-2 rounded-md p-2.5 shadow-sm transition-shadow',
-                          'hover:shadow-md',
-                          showCartFlash && 'animate-pulse'
-                        )}
-                        style={{
-                          backgroundColor: lineFill,
-                          color: onAccent,
-                          ...(showCartFlash
-                            ? {
-                                outline: `2px solid ${onAccent}`,
-                                outlineOffset: '2px',
-                              }
-                            : {}),
-                        }}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-semibold">{item.product.name}</div>
-                          <div className="text-xs opacity-85">
-                            {formatCurrency(item.product.price)} each
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <Button
-                            size="icon"
-                            variant="outline"
-                            className="h-11 w-11 touch-manipulation border-current/35 bg-background/15 text-current hover:bg-background/25 hover:text-current"
-                            onClick={() => removeFromCart(item.product.id)}
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full min-w-[340px] table-fixed border-collapse text-sm">
+                    <colgroup>
+                      <col style={{ width: '38%' }} />
+                      <col style={{ width: '22%' }} />
+                      <col style={{ width: '24%' }} />
+                      <col style={{ width: '16%' }} />
+                    </colgroup>
+                    <thead>
+                      <tr className="border-b border-border bg-muted/70">
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Item
+                        </th>
+                        <th className="px-2 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Rate
+                        </th>
+                        <th className="px-1 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Qty
+                        </th>
+                        <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Amount
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cart.map((item) => {
+                        const lineTotal = item.product.price * item.quantity
+                        const showCartFlash = lastCartFlashProductId === item.product.id
+                        const lineCat = item.product.category_id
+                          ? categoryById.get(item.product.category_id)
+                          : undefined
+                        const categoryAccent = categoryColor(lineCat, item.product.name)
+                        return (
+                          <tr
+                            key={item.product.id}
+                            ref={(el) => {
+                              cartRowRefs.current[item.product.id] = el
+                            }}
+                            className={cn(
+                              'border-b border-border last:border-b-0 border-l-[3px] transition-[box-shadow,filter]',
+                              'hover:brightness-[0.985] dark:hover:brightness-[1.04]',
+                              showCartFlash &&
+                                'ring-1 ring-inset ring-primary/30 animate-pulse [@media(prefers-reduced-motion:reduce)]:animate-none'
+                            )}
+                            style={{
+                              borderLeftColor: categoryAccent,
+                              backgroundColor: `color-mix(in srgb, ${categoryAccent} 13%, var(--card))`,
+                            }}
                           >
-                            <Minus className="h-4 w-4" />
-                          </Button>
-                          <span className="w-8 text-center text-sm font-medium tabular-nums">{item.quantity}</span>
-                          <Button
-                            size="icon"
-                            variant="outline"
-                            className="h-11 w-11 touch-manipulation border-current/35 bg-background/15 text-current hover:bg-background/25 hover:text-current"
-                            onClick={() => addToCart(item.product)}
-                          >
-                            <Plus className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    )
-                  })}
+                            <td className="min-w-0 px-3 py-2.5 align-middle">
+                              <span className="line-clamp-2 font-medium leading-snug text-foreground">
+                                {item.product.name}
+                              </span>
+                            </td>
+                            <td className="px-2 py-2.5 align-middle text-right text-sm tabular-nums text-muted-foreground">
+                              {formatCurrency(item.product.price)}
+                            </td>
+                            <td className="px-1 py-2 align-middle">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-9 w-9 shrink-0 touch-manipulation"
+                                  onClick={() => removeFromCart(item.product.id)}
+                                  aria-label={`Decrease ${item.product.name}`}
+                                >
+                                  <Minus className="h-4 w-4" />
+                                </Button>
+                                <span className="min-w-[1.5rem] text-center text-sm font-semibold tabular-nums">
+                                  {item.quantity}
+                                </span>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-9 w-9 shrink-0 touch-manipulation"
+                                  onClick={() => addToCart(item.product)}
+                                  aria-label={`Increase ${item.product.name}`}
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5 align-middle text-right text-sm font-semibold tabular-nums">
+                              {formatCurrency(lineTotal)}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
 
@@ -1007,9 +1412,9 @@ export function CounterInterface() {
             </div>
 
             {cart.length > 0 && (
-              <div className="shrink-0 p-4 border-t border-border space-y-3">
-                <div className="text-sm font-medium text-muted-foreground">Payment type (for tax preview)</div>
-                <div className="grid grid-cols-3 gap-2">
+              <div className="shrink-0 space-y-3 border-t border-border/90 bg-card/95 px-4 py-4 shadow-[0_-8px_30px_-12px_rgba(0,0,0,0.12)] backdrop-blur-md supports-[backdrop-filter]:bg-card/85 dark:shadow-[0_-8px_30px_-12px_rgba(0,0,0,0.45)] sm:px-5">
+                <div className="text-sm font-semibold text-muted-foreground">Payment type (tax preview)</div>
+                <div className="grid grid-cols-3 gap-2.5">
                   {(
                     [
                       ['cash', 'Cash'],
@@ -1022,34 +1427,34 @@ export function CounterInterface() {
                       type="button"
                       size="sm"
                       variant={createCheckoutIntent === k ? 'default' : 'outline'}
-                      className="h-12"
+                      className="h-11 min-w-0 px-2 text-sm font-semibold sm:h-12"
                       onClick={() => setCreateCheckoutIntent(k)}
                     >
                       {label}
                     </Button>
                   ))}
                 </div>
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span>Subtotal</span>
-                    <span>{formatCurrency(cartSubtotal)}</span>
+                <div className="space-y-1.5 text-sm leading-relaxed">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="font-medium tabular-nums">{formatCurrency(cartSubtotal)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Service charge</span>
-                    <span>{formatCurrency(cartTotals.service)}</span>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Service charge</span>
+                    <span className="font-medium tabular-nums">{formatCurrency(cartTotals.service)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Tax ({(cartTotals.taxRate * 100).toFixed(0)}%)</span>
-                    <span>{formatCurrency(cartTotals.tax)}</span>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Tax ({(cartTotals.taxRate * 100).toFixed(0)}%)</span>
+                    <span className="font-medium tabular-nums">{formatCurrency(cartTotals.tax)}</span>
                   </div>
-                  <div className="flex justify-between text-lg font-bold pt-2 border-t border-border">
+                  <div className="flex justify-between border-t border-border pt-2 text-base font-bold tracking-tight sm:text-lg">
                     <span>Total</span>
-                    <span>{formatCurrency(cartTotals.total)}</span>
+                    <span className="tabular-nums">{formatCurrency(cartTotals.total)}</span>
                   </div>
                 </div>
 
                 <Button
-                  className="w-full h-14 text-lg"
+                  className="h-12 w-full text-base font-semibold sm:h-14 sm:text-lg"
                   disabled={
                     !canUseCart ||
                     cart.length === 0 ||
@@ -1069,216 +1474,7 @@ export function CounterInterface() {
                 </Button>
               </div>
             )}
-          </>
-        ) : (
-          <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full">
-            {selectedOrder && payOrder ? (
-              <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                <div className="p-4 border-b border-border space-y-2 shrink-0">
-                  <div className="font-semibold text-lg">#{payOrder.order_number}</div>
-                  {payOrder.table?.table_number && (
-                    <div className="text-sm text-muted-foreground">
-                      Table {payOrder.table.table_number}
-                    </div>
-                  )}
-                  <div className="grid grid-cols-3 gap-2 pt-2">
-                    <Button
-                      type="button"
-                      size="lg"
-                      className="h-14 text-base"
-                      variant={paymentCheckoutIntent === 'cash' ? 'default' : 'outline'}
-                      onClick={() => onPaymentIntent('cash')}
-                    >
-                      <DollarSign className="w-5 h-5 mr-1" />
-                      CASH
-                    </Button>
-                    <Button
-                      type="button"
-                      size="lg"
-                      className="h-14 text-base"
-                      variant={paymentCheckoutIntent === 'card' ? 'default' : 'outline'}
-                      onClick={() => onPaymentIntent('card')}
-                    >
-                      <CreditCard className="w-5 h-5 mr-1" />
-                      CARD
-                    </Button>
-                    <Button
-                      type="button"
-                      size="lg"
-                      className="h-14 text-base"
-                      variant={paymentCheckoutIntent === 'online' ? 'default' : 'outline'}
-                      onClick={() => onPaymentIntent('online')}
-                    >
-                      <Globe className="w-5 h-5 mr-1" />
-                      ONLINE
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="flex-1 min-h-0 overflow-y-auto p-4 border-b border-border">
-                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                    Items charged
-                  </div>
-                  {billableItems.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {paymentOrderFetching ? 'Loading line items…' : 'No billable line items.'}
-                    </p>
-                  ) : (
-                    <ul className="space-y-2 text-sm">
-                      {billableItems.map((line) => (
-                        <li
-                          key={line.id}
-                          className="flex justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"
-                        >
-                          <div className="min-w-0">
-                            <div className="font-medium leading-tight">
-                              {line.product?.name ?? 'Item'} × {line.quantity}
-                            </div>
-                            {line.special_instructions ? (
-                              <div className="text-xs text-muted-foreground truncate">{line.special_instructions}</div>
-                            ) : null}
-                          </div>
-                          <div className="shrink-0 font-medium tabular-nums">{formatCurrency(line.total_price)}</div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-
-                <div className="p-4 space-y-2 text-sm shrink-0">
-                  <div className="flex justify-between">
-                    <span>Subtotal</span>
-                    <span>{formatCurrency(payOrder.subtotal)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Discount</span>
-                    <span>-{formatCurrency(payOrder.discount_amount)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Service</span>
-                    <span>{formatCurrency(payOrder.service_charge_amount ?? paymentTotals?.service ?? 0)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>
-                      Tax ({paymentTotals ? (paymentTotals.taxRate * 100).toFixed(0) : '—'}%)
-                    </span>
-                    <span>{formatCurrency(payOrder.tax_amount)}</span>
-                  </div>
-                  <div className="flex justify-between text-lg font-bold pt-2 border-t border-border">
-                    <span>Total</span>
-                    <span>{formatCurrency(payOrder.total_amount)}</span>
-                  </div>
-
-                  <div className="pt-2 space-y-2">
-                    <Label className="text-xs text-muted-foreground">Discount (counter)</Label>
-                    <div className="flex gap-2">
-                      <div className="grid grid-cols-2 gap-1 shrink-0">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={discountMode === 'amount' ? 'default' : 'outline'}
-                          className="h-9"
-                          onClick={() => setDiscountMode('amount')}
-                        >
-                          $
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={discountMode === 'percent' ? 'default' : 'outline'}
-                          className="h-9"
-                          onClick={() => setDiscountMode('percent')}
-                        >
-                          %
-                        </Button>
-                      </div>
-                      <Input
-                        inputMode="decimal"
-                        className="h-9"
-                        placeholder={discountMode === 'percent' ? 'e.g. 10' : '0.00'}
-                        value={discountValue}
-                        onChange={(e) => setDiscountValue(e.target.value)}
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="h-9 shrink-0"
-                        disabled={discountMutation.isPending}
-                        onClick={() => {
-                          const raw = parseFloat(discountValue || '0')
-                          if (Number.isNaN(raw) || raw < 0) return
-                          if (discountMode === 'percent') {
-                            if (raw === 0) {
-                              discountMutation.mutate({ orderId: selectedOrder.id, discount_amount: 0 })
-                            } else {
-                              discountMutation.mutate({ orderId: selectedOrder.id, discount_percent: raw })
-                            }
-                          } else {
-                            discountMutation.mutate({
-                              orderId: selectedOrder.id,
-                              discount_amount: raw,
-                            })
-                          }
-                        }}
-                      >
-                        Apply
-                      </Button>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">Enter 0 and apply to clear discount.</p>
-                  </div>
-                </div>
-
-                <div className="p-4 border-t border-border space-y-3 mt-auto shrink-0">
-                  <div className="text-xs text-muted-foreground">
-                    Reference (card / online optional)
-                  </div>
-                  <Input
-                    value={referenceNumber}
-                    onChange={(e) => setReferenceNumber(e.target.value)}
-                    placeholder="Txn / ref / Easypass id"
-                  />
-                  <Button
-                    className="w-full h-14 text-lg"
-                    variant="default"
-                    disabled={payAmount <= 0 || processPaymentMutation.isPending}
-                    onClick={() => {
-                      if (paymentCheckoutIntent === 'cash') setCashModalOpen(true)
-                      else if (paymentCheckoutIntent === 'card') runCardPayment()
-                      else runOnlinePayment()
-                    }}
-                  >
-                    {paymentCheckoutIntent === 'cash' && (
-                      <>
-                        <DollarSign className="w-5 h-5 mr-2" />
-                        Pay {formatCurrency(payAmount)} — Cash
-                      </>
-                    )}
-                    {paymentCheckoutIntent === 'card' && (
-                      <>
-                        <CreditCard className="w-5 h-5 mr-2" />
-                        Pay {formatCurrency(payAmount)} — Card
-                      </>
-                    )}
-                    {paymentCheckoutIntent === 'online' && (
-                      <>
-                        <Globe className="w-5 h-5 mr-2" />
-                        Pay {formatCurrency(payAmount)} — Online
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex-1 flex items-center justify-center text-muted-foreground p-8">
-                <div className="text-center">
-                  <CreditCard className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>Select an order</p>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        </div>
       </div>
     </div>
   )

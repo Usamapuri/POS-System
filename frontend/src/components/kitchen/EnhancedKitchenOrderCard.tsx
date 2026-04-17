@@ -293,6 +293,18 @@ export function EnhancedKitchenOrderCard({
                   {order.customer_name}
                 </span>
               )}
+              {order.customer_email && (
+                <span className="truncate max-w-[10rem] text-xs" title={order.customer_email}>
+                  {order.customer_email}
+                </span>
+              )}
+              {order.customer_phone && (
+                <span className="text-xs tabular-nums">
+                  {order.customer_phone.length > 4
+                    ? `${order.customer_phone.slice(0, 2)}…${order.customer_phone.slice(-2)}`
+                    : order.customer_phone}
+                </span>
+              )}
             </div>
           </div>
 

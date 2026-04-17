@@ -104,7 +104,13 @@ export interface Order {
   order_number: string;
   table_id?: string;
   user_id?: string;
+  customer_id?: string;
   customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  guest_birthday?: string;
+  table_opened_at?: string;
+  is_open_tab?: boolean;
   order_type: 'dine_in' | 'takeout' | 'delivery';
   status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled';
   subtotal: number;
@@ -148,12 +154,26 @@ export interface OrderItem {
 export interface CreateOrderRequest {
   table_id?: string;
   customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  guest_birthday?: string;
   order_type: 'dine_in' | 'takeout' | 'delivery';
   guest_count?: number;
   items: CreateOrderItem[];
   notes?: string;
   /** Assigned server for dine-in (counter flow); maps to order.user_id on server */
   assigned_server_id?: string;
+}
+
+/** Counter: open dine-in tab (order number + empty bill) after table session modal. */
+export interface OpenCounterTableTabRequest {
+  table_id: string;
+  guest_count: number;
+  assigned_server_id: string;
+  customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  guest_birthday?: string;
 }
 
 export interface CreateOrderItem {

@@ -120,3 +120,113 @@
   }
 }
 
+/* Counter checkout — inline SVG motion for order-type (lighter than Lottie/WebGL for POS bundles) */
+.counter-ot-glyph .counter-ot-stroke {
+  stroke: currentColor;
+  fill: none;
+}
+.counter-ot-glyph .counter-ot-fill-soft {
+  fill: currentColor;
+  opacity: 0.32;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .counter-ot-glyph--active .counter-ot-dine-steam {
+    animation: counter-ot-steam 2.4s ease-in-out infinite;
+  }
+  .counter-ot-glyph--active .counter-ot-box {
+    animation: counter-ot-box 2s ease-in-out infinite;
+    transform-origin: 12px 14px;
+  }
+  .counter-ot-glyph--active .counter-ot-lid {
+    animation: counter-ot-lid 2s ease-in-out infinite;
+    transform-origin: 12px 10px;
+  }
+  .counter-ot-glyph--active .counter-ot-car {
+    animation: counter-ot-car 1.75s ease-in-out infinite;
+    transform-origin: 12px 14px;
+  }
+  .counter-ot-glyph--active .counter-ot-signal {
+    animation: counter-ot-signal 1.5s ease-in-out infinite;
+  }
+}
+
+@keyframes counter-ot-steam {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0.5px);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+}
+@keyframes counter-ot-box {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.25px);
+  }
+}
+@keyframes counter-ot-lid {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.75px);
+  }
+}
+@keyframes counter-ot-car {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(1.25px);
+  }
+}
+@keyframes counter-ot-signal {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Counter checkout rail — dedicated scroll with stable gutter (production UX) */
+.counter-checkout-rail-scroll {
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .counter-checkout-rail-scroll {
+    scroll-behavior: smooth;
+  }
+}
+.counter-checkout-rail-scroll::-webkit-scrollbar {
+  width: 9px;
+}
+.counter-checkout-rail-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 4px;
+}
+.counter-checkout-rail-scroll::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  background-color: hsl(var(--muted-foreground) / 0.28);
+}
+.counter-checkout-rail-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.45);
+}
+.counter-checkout-rail-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+}
+

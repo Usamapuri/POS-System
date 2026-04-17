@@ -190,7 +190,11 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
       case 'server':
         return <KOTServerInterface />
       case 'counter':
-        return <CounterInterface />
+        return (
+          <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
+            <CounterInterface />
+          </div>
+        )
       case 'kitchen':
         return <NewEnhancedKitchenLayout user={user} />
       case 'inventory':
@@ -205,7 +209,7 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="flex min-h-screen flex-col bg-background">
       {/* Top Navigation Bar */}
       <div className="border-b border-border bg-card px-6 py-3">
         <div className="flex items-center justify-between">
@@ -270,7 +274,7 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
       </div>
 
       {/* Main Content Area — key refreshes prices when display currency changes */}
-      <div className="flex-1" key={currencyBump}>
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden" key={currencyBump}>
         {renderCurrentView()}
       </div>
     </div>

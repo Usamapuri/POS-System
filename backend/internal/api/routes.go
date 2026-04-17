@@ -101,6 +101,8 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		counter.GET("/servers", counterHandler.ListServers)
 		counter.GET("/pricing", settingsHandler.GetPricingSettings)
 		counter.GET("/tables/:table_id/active-order", orderHandler.GetActiveOrderByTable)
+		counter.POST("/table-tabs", orderHandler.OpenCounterTableTab)
+		counter.POST("/orders/:id/cancel-open-tab", orderHandler.CancelCounterOpenTab)
 		counter.POST("/orders", orderHandler.CreateOrder)                   // All order types
 		counter.PATCH("/orders/:id/checkout-intent", orderHandler.UpdateCheckoutIntent)
 		counter.PATCH("/orders/:id/discount", orderHandler.ApplyOrderDiscount)
@@ -175,6 +177,8 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 
 		// Void log
 		admin.GET("/void-log", pinHandler.GetVoidLog)
+
+		admin.GET("/customers", listAdminCustomers(db))
 
 		// Settings management
 		admin.PUT("/settings/:key", settingsHandler.UpdateSetting)
@@ -340,6 +344,78 @@ func getSalesReport(db *sql.DB) gin.HandlerFunc {
 			"message": "Sales report retrieved successfully",
 			"data":    report,
 		})
+	}
+}
+
+// listAdminCustomers returns CRM customers with visit counts (optional search q).
+func listAdminCustomers(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		q := strings.TrimSpace(c.Query("q"))
+		page := 1
+		if p := c.Query("page"); p != "" {
+			if n, err := strconv.Atoi(p); err == nil && n > 0 {
+				page = n
+			}
+		}
+		const perPage = 40
+		offset := (page - 1) * perPage
+
+		base := `
+			SELECT c.id::text, c.email, c.phone, c.display_name, c.birthday, c.created_at, c.updated_at,
+			       (SELECT COUNT(*)::int FROM orders o WHERE o.customer_id = c.id AND o.status <> 'cancelled') AS visit_count,
+			       (SELECT MAX(o.created_at) FROM orders o WHERE o.customer_id = c.id AND o.status <> 'cancelled') AS last_visit_at
+			FROM customers c
+		`
+		var rows *sql.Rows
+		var err error
+		if q != "" {
+			pat := "%" + strings.ToLower(q) + "%"
+			rows, err = db.Query(base+` WHERE lower(COALESCE(c.display_name,'')) LIKE $1 OR lower(COALESCE(c.email,'')) LIKE $1 OR COALESCE(c.phone,'') ILIKE $1
+				ORDER BY last_visit_at DESC NULLS LAST, c.created_at DESC LIMIT $2 OFFSET $3`, pat, perPage, offset)
+		} else {
+			rows, err = db.Query(base + ` ORDER BY last_visit_at DESC NULLS LAST, c.created_at DESC LIMIT $1 OFFSET $2`, perPage, offset)
+		}
+		if err != nil {
+			c.JSON(500, gin.H{"success": false, "message": "Failed to list customers", "error": err.Error()})
+			return
+		}
+		defer rows.Close()
+
+		var list []map[string]interface{}
+		for rows.Next() {
+			var id, email, phone, display sql.NullString
+			var bd sql.NullTime
+			var createdAt, updatedAt interface{}
+			var visitCount int
+			var lastVisit sql.NullTime
+			if err := rows.Scan(&id, &email, &phone, &display, &bd, &createdAt, &updatedAt, &visitCount, &lastVisit); err != nil {
+				c.JSON(500, gin.H{"success": false, "message": "Failed to scan customer", "error": err.Error()})
+				return
+			}
+			row := map[string]interface{}{
+				"id":          id.String,
+				"visit_count": visitCount,
+				"created_at":  createdAt,
+				"updated_at":  updatedAt,
+			}
+			if email.Valid {
+				row["email"] = email.String
+			}
+			if phone.Valid {
+				row["phone"] = phone.String
+			}
+			if display.Valid {
+				row["display_name"] = display.String
+			}
+			if bd.Valid {
+				row["birthday"] = bd.Time.Format("2006-01-02")
+			}
+			if lastVisit.Valid {
+				row["last_visit_at"] = lastVisit.Time
+			}
+			list = append(list, row)
+		}
+		c.JSON(200, gin.H{"success": true, "message": "Customers retrieved", "data": list})
 	}
 }
 

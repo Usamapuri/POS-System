@@ -82,7 +82,13 @@ type Order struct {
 	OrderNumber    string       `json:"order_number"`
 	TableID        *uuid.UUID   `json:"table_id"`
 	UserID         *uuid.UUID   `json:"user_id"`
+	CustomerID     *uuid.UUID   `json:"customer_id,omitempty"`
 	CustomerName   *string      `json:"customer_name"`
+	CustomerEmail  *string      `json:"customer_email,omitempty"`
+	CustomerPhone  *string      `json:"customer_phone,omitempty"`
+	GuestBirthday  *string      `json:"guest_birthday,omitempty"` // YYYY-MM-DD
+	TableOpenedAt  *time.Time   `json:"table_opened_at,omitempty"`
+	IsOpenTab      bool         `json:"is_open_tab"`
 	OrderType      string       `json:"order_type"` // dine_in, takeout, delivery
 	Status         string       `json:"status"`     // pending, confirmed, preparing, ready, served, completed, cancelled
 	Subtotal             float64  `json:"subtotal"`
@@ -101,6 +107,19 @@ type Order struct {
 	User           *User        `json:"user,omitempty"`
 	Items          []OrderItem  `json:"items,omitempty"`
 	Payments       []Payment    `json:"payments,omitempty"`
+}
+
+// Customer is a CRM guest record linked from orders.
+type Customer struct {
+	ID          uuid.UUID  `json:"id"`
+	Email       *string    `json:"email,omitempty"`
+	Phone       *string    `json:"phone,omitempty"`
+	DisplayName *string    `json:"display_name,omitempty"`
+	Birthday    *string    `json:"birthday,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	VisitCount  int        `json:"visit_count,omitempty"`
+	LastVisitAt *time.Time `json:"last_visit_at,omitempty"`
 }
 
 // OrderItem represents an item within an order
@@ -275,11 +294,25 @@ type VoidLogEntry struct {
 type CreateOrderRequest struct {
 	TableID           *uuid.UUID        `json:"table_id"`
 	CustomerName      *string           `json:"customer_name"`
+	CustomerEmail     *string           `json:"customer_email"`
+	CustomerPhone     *string           `json:"customer_phone"`
+	GuestBirthday     *string           `json:"guest_birthday"` // YYYY-MM-DD
 	OrderType         string            `json:"order_type"`
 	GuestCount        int               `json:"guest_count"`
 	Items             []CreateOrderItem `json:"items"`
 	Notes             *string           `json:"notes"`
 	AssignedServerID  *uuid.UUID        `json:"assigned_server_id"`
+}
+
+// OpenCounterTableTabRequest opens a dine-in tab from the counter (order number + empty cart).
+type OpenCounterTableTabRequest struct {
+	TableID          uuid.UUID `json:"table_id" binding:"required"`
+	GuestCount       int       `json:"guest_count" binding:"required,min=1"`
+	AssignedServerID uuid.UUID `json:"assigned_server_id" binding:"required"`
+	CustomerName     *string   `json:"customer_name"`
+	CustomerEmail    *string   `json:"customer_email"`
+	CustomerPhone    *string   `json:"customer_phone"`
+	GuestBirthday    *string   `json:"guest_birthday"` // YYYY-MM-DD
 }
 
 // UpdateCheckoutIntentRequest sets displayed totals before payment (cash | card | online).

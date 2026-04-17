@@ -202,7 +202,8 @@ func (h *KOTHandler) FireKOT(c *gin.Context) {
 	_, err = tx.Exec(`
 		UPDATE orders SET
 			status = CASE WHEN status = 'pending' THEN 'confirmed' ELSE status END,
-			kot_first_sent_at = COALESCE(kot_first_sent_at, $2)
+			kot_first_sent_at = COALESCE(kot_first_sent_at, $2),
+			is_open_tab = false
 		WHERE id = $1::uuid`, orderID, now)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update order status", Error: strPtr(err.Error())})

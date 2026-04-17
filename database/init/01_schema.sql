@@ -71,13 +71,43 @@ CREATE TABLE order_number_counters (
     last_value INTEGER NOT NULL CHECK (last_value > 0)
 );
 
+-- Released daily sequence values (reused when a counter tab is abandoned before KOT)
+CREATE TABLE released_order_sequences (
+    business_date DATE NOT NULL,
+    seq INTEGER NOT NULL,
+    released_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (business_date, seq)
+);
+
+-- Guest / CRM customers (optional linkage from orders)
+CREATE TABLE customers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255),
+    phone VARCHAR(40),
+    display_name VARCHAR(100),
+    birthday DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX customers_email_lower_unique ON customers (lower(trim(email)))
+    WHERE email IS NOT NULL AND trim(email) <> '';
+CREATE UNIQUE INDEX customers_phone_unique ON customers (phone)
+    WHERE phone IS NOT NULL AND trim(phone) <> '';
+
 -- Orders table
 CREATE TABLE orders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     order_number VARCHAR(20) UNIQUE NOT NULL,
     table_id UUID REFERENCES dining_tables(id) ON DELETE SET NULL,
-    user_id UUID REFERENCES users(id) ON DELETE SET NULL, -- Staff who created the order
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL, -- Staff who created the order (dine-in: assigned server)
+    customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
     customer_name VARCHAR(100),
+    customer_email VARCHAR(255),
+    customer_phone VARCHAR(40),
+    guest_birthday DATE,
+    table_opened_at TIMESTAMP WITH TIME ZONE,
+    is_open_tab BOOLEAN NOT NULL DEFAULT false,
     order_type VARCHAR(50) NOT NULL DEFAULT 'dine_in',
     status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'confirmed', 'preparing', 'ready', 'served', 'completed', 'cancelled')) DEFAULT 'pending',
     subtotal DECIMAL(10,2) NOT NULL DEFAULT 0,

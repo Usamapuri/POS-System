@@ -49,8 +49,9 @@ func (h *OrderHandler) GetOrders(c *gin.Context) {
 
 	// Build query with filters
 	queryBuilder := `
-		SELECT DISTINCT o.id, o.order_number, o.table_id, o.user_id, o.customer_name, 
-		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount, 
+		SELECT DISTINCT o.id, o.order_number, o.table_id, o.user_id, o.customer_id::text, o.customer_name,
+		       o.customer_email, o.customer_phone, o.guest_birthday, o.table_opened_at, COALESCE(o.is_open_tab, false),
+		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount,
 		       o.service_charge_amount, o.total_amount, o.checkout_payment_method, o.guest_count, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
 		       t.table_number, t.location,
 		       u.username, u.first_name, u.last_name
@@ -113,9 +114,13 @@ func (h *OrderHandler) GetOrders(c *gin.Context) {
 		var tableNumber, tableLocation sql.NullString
 		var username, firstName, lastName sql.NullString
 		var checkoutMethod sql.NullString
+		var custIDns, custEmail, custPhone sql.NullString
+		var guestBD sql.NullTime
+		var tableOpened sql.NullTime
 
 		err := rows.Scan(
-			&order.ID, &order.OrderNumber, &order.TableID, &order.UserID, &order.CustomerName,
+			&order.ID, &order.OrderNumber, &order.TableID, &order.UserID, &custIDns, &order.CustomerName,
+			&custEmail, &custPhone, &guestBD, &tableOpened, &order.IsOpenTab,
 			&order.OrderType, &order.Status, &order.Subtotal, &order.TaxAmount, &order.DiscountAmount,
 			&order.ServiceChargeAmount, &order.TotalAmount, &checkoutMethod, &order.GuestCount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
 			&tableNumber, &tableLocation,
@@ -132,6 +137,27 @@ func (h *OrderHandler) GetOrders(c *gin.Context) {
 		if checkoutMethod.Valid {
 			s := checkoutMethod.String
 			order.CheckoutPaymentMethod = &s
+		}
+		if custIDns.Valid && custIDns.String != "" {
+			if uid, e := uuid.Parse(custIDns.String); e == nil {
+				order.CustomerID = &uid
+			}
+		}
+		if custEmail.Valid {
+			s := custEmail.String
+			order.CustomerEmail = &s
+		}
+		if custPhone.Valid {
+			s := custPhone.String
+			order.CustomerPhone = &s
+		}
+		if guestBD.Valid {
+			s := guestBD.Time.UTC().Format("2006-01-02")
+			order.GuestBirthday = &s
+		}
+		if tableOpened.Valid {
+			t := tableOpened.Time.UTC()
+			order.TableOpenedAt = &t
 		}
 
 		// Add table info if available
@@ -300,7 +326,7 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		if req.GuestCount < 1 {
 			c.JSON(http.StatusBadRequest, models.APIResponse{
 				Success: false,
-				Message: "Dine-in orders require guest count (NOP) of at least 1",
+				Message: "Dine-in orders require guest count of at least 1",
 				Error:   stringPtr("guest_count_required"),
 			})
 			return
@@ -396,13 +422,39 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 
 	// Create order
 	orderID := uuid.New()
+	var guestBD interface{}
+	if req.GuestBirthday != nil && strings.TrimSpace(*req.GuestBirthday) != "" {
+		if t, e := time.Parse("2006-01-02", strings.TrimSpace(*req.GuestBirthday)); e == nil {
+			guestBD = t.UTC()
+		}
+	}
+
+	var custID interface{}
+	custUUID, rerr := resolveCustomerInTx(tx, req.CustomerName, req.CustomerEmail, req.CustomerPhone, req.GuestBirthday)
+	if rerr != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Message: "Failed to resolve customer",
+			Error:   stringPtr(rerr.Error()),
+		})
+		return
+	}
+	if custUUID != nil {
+		custID = *custUUID
+	}
+
 	orderQuery := `
-		INSERT INTO orders (id, order_number, table_id, user_id, customer_name, order_type, status, 
+		INSERT INTO orders (id, order_number, table_id, user_id, customer_id, customer_name, customer_email, customer_phone,
+		                   guest_birthday, table_opened_at, is_open_tab, order_type, status,
 		                   subtotal, tax_amount, discount_amount, service_charge_amount, total_amount, guest_count, notes, checkout_payment_method)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+		                   $9, NULL, false, $10, $11,
+		                   $12, $13, $14, $15, $16, $17, $18, $19)
 	`
 
-	_, err = tx.Exec(orderQuery, orderID, orderNumber, req.TableID, orderUserID, req.CustomerName,
+	_, err = tx.Exec(orderQuery, orderID, orderNumber, req.TableID, orderUserID, custID, req.CustomerName,
+		nullIfEmptyPtr(req.CustomerEmail), nullIfEmptyPtr(req.CustomerPhone),
+		guestBD,
 		req.OrderType, "pending", subtotal, taxAmount, 0, serviceCharge, totalAmount, req.GuestCount, req.Notes, checkoutIntent)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{
@@ -811,8 +863,9 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 	var username, firstName, lastName sql.NullString
 
 	query := `
-		SELECT o.id, o.order_number, o.table_id, o.user_id, o.customer_name, 
-		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount, 
+		SELECT o.id, o.order_number, o.table_id, o.user_id, o.customer_id::text, o.customer_name,
+		       o.customer_email, o.customer_phone, o.guest_birthday, o.table_opened_at, COALESCE(o.is_open_tab, false),
+		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount,
 		       o.service_charge_amount, o.total_amount, o.checkout_payment_method, o.guest_count, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
 		       t.table_number, t.location,
 		       u.username, u.first_name, u.last_name
@@ -823,8 +876,12 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 	`
 
 	var checkoutMethod sql.NullString
+	var custIDns, custEmail, custPhone sql.NullString
+	var guestBD sql.NullTime
+	var tableOpened sql.NullTime
 	err := h.db.QueryRow(query, orderID).Scan(
-		&order.ID, &order.OrderNumber, &order.TableID, &order.UserID, &order.CustomerName,
+		&order.ID, &order.OrderNumber, &order.TableID, &order.UserID, &custIDns, &order.CustomerName,
+		&custEmail, &custPhone, &guestBD, &tableOpened, &order.IsOpenTab,
 		&order.OrderType, &order.Status, &order.Subtotal, &order.TaxAmount, &order.DiscountAmount,
 		&order.ServiceChargeAmount, &order.TotalAmount, &checkoutMethod, &order.GuestCount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
 		&tableNumber, &tableLocation,
@@ -838,6 +895,27 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 	if checkoutMethod.Valid {
 		s := checkoutMethod.String
 		order.CheckoutPaymentMethod = &s
+	}
+	if custIDns.Valid && custIDns.String != "" {
+		if uid, e := uuid.Parse(custIDns.String); e == nil {
+			order.CustomerID = &uid
+		}
+	}
+	if custEmail.Valid {
+		s := custEmail.String
+		order.CustomerEmail = &s
+	}
+	if custPhone.Valid {
+		s := custPhone.String
+		order.CustomerPhone = &s
+	}
+	if guestBD.Valid {
+		s := guestBD.Time.UTC().Format("2006-01-02")
+		order.GuestBirthday = &s
+	}
+	if tableOpened.Valid {
+		t := tableOpened.Time.UTC()
+		order.TableOpenedAt = &t
 	}
 
 	// Add table info if available
@@ -995,8 +1073,31 @@ func (h *OrderHandler) allocDailyOrderNumber(tx *sql.Tx) (string, error) {
 		}
 	}
 	day := time.Now().In(loc).Format("2006-01-02")
-	var n int
+
+	var claimed sql.NullInt64
 	err := tx.QueryRow(`
+		WITH c AS (
+			SELECT seq FROM released_order_sequences
+			WHERE business_date = $1::date
+			ORDER BY seq ASC
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED
+		)
+		DELETE FROM released_order_sequences r
+		USING c
+		WHERE r.business_date = $1::date AND r.seq = c.seq
+		RETURNING r.seq
+	`, day).Scan(&claimed)
+	if err != nil && err != sql.ErrNoRows {
+		return "", err
+	}
+	if err == nil && claimed.Valid {
+		compact := strings.ReplaceAll(day, "-", "")
+		return fmt.Sprintf("%s-%03d", compact, int(claimed.Int64)), nil
+	}
+
+	var n int
+	err = tx.QueryRow(`
 		INSERT INTO order_number_counters (business_date, last_value)
 		VALUES ($1::date, 1)
 		ON CONFLICT (business_date)

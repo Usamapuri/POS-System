@@ -12,6 +12,7 @@ import type {
   OrderItem,
   Payment,
   CreateOrderRequest,
+  OpenCounterTableTabRequest,
   UpdateOrderStatusRequest,
   ProcessPaymentRequest,
   PaymentSummary,
@@ -388,6 +389,31 @@ class APIClient {
     return this.request({
       method: 'GET',
       url: `/counter/tables/${tableId}/active-order`,
+    });
+  }
+
+  /** Open dine-in tab: assigns order number, table_opened_at, empty line items. */
+  async openCounterTableTab(body: OpenCounterTableTabRequest): Promise<APIResponse<Order>> {
+    return this.request({
+      method: 'POST',
+      url: '/counter/table-tabs',
+      data: body,
+    });
+  }
+
+  /** Abandon tab before kitchen fire; releases order number for reuse. */
+  async cancelCounterOpenTab(orderId: string): Promise<APIResponse<null>> {
+    return this.request({
+      method: 'POST',
+      url: `/counter/orders/${orderId}/cancel-open-tab`,
+    });
+  }
+
+  async getAdminCustomers(params?: { q?: string; page?: number }): Promise<APIResponse<Record<string, unknown>[]>> {
+    return this.request({
+      method: 'GET',
+      url: '/admin/customers',
+      params,
     });
   }
 
