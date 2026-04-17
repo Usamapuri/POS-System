@@ -251,10 +251,10 @@ export function AdminMenuManagement() {
 
   // Delete product mutation
   const deleteProductMutation = useMutation({
-    mutationFn: (id: string) => apiClient.deleteProduct(id),
-    onSuccess: (_, productId) => {
+    mutationFn: ({ id }: { id: string; name: string }) => apiClient.deleteProduct(id),
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['admin-products'] })
-      toastHelpers.productDeleted(productId)
+      toastHelpers.productDeleted(variables.name)
     },
     onError: (error: any) => {
       toastHelpers.apiError('Delete product', error)
@@ -263,10 +263,10 @@ export function AdminMenuManagement() {
 
   // Delete category mutation
   const deleteCategoryMutation = useMutation({
-    mutationFn: (id: string) => apiClient.deleteCategory(id),
-    onSuccess: (_, categoryId) => {
+    mutationFn: ({ id }: { id: string; name: string }) => apiClient.deleteCategory(id),
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['admin-categories'] })
-      toastHelpers.categoryDeleted(categoryId)
+      toastHelpers.categoryDeleted(variables.name)
     },
     onError: (error: any) => {
       toastHelpers.apiError('Delete category', error)
@@ -342,7 +342,10 @@ export function AdminMenuManagement() {
 
   const confirmDeleteProduct = () => {
     if (pendingDeleteProduct) {
-      deleteProductMutation.mutate(pendingDeleteProduct.id.toString())
+      deleteProductMutation.mutate({
+        id: pendingDeleteProduct.id.toString(),
+        name: pendingDeleteProduct.name,
+      })
     }
     setDeleteProductOpen(false)
     setPendingDeleteProduct(null)
@@ -355,7 +358,10 @@ export function AdminMenuManagement() {
 
   const confirmDeleteCategory = () => {
     if (pendingDeleteCategory) {
-      deleteCategoryMutation.mutate(pendingDeleteCategory.id.toString())
+      deleteCategoryMutation.mutate({
+        id: pendingDeleteCategory.id.toString(),
+        name: pendingDeleteCategory.name,
+      })
     }
     setDeleteCategoryOpen(false)
     setPendingDeleteCategory(null)

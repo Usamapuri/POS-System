@@ -67,10 +67,10 @@ export function AdminMenuTable({
     return category?.name || "Unknown Category"
   }
 
-  const getCategoryColor = (categoryId: string | null) => {
-    if (!categoryId) return "bg-gray-100 text-gray-800"
+  const getCategoryColor = (categoryId: string | null): string => {
+    if (!categoryId) return "#6B7280"
     const category = categories.find(cat => cat.id === categoryId)
-    return category?.color || "bg-gray-100 text-gray-800"
+    return category?.color || "#6B7280"
   }
 
   const columns: ColumnDef<Product>[] = [
@@ -178,7 +178,10 @@ export function AdminMenuTable({
         const categoryName = getCategoryName(categoryId)
         const categoryColor = getCategoryColor(categoryId)
         return (
-          <Badge className={categoryColor}>
+          <Badge 
+            style={{ backgroundColor: categoryColor, color: 'white' }}
+            className="border-0"
+          >
             {categoryName}
           </Badge>
         )

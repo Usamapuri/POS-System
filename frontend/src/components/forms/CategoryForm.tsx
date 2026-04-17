@@ -2,8 +2,9 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Form } from '@/components/ui/form'
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { 
   TextInputField, 
   TextareaField,
@@ -15,8 +16,21 @@ import { createCategorySchema, updateCategorySchema, type CreateCategoryData, ty
 import { toastHelpers } from '@/lib/toast-helpers'
 import apiClient from '@/api/client'
 import type { Category } from '@/types'
-import { X } from 'lucide-react'
+import { X, Check } from 'lucide-react'
 import type { KitchenStation } from '@/types'
+
+const PRESET_COLORS = [
+  { name: 'Red', value: '#FF6B6B' },
+  { name: 'Orange', value: '#FF9F43' },
+  { name: 'Yellow', value: '#FECA57' },
+  { name: 'Green', value: '#1DD1A1' },
+  { name: 'Teal', value: '#00D2D3' },
+  { name: 'Blue', value: '#54A0FF' },
+  { name: 'Purple', value: '#5F27CD' },
+  { name: 'Pink', value: '#FF9FF3' },
+  { name: 'Gray', value: '#6B7280' },
+  { name: 'Slate', value: '#576574' },
+]
 
 interface CategoryFormProps {
   category?: Category // If provided, we're editing; otherwise creating
@@ -53,6 +67,7 @@ export function CategoryForm({ category, onSuccess, onCancel, mode = 'create' }:
         name: category.name,
         description: category.description || '',
         image_url: category.image_url || '',
+        color: category.color || '#6B7280',
         sort_order: category.sort_order || 0,
         kitchen_station_id: category.kitchen_station_id || 'none',
       }
@@ -60,6 +75,7 @@ export function CategoryForm({ category, onSuccess, onCancel, mode = 'create' }:
         name: '',
         description: '',
         image_url: '',
+        color: '#6B7280',
         sort_order: 0,
         kitchen_station_id: 'none',
       }
@@ -175,6 +191,56 @@ export function CategoryForm({ category, onSuccess, onCancel, mode = 'create' }:
                 label="Image URL"
                 placeholder="https://example.com/image.jpg"
                 description="Optional category image URL"
+              />
+
+              {/* Color Picker */}
+              <FormField
+                control={form.control}
+                name="color"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Category Color</FormLabel>
+                    <FormControl>
+                      <div className="space-y-3">
+                        {/* Color Preview */}
+                        <div className="flex items-center gap-3">
+                          <div 
+                            className="w-10 h-10 rounded-lg border-2 border-gray-200 shadow-sm"
+                            style={{ backgroundColor: field.value }}
+                          />
+                          <Input
+                            {...field}
+                            placeholder="#6B7280"
+                            className="w-32 font-mono text-sm"
+                            maxLength={7}
+                          />
+                        </div>
+                        
+                        {/* Preset Color Swatches */}
+                        <div className="flex flex-wrap gap-2">
+                          {PRESET_COLORS.map((color) => (
+                            <button
+                              key={color.value}
+                              type="button"
+                              onClick={() => field.onChange(color.value)}
+                              className="w-8 h-8 rounded-lg border-2 border-gray-200 hover:scale-110 transition-transform relative shadow-sm"
+                              style={{ backgroundColor: color.value }}
+                              title={color.name}
+                            >
+                              {field.value === color.value && (
+                                <Check className="w-4 h-4 text-white absolute inset-0 m-auto drop-shadow-md" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </FormControl>
+                    <FormDescription>
+                      Choose a preset color or enter a custom hex code
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
             </div>
 

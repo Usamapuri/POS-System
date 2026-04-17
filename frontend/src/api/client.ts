@@ -96,9 +96,22 @@ class APIClient {
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        const data = error.response?.data as { message?: string; error?: string } | undefined;
+        const data = error.response?.data as
+          | {
+              message?: string;
+              error?: string;
+              blocking_orders?: Array<{ id?: string; order_number?: string; status?: string }>;
+            }
+          | undefined;
         const parts = [data?.message, data?.error].filter(Boolean);
-        throw new Error(parts.length > 0 ? parts.join(' — ') : error.message);
+        let msg = parts.length > 0 ? parts.join(' — ') : error.message;
+        if (data?.blocking_orders?.length) {
+          const detail = data.blocking_orders
+            .map((o) => `${o.order_number ?? o.id ?? '?'} (${o.status ?? 'unknown'})`)
+            .join(', ');
+          msg = `${msg}. Blocking: ${detail}`;
+        }
+        throw new Error(msg);
       }
       throw error;
     }

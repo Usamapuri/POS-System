@@ -24,7 +24,6 @@ import {
   Edit,
   Trash2,
   Tag,
-  Hash,
   Calendar,
   Monitor,
   Printer,
@@ -92,37 +91,6 @@ export function AdminCategoriesTable({
                 {category.description || "No description"}
               </div>
             </div>
-          </div>
-        )
-      },
-    },
-    {
-      accessorKey: "sort_order",
-      header: ({ column }) => {
-        const isSorted = column.getIsSorted()
-        return (
-          <Button
-            variant="ghost"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            className="h-8 px-2 lg:px-3"
-          >
-            <Hash className="mr-2 h-4 w-4" />
-            Order
-            {isSorted === "asc" ? (
-              <ArrowUp className="ml-2 h-4 w-4" />
-            ) : isSorted === "desc" ? (
-              <ArrowDown className="ml-2 h-4 w-4" />
-            ) : (
-              <ArrowUpDown className="ml-2 h-4 w-4" />
-            )}
-          </Button>
-        )
-      },
-      cell: ({ getValue }) => {
-        const order = getValue() as number
-        return (
-          <div className="text-gray-600 font-mono">
-            #{order}
           </div>
         )
       },

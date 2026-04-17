@@ -1188,20 +1188,56 @@ func deleteProduct(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		productID := c.Param("id")
 
-		// Check if product is used in any active orders
+		// Check if product is used in any active orders (exclude voided lines; they no longer count as active use)
 		var orderCount int
-		db.QueryRow(`
-			SELECT COUNT(*) 
-			FROM order_items oi 
-			JOIN orders o ON oi.order_id = o.id 
-			WHERE oi.product_id = $1 AND o.status NOT IN ('completed', 'cancelled')
+		err := db.QueryRow(`
+			SELECT COUNT(*)
+			FROM order_items oi
+			JOIN orders o ON oi.order_id = o.id
+			WHERE oi.product_id = $1
+			  AND oi.status != 'voided'
+			  AND o.status NOT IN ('completed', 'cancelled')
 		`, productID).Scan(&orderCount)
+		if err != nil {
+			c.JSON(500, gin.H{
+				"success": false,
+				"message": "Failed to check product orders",
+				"error":   err.Error(),
+			})
+			return
+		}
 
 		if orderCount > 0 {
+			blocking := make([]gin.H, 0, 5)
+			rows, qerr := db.Query(`
+				SELECT o.id::text, o.order_number, o.status
+				FROM orders o
+				WHERE EXISTS (
+					SELECT 1 FROM order_items oi
+					WHERE oi.order_id = o.id AND oi.product_id = $1 AND oi.status != 'voided'
+				)
+				AND o.status NOT IN ('completed', 'cancelled')
+				ORDER BY o.updated_at DESC
+				LIMIT 5
+			`, productID)
+			if qerr == nil {
+				defer rows.Close()
+				for rows.Next() {
+					var id, orderNumber, status string
+					if rows.Scan(&id, &orderNumber, &status) == nil {
+						blocking = append(blocking, gin.H{
+							"id":            id,
+							"order_number":  orderNumber,
+							"status":        status,
+						})
+					}
+				}
+			}
 			c.JSON(400, gin.H{
-				"success": false,
-				"message": "Cannot delete product with active orders",
-				"error":   "product_has_active_orders",
+				"success":          false,
+				"message":          "Cannot delete product with active orders",
+				"error":            "product_has_active_orders",
+				"blocking_orders":  blocking,
 			})
 			return
 		}

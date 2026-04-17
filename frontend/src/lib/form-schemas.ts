@@ -53,6 +53,7 @@ export const createCategorySchema = z.object({
   name: requiredStringSchema.min(2, 'Category name must be at least 2 characters'),
   description: z.string().optional(),
   image_url: z.string().url().optional().or(z.literal('')),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex color').default('#6B7280'),
   sort_order: z.number().min(0).default(0),
   /** 'none' = unassigned; otherwise kitchen_stations.id */
   kitchen_station_id: z.string().optional().default('none'),
