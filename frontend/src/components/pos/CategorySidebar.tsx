@@ -1,5 +1,4 @@
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Grid3x3, Loader2 } from 'lucide-react'
 import type { Category } from '@/types'
 
@@ -87,9 +86,6 @@ export function CategorySidebar({
                   )}
                 </div>
               </div>
-              <Badge variant="outline" className="text-xs">
-                {category.sort_order}
-              </Badge>
             </button>
           ))}
         </div>
