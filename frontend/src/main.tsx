@@ -1,8 +1,9 @@
-import React, { StrictMode } from 'react'
+import { StrictMode } from 'react'
 import ReactDOM from 'react-dom/client'
 import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/toaster'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { CurrencyProvider } from '@/contexts/CurrencyContext'
 import './index.css'
@@ -39,7 +40,9 @@ if (!rootElement.innerHTML) {
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
           <CurrencyProvider>
-            <RouterProvider router={router} />
+            <TooltipProvider delayDuration={200} skipDelayDuration={0}>
+              <RouterProvider router={router} />
+            </TooltipProvider>
           </CurrencyProvider>
           <Toaster />
         </ThemeProvider>

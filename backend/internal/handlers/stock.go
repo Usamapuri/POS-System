@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -1059,43 +1060,91 @@ func (h *StockHandler) GetStockSummary(c *gin.Context) {
 // ---------- Advanced Reports ----------
 
 func (h *StockHandler) GetAdvancedReport(c *gin.Context) {
-	period := c.DefaultQuery("period", "30")
+	// Safely parse and clamp period (days) so we can reuse it in INTERVAL and for
+	// time-normalised KPIs such as "days of cover". PostgreSQL rejects intervals
+	// beyond a year or two expressed this way, so we clamp to 366.
+	periodStr := c.DefaultQuery("period", "30")
+	periodDays, err := strconv.Atoi(periodStr)
+	if err != nil || periodDays <= 0 {
+		periodDays = 30
+	}
+	if periodDays > 366 {
+		periodDays = 366
+	}
+	periodStr = strconv.Itoa(periodDays)
 
-	// 1. KPI: total stock value
+	// 1. KPI: total stock value (current on-hand valuation).
 	var totalStockValue float64
-	h.db.QueryRow(`SELECT COALESCE(SUM(quantity_on_hand * COALESCE(default_unit_cost,0)),0) FROM stock_items WHERE is_active=true`).Scan(&totalStockValue)
+	if err := h.db.QueryRow(`
+		SELECT COALESCE(SUM(quantity_on_hand * COALESCE(default_unit_cost,0)),0)
+		FROM stock_items
+		WHERE is_active = true
+	`).Scan(&totalStockValue); err != nil {
+		log.Printf("GetAdvancedReport total_stock_value: %v", err)
+	}
 
-	// 2. KPI: total waste value (issues with spoilage/waste reason in the note)
+	// 2. KPI: total waste value in period (issues with spoilage/waste or RTV tag).
 	var totalWasteValue float64
-	h.db.QueryRow(fmt.Sprintf(`
+	if err := h.db.QueryRow(fmt.Sprintf(`
 		SELECT COALESCE(SUM(ABS(sm.quantity) * COALESCE(si.default_unit_cost,0)),0)
 		FROM stock_movements sm
 		JOIN stock_items si ON sm.stock_item_id = si.id
 		WHERE sm.movement_type = 'issue'
-		  AND sm.note ILIKE '%%[Spoilage/Waste]%%'
+		  AND (sm.note ILIKE '%%[Spoilage/Waste]%%' OR sm.note ILIKE '%%[Return to Vendor]%%')
 		  AND sm.created_at >= CURRENT_DATE - INTERVAL '%s days'
-	`, period)).Scan(&totalWasteValue)
+		  AND sm.voided_at IS NULL
+	`, periodStr)).Scan(&totalWasteValue); err != nil {
+		log.Printf("GetAdvancedReport total_waste_value: %v", err)
+	}
 
-	// 3. KPI: inventory turnover = COGS / avg inventory value
+	// 3. KPI: total issued cost in period (proxy for COGS), powers turnover & days cover.
 	var totalIssuedCost float64
-	h.db.QueryRow(fmt.Sprintf(`
+	if err := h.db.QueryRow(fmt.Sprintf(`
 		SELECT COALESCE(SUM(ABS(sm.quantity) * COALESCE(si.default_unit_cost,0)),0)
 		FROM stock_movements sm
 		JOIN stock_items si ON sm.stock_item_id = si.id
 		WHERE sm.movement_type = 'issue'
 		  AND sm.created_at >= CURRENT_DATE - INTERVAL '%s days'
-	`, period)).Scan(&totalIssuedCost)
+		  AND sm.voided_at IS NULL
+	`, periodStr)).Scan(&totalIssuedCost); err != nil {
+		log.Printf("GetAdvancedReport total_issued_cost: %v", err)
+	}
 	turnoverRate := 0.0
 	if totalStockValue > 0 {
 		turnoverRate = totalIssuedCost / totalStockValue
 	}
 
-	// 4. Category value distribution for donut chart
+	// 4. KPI: low stock count (items at or below reorder level).
+	var lowStockCount int
+	if err := h.db.QueryRow(`
+		SELECT COUNT(*) FROM stock_items
+		WHERE is_active = true AND quantity_on_hand <= reorder_level
+	`).Scan(&lowStockCount); err != nil {
+		log.Printf("GetAdvancedReport low_stock_count: %v", err)
+	}
+
+	// Derived KPIs.
+	var daysCover *float64
+	if totalIssuedCost > 0 {
+		avgDaily := totalIssuedCost / float64(periodDays)
+		if avgDaily > 0 {
+			d := totalStockValue / avgDaily
+			daysCover = &d
+		}
+	}
+	var wastePctOfIssued *float64
+	if totalIssuedCost > 0 {
+		p := (totalWasteValue / totalIssuedCost) * 100.0
+		wastePctOfIssued = &p
+	}
+
+	// 5. Category value distribution for donut chart.
 	type CatValue struct {
 		Name  string  `json:"name"`
 		Value float64 `json:"value"`
 	}
-	catRows, _ := h.db.Query(`
+	catValues := []CatValue{}
+	catRows, err := h.db.Query(`
 		SELECT COALESCE(sc.name, 'Uncategorized'),
 		       COALESCE(SUM(si.quantity_on_hand * COALESCE(si.default_unit_cost,0)),0)
 		FROM stock_items si
@@ -1105,60 +1154,70 @@ func (h *StockHandler) GetAdvancedReport(c *gin.Context) {
 		HAVING SUM(si.quantity_on_hand * COALESCE(si.default_unit_cost,0)) > 0
 		ORDER BY 2 DESC
 	`)
-	var catValues []CatValue
-	if catRows != nil {
+	if err != nil {
+		log.Printf("GetAdvancedReport category_values: %v", err)
+	} else {
 		defer catRows.Close()
 		for catRows.Next() {
 			var cv CatValue
-			catRows.Scan(&cv.Name, &cv.Value)
+			if scanErr := catRows.Scan(&cv.Name, &cv.Value); scanErr != nil {
+				log.Printf("GetAdvancedReport category_values scan: %v", scanErr)
+				continue
+			}
 			catValues = append(catValues, cv)
 		}
 	}
 
-	// 5. Purchase cost vs issued qty trend (weekly buckets)
+	// 6. Purchase cost vs issued qty trend (weekly buckets).
 	type TrendRow struct {
 		Week         string  `json:"week"`
 		PurchaseCost float64 `json:"purchase_cost"`
 		IssuedQty    float64 `json:"issued_qty"`
 	}
-	trendRows, _ := h.db.Query(fmt.Sprintf(`
+	trends := []TrendRow{}
+	trendRows, err := h.db.Query(fmt.Sprintf(`
 		SELECT DATE_TRUNC('week', sm.created_at)::date AS week,
 		       COALESCE(SUM(CASE WHEN sm.movement_type='purchase' THEN COALESCE(sm.total_cost,0) ELSE 0 END),0),
 		       COALESCE(SUM(CASE WHEN sm.movement_type='issue' THEN ABS(sm.quantity) ELSE 0 END),0)
 		FROM stock_movements sm
 		WHERE sm.created_at >= CURRENT_DATE - INTERVAL '%s days'
-		  AND (sm.movement_type <> 'purchase' OR sm.voided_at IS NULL)
+		  AND sm.voided_at IS NULL
 		GROUP BY DATE_TRUNC('week', sm.created_at)
 		ORDER BY week ASC
-	`, period))
-	var trends []TrendRow
-	if trendRows != nil {
+	`, periodStr))
+	if err != nil {
+		log.Printf("GetAdvancedReport trends: %v", err)
+	} else {
 		defer trendRows.Close()
 		for trendRows.Next() {
 			var tr TrendRow
 			var weekDate time.Time
-			trendRows.Scan(&weekDate, &tr.PurchaseCost, &tr.IssuedQty)
+			if scanErr := trendRows.Scan(&weekDate, &tr.PurchaseCost, &tr.IssuedQty); scanErr != nil {
+				log.Printf("GetAdvancedReport trends scan: %v", scanErr)
+				continue
+			}
 			tr.Week = weekDate.Format("Jan 02")
 			trends = append(trends, tr)
 		}
 	}
 
-	// 6. Variance report: per-item starting stock, purchased, issued, current on-hand, variance
+	// 7. Variance report: per-item starting stock, purchased, issued, current on-hand, variance.
 	type VarianceRow struct {
-		ItemID         string  `json:"item_id"`
-		ItemName       string  `json:"item_name"`
-		Unit           string  `json:"unit"`
-		Category       string  `json:"category"`
-		StartingStock  float64 `json:"starting_stock"`
-		Purchased      float64 `json:"purchased"`
-		Issued         float64 `json:"issued"`
-		AdjustmentNet  float64 `json:"adjustment_net"`
-		ActualOnHand   float64 `json:"actual_on_hand"`
-		Expected       float64 `json:"expected"`
-		Variance       float64 `json:"variance"`
-		UnitCost       float64 `json:"unit_cost"`
+		ItemID        string  `json:"item_id"`
+		ItemName      string  `json:"item_name"`
+		Unit          string  `json:"unit"`
+		Category      string  `json:"category"`
+		StartingStock float64 `json:"starting_stock"`
+		Purchased     float64 `json:"purchased"`
+		Issued        float64 `json:"issued"`
+		AdjustmentNet float64 `json:"adjustment_net"`
+		ActualOnHand  float64 `json:"actual_on_hand"`
+		Expected      float64 `json:"expected"`
+		Variance      float64 `json:"variance"`
+		UnitCost      float64 `json:"unit_cost"`
 	}
-	varRows, _ := h.db.Query(fmt.Sprintf(`
+	variances := []VarianceRow{}
+	varRows, err := h.db.Query(fmt.Sprintf(`
 		SELECT si.id, si.name, si.unit,
 		       COALESCE(sc.name,'Uncategorized'),
 		       COALESCE(si.default_unit_cost, 0),
@@ -1170,18 +1229,23 @@ func (h *StockHandler) GetAdvancedReport(c *gin.Context) {
 		LEFT JOIN stock_categories sc ON si.category_id = sc.id
 		LEFT JOIN stock_movements sm ON sm.stock_item_id = si.id
 		  AND sm.created_at >= CURRENT_DATE - INTERVAL '%s days'
-		  AND (sm.movement_type <> 'purchase' OR sm.voided_at IS NULL)
+		  AND sm.voided_at IS NULL
 		WHERE si.is_active = true
 		GROUP BY si.id, si.name, si.unit, sc.name, si.default_unit_cost, si.quantity_on_hand
 		ORDER BY si.name ASC
-	`, period))
-	var variances []VarianceRow
-	if varRows != nil {
+	`, periodStr))
+	if err != nil {
+		log.Printf("GetAdvancedReport variance: %v", err)
+	} else {
 		defer varRows.Close()
 		for varRows.Next() {
 			var vr VarianceRow
-			varRows.Scan(&vr.ItemID, &vr.ItemName, &vr.Unit, &vr.Category,
-				&vr.UnitCost, &vr.ActualOnHand, &vr.Purchased, &vr.Issued, &vr.AdjustmentNet)
+			if scanErr := varRows.Scan(&vr.ItemID, &vr.ItemName, &vr.Unit, &vr.Category,
+				&vr.UnitCost, &vr.ActualOnHand, &vr.Purchased, &vr.Issued, &vr.AdjustmentNet); scanErr != nil {
+				log.Printf("GetAdvancedReport variance scan: %v", scanErr)
+				continue
+			}
+			// Starting = on-hand today minus net period changes.
 			vr.StartingStock = vr.ActualOnHand - vr.Purchased + vr.Issued - vr.AdjustmentNet
 			vr.Expected = vr.StartingStock + vr.Purchased - vr.Issued + vr.AdjustmentNet
 			vr.Variance = vr.ActualOnHand - vr.Expected
@@ -1189,7 +1253,7 @@ func (h *StockHandler) GetAdvancedReport(c *gin.Context) {
 		}
 	}
 
-	// 7. Waste & spoilage breakdown
+	// 8. Waste & spoilage breakdown.
 	type WasteRow struct {
 		ItemName  string  `json:"item_name"`
 		Category  string  `json:"category"`
@@ -1199,10 +1263,11 @@ func (h *StockHandler) GetAdvancedReport(c *gin.Context) {
 		LostValue float64 `json:"lost_value"`
 		Date      string  `json:"date"`
 	}
-	wasteRows, _ := h.db.Query(fmt.Sprintf(`
+	wastes := []WasteRow{}
+	wasteRows, err := h.db.Query(fmt.Sprintf(`
 		SELECT si.name, COALESCE(sc.name,'Uncategorized'), si.unit,
 		       ABS(sm.quantity),
-		       sm.note,
+		       COALESCE(sm.note, ''),
 		       ABS(sm.quantity) * COALESCE(si.default_unit_cost,0),
 		       sm.created_at::date
 		FROM stock_movements sm
@@ -1211,15 +1276,20 @@ func (h *StockHandler) GetAdvancedReport(c *gin.Context) {
 		WHERE sm.movement_type = 'issue'
 		  AND (sm.note ILIKE '%%[Spoilage/Waste]%%' OR sm.note ILIKE '%%[Return to Vendor]%%')
 		  AND sm.created_at >= CURRENT_DATE - INTERVAL '%s days'
+		  AND sm.voided_at IS NULL
 		ORDER BY sm.created_at DESC
-	`, period))
-	var wastes []WasteRow
-	if wasteRows != nil {
+	`, periodStr))
+	if err != nil {
+		log.Printf("GetAdvancedReport waste: %v", err)
+	} else {
 		defer wasteRows.Close()
 		for wasteRows.Next() {
 			var wr WasteRow
 			var dt time.Time
-			wasteRows.Scan(&wr.ItemName, &wr.Category, &wr.Unit, &wr.QtyWasted, &wr.Reason, &wr.LostValue, &dt)
+			if scanErr := wasteRows.Scan(&wr.ItemName, &wr.Category, &wr.Unit, &wr.QtyWasted, &wr.Reason, &wr.LostValue, &dt); scanErr != nil {
+				log.Printf("GetAdvancedReport waste scan: %v", scanErr)
+				continue
+			}
 			wr.Date = dt.Format("2006-01-02")
 			if wr.Reason != "" {
 				start := strings.Index(wr.Reason, "[")
@@ -1232,18 +1302,25 @@ func (h *StockHandler) GetAdvancedReport(c *gin.Context) {
 		}
 	}
 
+	kpis := map[string]interface{}{
+		"total_stock_value":    totalStockValue,
+		"total_waste_value":    totalWasteValue,
+		"turnover_rate":        turnoverRate,
+		"issued_value_period":  totalIssuedCost,
+		"low_stock_count":      lowStockCount,
+		"period_days":          periodDays,
+		"days_cover_estimate":  daysCover,
+		"waste_pct_of_issued":  wastePctOfIssued,
+	}
+
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true, Message: "Advanced report retrieved",
 		Data: map[string]interface{}{
-			"kpis": map[string]interface{}{
-				"total_stock_value": totalStockValue,
-				"total_waste_value": totalWasteValue,
-				"turnover_rate":     turnoverRate,
-			},
-			"category_values":  catValues,
-			"trends":           trends,
-			"variance":         variances,
-			"waste":            wastes,
+			"kpis":            kpis,
+			"category_values": catValues,
+			"trends":          trends,
+			"variance":        variances,
+			"waste":           wastes,
 		},
 	})
 }

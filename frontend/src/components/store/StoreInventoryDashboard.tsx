@@ -1,12 +1,24 @@
-import { useState, useCallback, useRef, useEffect, type Dispatch, type SetStateAction } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect, type Dispatch, type SetStateAction } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/api/client'
 import type { StockCategory, StockItem, StockMovement, StockAlert, UserBrief, AdvancedStockReport, InventoryActivityEntry } from '@/types'
 import { useCurrency } from '@/contexts/CurrencyContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Tooltip as UITooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import {
   Dialog,
   DialogContent,
@@ -20,12 +32,14 @@ import {
   Boxes, BarChart3, ShoppingCart, Tag, X, ChevronLeft, ChevronRight, CheckCircle2, XCircle,
   MoreVertical, Trash2, Pencil, DollarSign, Recycle, RefreshCw, SlidersHorizontal,
   ArrowUpDown, ArrowUp, ArrowDown, GripVertical, History, Undo2,
+  Eye, CalendarClock, Percent, Scale, AlertCircle,
 } from 'lucide-react'
 import {
   PieChart, Pie, Cell, Tooltip as ReTooltip, Legend, ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
 import { InventoryPurchasingTab } from '@/components/store/InventoryPurchasingTab'
+import * as ReportHelp from '@/lib/inventory-report-help'
 
 // ─── Unit conversion ─────────────────────────────────────────────
 
@@ -149,7 +163,7 @@ function parseStoredItemColOrder(raw: string | null): ItemsDataColumnId[] | null
 
 export function StoreInventoryDashboard() {
   const qc = useQueryClient()
-  const { formatCurrency, currencyCode } = useCurrency()
+  const { formatCurrency } = useCurrency()
   const [tab, setTab] = useState<Tab>('items')
   const [modal, setModal] = useState<ModalState>({ kind: 'none' })
   const [search, setSearch] = useState('')
@@ -1347,13 +1361,42 @@ function MovementsTab({
 
 const DONUT_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
 
+/**
+ * Tiny contextual-help affordance used throughout the Reports tab. Shows an
+ * accessible Eye icon trigger with a short tooltip explanation — consistent
+ * with how enterprise BI tools (Looker, Metabase, Tableau) surface metric
+ * definitions.
+ */
+function MetricHint({ text, label }: { text: string; label?: string }) {
+  return (
+    <UITooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label ? `About ${label}` : 'More info'}
+          className="inline-flex items-center justify-center rounded-full p-0.5 text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Eye className="w-3.5 h-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{text}</TooltipContent>
+    </UITooltip>
+  )
+}
+
 function ReportsTab({ report, loading, period, setPeriod }: {
   report: AdvancedStockReport | undefined; loading: boolean;
   period: string; setPeriod: (p: string) => void;
 }) {
-  const { formatCurrency } = useCurrency()
+  const { formatCurrency, currencyCode } = useCurrency()
   const [varSearch, setVarSearch] = useState('')
   const [varSort, setVarSort] = useState<'variance' | 'name' | 'value'>('variance')
+
+  // NB: computed unconditionally so the hook call order is stable across renders.
+  const totalVarianceValue = useMemo(() => {
+    const rows = report?.variance ?? []
+    return rows.reduce((sum, v) => sum + Math.abs((v.variance ?? 0) * (v.unit_cost ?? 0)), 0)
+  }, [report?.variance])
 
   if (loading || !report) return (
     <div className="text-center py-16 text-muted-foreground">
@@ -1380,64 +1423,121 @@ function ReportsTab({ report, loading, period, setPeriod }: {
       return a.item_name.localeCompare(b.item_name)
     })
 
+  const periodLabel = period === '7' ? 'Last 7 days' :
+    period === '14' ? 'Last 14 days' :
+    period === '30' ? 'Last 30 days' :
+    period === '60' ? 'Last 60 days' :
+    period === '90' ? 'Last 90 days' : `Last ${period} days`
+
+  const wasteTotal = wasteData.reduce((s, w) => s + w.lost_value, 0)
+
   return (
     <div className="space-y-6">
-      {/* Period selector */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Inventory Intelligence</h3>
-        <select value={period} onChange={e => setPeriod(e.target.value)}
-          className="border rounded-md px-3 py-2 text-sm bg-background">
-          <option value="7">Last 7 Days</option>
-          <option value="14">Last 14 Days</option>
-          <option value="30">Last 30 Days</option>
-          <option value="60">Last 60 Days</option>
-          <option value="90">Last 90 Days</option>
-        </select>
+      {/* ── Header & period picker ──────────────────────────── */}
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+        <div className="space-y-1.5 max-w-3xl">
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold">Inventory intelligence</h3>
+            <MetricHint text={ReportHelp.REPORTS_TAB_INTRO} label="inventory intelligence" />
+          </div>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {ReportHelp.REPORTS_TAB_INTRO}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground hidden sm:inline">Period</span>
+          <Select value={period} onValueChange={setPeriod}>
+            <SelectTrigger className="w-[170px] h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="14">Last 14 days</SelectItem>
+              <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="60">Last 60 days</SelectItem>
+              <SelectItem value="90">Last 90 days</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      {/* ── KPI Cards ─────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-5 pb-4 px-5">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-blue-50">
-                <DollarSign className="w-5 h-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{formatCurrency(kpis.total_stock_value)}</p>
-                <p className="text-xs text-muted-foreground">Total Stock Value</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className={kpis.total_waste_value > 0 ? 'border-red-200' : ''}>
-          <CardContent className="pt-5 pb-4 px-5">
-            <div className="flex items-center gap-3">
-              <div className={`p-2.5 rounded-xl ${kpis.total_waste_value > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
-                <Recycle className={`w-5 h-5 ${kpis.total_waste_value > 0 ? 'text-red-600' : 'text-gray-400'}`} />
-              </div>
-              <div>
-                <p className={`text-2xl font-bold ${kpis.total_waste_value > 0 ? 'text-red-600' : ''}`}>
-                  {formatCurrency(kpis.total_waste_value)}
-                </p>
-                <p className="text-xs text-muted-foreground">Waste & Spoilage Loss</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5 pb-4 px-5">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-purple-50">
-                <RefreshCw className="w-5 h-5 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{kpis.turnover_rate.toFixed(2)}x</p>
-                <p className="text-xs text-muted-foreground">Inventory Turnover Rate</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* ── KPI Cards (8-up, responsive) ─────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard
+          icon={<DollarSign className="w-5 h-5 text-blue-600" />}
+          tint="bg-blue-50"
+          label="Total stock value"
+          value={formatCurrency(kpis.total_stock_value)}
+          hint={ReportHelp.KPI_TOTAL_STOCK_VALUE}
+        />
+        <KpiCard
+          icon={<Recycle className={`w-5 h-5 ${kpis.total_waste_value > 0 ? 'text-red-600' : 'text-gray-400'}`} />}
+          tint={kpis.total_waste_value > 0 ? 'bg-red-50' : 'bg-gray-50'}
+          label="Waste & spoilage loss"
+          value={formatCurrency(kpis.total_waste_value)}
+          valueTone={kpis.total_waste_value > 0 ? 'text-red-600' : ''}
+          cardClass={kpis.total_waste_value > 0 ? 'border-red-200' : ''}
+          hint={ReportHelp.KPI_WASTE_VALUE}
+          footer={periodLabel}
+        />
+        <KpiCard
+          icon={<RefreshCw className="w-5 h-5 text-purple-600" />}
+          tint="bg-purple-50"
+          label="Inventory turnover"
+          value={`${kpis.turnover_rate.toFixed(2)}x`}
+          hint={ReportHelp.KPI_TURNOVER}
+          footer={periodLabel}
+        />
+        <KpiCard
+          icon={<ArrowDownCircle className="w-5 h-5 text-emerald-600" />}
+          tint="bg-emerald-50"
+          label="Issued value (period)"
+          value={formatCurrency(kpis.issued_value_period ?? 0)}
+          hint={ReportHelp.KPI_ISSUED_VALUE}
+          footer={periodLabel}
+        />
+        <KpiCard
+          icon={<CalendarClock className="w-5 h-5 text-sky-600" />}
+          tint="bg-sky-50"
+          label="Est. days of cover"
+          value={
+            kpis.days_cover_estimate == null
+              ? '—'
+              : kpis.days_cover_estimate > 9999
+                ? '9,999+'
+                : `${Math.round(kpis.days_cover_estimate)} days`
+          }
+          hint={ReportHelp.KPI_DAYS_COVER}
+          footer={kpis.days_cover_estimate == null ? 'No issues in period' : undefined}
+        />
+        <KpiCard
+          icon={<Percent className={`w-5 h-5 ${(kpis.waste_pct_of_issued ?? 0) > 4 ? 'text-red-600' : 'text-amber-600'}`} />}
+          tint={(kpis.waste_pct_of_issued ?? 0) > 4 ? 'bg-red-50' : 'bg-amber-50'}
+          label="Waste vs issued value"
+          value={kpis.waste_pct_of_issued == null ? '—' : `${(kpis.waste_pct_of_issued).toFixed(2)}%`}
+          valueTone={(kpis.waste_pct_of_issued ?? 0) > 4 ? 'text-red-600' : ''}
+          hint={ReportHelp.KPI_WASTE_PCT_ISSUED}
+          footer={periodLabel}
+        />
+        <KpiCard
+          icon={<AlertCircle className={`w-5 h-5 ${(kpis.low_stock_count ?? 0) > 0 ? 'text-amber-600' : 'text-gray-400'}`} />}
+          tint={(kpis.low_stock_count ?? 0) > 0 ? 'bg-amber-50' : 'bg-gray-50'}
+          label="Low stock items"
+          value={String(kpis.low_stock_count ?? 0)}
+          valueTone={(kpis.low_stock_count ?? 0) > 0 ? 'text-amber-700' : ''}
+          cardClass={(kpis.low_stock_count ?? 0) > 0 ? 'border-amber-200' : ''}
+          hint={ReportHelp.KPI_LOW_STOCK}
+          footer="Right now"
+        />
+        <KpiCard
+          icon={<Scale className={`w-5 h-5 ${totalVarianceValue > 0 ? 'text-rose-600' : 'text-gray-400'}`} />}
+          tint={totalVarianceValue > 0 ? 'bg-rose-50' : 'bg-gray-50'}
+          label="Total variance value"
+          value={formatCurrency(totalVarianceValue)}
+          valueTone={totalVarianceValue > 0 ? 'text-rose-700' : ''}
+          hint={ReportHelp.KPI_VARIANCE_VALUE}
+          footer={periodLabel}
+        />
       </div>
 
       {/* ── Charts Row ────────────────────────────────────────── */}
@@ -1445,17 +1545,23 @@ function ReportsTab({ report, loading, period, setPeriod }: {
         {/* Donut: Category Value Distribution */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Value Distribution by Category</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base font-semibold">Value distribution by category</CardTitle>
+              <MetricHint text={ReportHelp.CHART_CATEGORY_DONUT} label="category distribution" />
+            </div>
+            <CardDescription className="text-xs">
+              Share of current stock value across each category.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {catData.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">No categorized stock data.</p>
+              <p className="text-sm text-muted-foreground text-center py-10">No categorised stock data.</p>
             ) : (
               <div className="flex items-center gap-4">
-                <ResponsiveContainer width="50%" height={220}>
+                <ResponsiveContainer width="50%" height={240}>
                   <PieChart>
                     <Pie data={catDataWithPct} dataKey="value" nameKey="name" cx="50%" cy="50%"
-                      innerRadius={55} outerRadius={90} paddingAngle={2} strokeWidth={0}>
+                      innerRadius={60} outerRadius={95} paddingAngle={2} strokeWidth={0}>
                       {catDataWithPct.map((_, i) => (
                         <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
                       ))}
@@ -1463,7 +1569,7 @@ function ReportsTab({ report, loading, period, setPeriod }: {
                     <ReTooltip formatter={(val: number) => formatCurrency(val)} />
                   </PieChart>
                 </ResponsiveContainer>
-                <div className="flex-1 space-y-1.5 text-sm min-w-0">
+                <div className="flex-1 space-y-2 text-sm min-w-0">
                   {catDataWithPct.map((c, i) => (
                     <div key={i} className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
@@ -1480,22 +1586,28 @@ function ReportsTab({ report, loading, period, setPeriod }: {
         {/* Dual-Line: Purchase Cost vs Issued Qty */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Purchase Cost vs Issued Quantity</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base font-semibold">Purchase cost vs issued quantity</CardTitle>
+              <MetricHint text={ReportHelp.CHART_PURCHASE_VS_ISSUED} label="purchase vs issued" />
+            </div>
+            <CardDescription className="text-xs">
+              Weekly totals across {periodLabel.toLowerCase()}.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {trendData.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">No trend data for this period.</p>
+              <p className="text-sm text-muted-foreground text-center py-10">No purchases or issues recorded in this period.</p>
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
+              <ResponsiveContainer width="100%" height={240}>
                 <LineChart data={trendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                   <XAxis dataKey="week" tick={{ fontSize: 11 }} />
                   <YAxis yAxisId="cost" tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(Number(v))} />
                   <YAxis yAxisId="qty" orientation="right" tick={{ fontSize: 11 }} />
-                  <ReTooltip />
+                  <ReTooltip formatter={(val: number, name: string) => name.startsWith('Purchase') ? formatCurrency(val) : val} />
                   <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
-                  <Line yAxisId="cost" type="monotone" dataKey="purchase_cost" name="Purchase Cost ($)" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line yAxisId="qty" type="monotone" dataKey="issued_qty" name="Issued Qty" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line yAxisId="cost" type="monotone" dataKey="purchase_cost" name={`Purchase cost (${currencyCode})`} stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line yAxisId="qty" type="monotone" dataKey="issued_qty" name="Issued qty" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
                 </LineChart>
               </ResponsiveContainer>
             )}
@@ -1506,74 +1618,90 @@ function ReportsTab({ report, loading, period, setPeriod }: {
       {/* ── Variance Report Table ─────────────────────────────── */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold">Variance Report (Theoretical vs Actual)</CardTitle>
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-base font-semibold">Variance report (theoretical vs actual)</CardTitle>
+                <MetricHint text={ReportHelp.VARIANCE_REPORT_INTRO} label="variance report" />
+              </div>
+              <CardDescription className="text-xs max-w-2xl">
+                {ReportHelp.VARIANCE_REPORT_SHORT} Formula: <span className="font-mono">starting + purchased − issued + net adj. = expected</span>; <span className="font-mono">actual − expected = variance</span>.
+              </CardDescription>
+            </div>
             <div className="flex items-center gap-2">
               <div className="relative">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <input value={varSearch} onChange={e => setVarSearch(e.target.value)} placeholder="Search items..."
-                  className="pl-8 pr-3 py-1.5 border rounded-md text-xs bg-background w-48" />
+                <Input
+                  value={varSearch}
+                  onChange={e => setVarSearch(e.target.value)}
+                  placeholder="Search items…"
+                  className="pl-8 pr-3 h-9 w-48 text-sm"
+                />
               </div>
-              <select value={varSort} onChange={e => setVarSort(e.target.value as any)}
-                className="border rounded-md px-2 py-1.5 text-xs bg-background">
-                <option value="variance">Sort: Highest Variance</option>
-                <option value="value">Sort: Highest Value Impact</option>
-                <option value="name">Sort: Name A-Z</option>
-              </select>
+              <Select value={varSort} onValueChange={(v: string) => setVarSort(v as 'variance' | 'name' | 'value')}>
+                <SelectTrigger className="h-9 w-[200px] text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="variance">Sort: highest variance</SelectItem>
+                  <SelectItem value="value">Sort: highest value impact</SelectItem>
+                  <SelectItem value="name">Sort: name A–Z</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardHeader>
         <CardContent className="pt-0">
-          <div className="border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="border rounded-lg overflow-x-auto">
+            <table className="w-full min-w-[900px] text-sm">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="text-left px-3 py-2.5 font-medium text-xs">Item</th>
-                  <th className="text-left px-3 py-2.5 font-medium text-xs">Category</th>
-                  <th className="text-right px-3 py-2.5 font-medium text-xs">Starting</th>
-                  <th className="text-right px-3 py-2.5 font-medium text-xs">Purchased</th>
-                  <th className="text-right px-3 py-2.5 font-medium text-xs">Issued</th>
-                  <th className="text-right px-3 py-2.5 font-medium text-xs">Net adj.</th>
-                  <th className="text-right px-3 py-2.5 font-medium text-xs">Expected</th>
-                  <th className="text-right px-3 py-2.5 font-medium text-xs">Actual</th>
-                  <th className="text-right px-3 py-2.5 font-medium text-xs">Variance</th>
-                  <th className="text-center px-3 py-2.5 font-medium text-xs">Status</th>
+                  <VarianceTh align="left" help={ReportHelp.COL_ITEM}>Item</VarianceTh>
+                  <VarianceTh align="left" help={ReportHelp.COL_CATEGORY}>Category</VarianceTh>
+                  <VarianceTh align="right" help={ReportHelp.COL_STARTING}>Starting</VarianceTh>
+                  <VarianceTh align="right" help={ReportHelp.COL_PURCHASED}>Purchased</VarianceTh>
+                  <VarianceTh align="right" help={ReportHelp.COL_ISSUED}>Issued</VarianceTh>
+                  <VarianceTh align="right" help={ReportHelp.COL_NET_ADJ}>Net adj.</VarianceTh>
+                  <VarianceTh align="right" help={ReportHelp.COL_EXPECTED}>Expected</VarianceTh>
+                  <VarianceTh align="right" help={ReportHelp.COL_ACTUAL}>Actual</VarianceTh>
+                  <VarianceTh align="right" help={ReportHelp.COL_VARIANCE}>Variance</VarianceTh>
+                  <VarianceTh align="center" help={ReportHelp.COL_STATUS}>Status</VarianceTh>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {filteredVariance.length === 0 && (
-                  <tr><td colSpan={10} className="px-3 py-6 text-center text-muted-foreground text-xs">No variance data for this period.</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-8 text-center text-muted-foreground text-sm">No items match this search.</td></tr>
                 )}
-                {filteredVariance.map(v => {
+                {filteredVariance.map((v, idx) => {
                   const absVar = Math.abs(v.variance)
                   const pctVar = v.expected > 0 ? (absVar / v.expected * 100) : 0
                   const status: 'green' | 'yellow' | 'red' = pctVar > 10 ? 'red' : pctVar > 3 ? 'yellow' : 'green'
                   return (
-                    <tr key={v.item_id} className="hover:bg-muted/30">
-                      <td className="px-3 py-2">
-                        <div className="font-medium text-xs">{v.item_name}</div>
-                        <div className="text-[10px] text-muted-foreground">{v.unit}</div>
+                    <tr key={v.item_id} className={idx % 2 === 1 ? 'bg-muted/20 hover:bg-muted/40' : 'hover:bg-muted/30'}>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-sm">{v.item_name}</div>
+                        <div className="text-xs text-muted-foreground">{v.unit}</div>
                       </td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">{v.category}</td>
-                      <td className="px-3 py-2 text-right text-xs tabular-nums">{v.starting_stock.toFixed(1)}</td>
-                      <td className="px-3 py-2 text-right text-xs tabular-nums text-green-600">+{v.purchased.toFixed(1)}</td>
-                      <td className="px-3 py-2 text-right text-xs tabular-nums text-red-600">-{v.issued.toFixed(1)}</td>
-                      <td className={`px-3 py-2 text-right text-xs tabular-nums ${(v.adjustment_net ?? 0) > 0 ? 'text-green-600' : (v.adjustment_net ?? 0) < 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
+                      <td className="px-4 py-3 text-sm text-muted-foreground">{v.category}</td>
+                      <td className="px-4 py-3 text-right text-sm tabular-nums">{v.starting_stock.toFixed(1)}</td>
+                      <td className="px-4 py-3 text-right text-sm tabular-nums text-green-600">+{v.purchased.toFixed(1)}</td>
+                      <td className="px-4 py-3 text-right text-sm tabular-nums text-red-600">−{v.issued.toFixed(1)}</td>
+                      <td className={`px-4 py-3 text-right text-sm tabular-nums ${(v.adjustment_net ?? 0) > 0 ? 'text-green-600' : (v.adjustment_net ?? 0) < 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
                         {(v.adjustment_net ?? 0) > 0 ? '+' : ''}{(v.adjustment_net ?? 0).toFixed(1)}
                       </td>
-                      <td className="px-3 py-2 text-right text-xs tabular-nums font-medium">{v.expected.toFixed(1)}</td>
-                      <td className="px-3 py-2 text-right text-xs tabular-nums font-medium">{v.actual_on_hand.toFixed(1)}</td>
-                      <td className="px-3 py-2 text-right">
-                        <span className={`text-xs font-semibold tabular-nums ${v.variance > 0 ? 'text-blue-600' : v.variance < 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
+                      <td className="px-4 py-3 text-right text-sm tabular-nums font-medium">{v.expected.toFixed(1)}</td>
+                      <td className="px-4 py-3 text-right text-sm tabular-nums font-medium">{v.actual_on_hand.toFixed(1)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <span className={`text-sm font-semibold tabular-nums ${v.variance > 0 ? 'text-blue-600' : v.variance < 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
                           {v.variance > 0 ? '+' : ''}{v.variance.toFixed(1)}
                         </span>
                         {v.unit_cost > 0 && absVar > 0 && (
-                          <span className="block text-[10px] text-muted-foreground">
+                          <span className="block text-xs text-muted-foreground">
                             {formatCurrency(Math.abs(v.variance) * v.unit_cost)}
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-center">
+                      <td className="px-4 py-3 text-center">
                         <TrafficLight status={status} />
                       </td>
                     </tr>
@@ -1588,49 +1716,58 @@ function ReportsTab({ report, loading, period, setPeriod }: {
       {/* ── Waste & Spoilage Table ────────────────────────────── */}
       <Card className={wasteData.length > 0 ? 'border-red-100' : ''}>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold">Waste & Spoilage Summary</CardTitle>
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-base font-semibold">Waste & spoilage summary</CardTitle>
+                <MetricHint text={ReportHelp.WASTE_TABLE_INTRO} label="waste summary" />
+              </div>
+              <CardDescription className="text-xs max-w-2xl">
+                {ReportHelp.WASTE_TABLE_SHORT}
+              </CardDescription>
+            </div>
             {wasteData.length > 0 && (
-              <Badge variant="destructive" className="text-xs">
-                {wasteData.length} incident{wasteData.length !== 1 ? 's' : ''} &middot; {formatCurrency(wasteData.reduce((s, w) => s + w.lost_value, 0))} lost
+              <Badge variant="destructive" className="text-xs whitespace-nowrap self-start">
+                {wasteData.length} incident{wasteData.length !== 1 ? 's' : ''} &middot; {formatCurrency(wasteTotal)} lost
               </Badge>
             )}
           </div>
         </CardHeader>
         <CardContent className="pt-0">
           {wasteData.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="text-center py-10 text-muted-foreground">
               <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-green-500" />
               <p className="text-sm font-medium">No waste or spoilage recorded in this period.</p>
+              <p className="text-xs mt-1 text-muted-foreground/80">Tag issue movements as “Spoilage/Waste” or “Return to Vendor” to populate this report.</p>
             </div>
           ) : (
-            <div className="border rounded-lg overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="border rounded-lg overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
                 <thead className="bg-red-50/50">
                   <tr>
-                    <th className="text-left px-3 py-2.5 font-medium text-xs">Date</th>
-                    <th className="text-left px-3 py-2.5 font-medium text-xs">Item</th>
-                    <th className="text-left px-3 py-2.5 font-medium text-xs">Category</th>
-                    <th className="text-right px-3 py-2.5 font-medium text-xs">Qty Wasted</th>
-                    <th className="text-left px-3 py-2.5 font-medium text-xs">Reason</th>
-                    <th className="text-right px-3 py-2.5 font-medium text-xs">Lost Value</th>
-                    <th className="text-center px-3 py-2.5 font-medium text-xs">Severity</th>
+                    <WasteTh align="left" help={ReportHelp.COL_WASTE_DATE}>Date</WasteTh>
+                    <WasteTh align="left" help={ReportHelp.COL_WASTE_ITEM}>Item</WasteTh>
+                    <WasteTh align="left" help={ReportHelp.COL_CATEGORY}>Category</WasteTh>
+                    <WasteTh align="right" help={ReportHelp.COL_WASTE_QTY}>Qty wasted</WasteTh>
+                    <WasteTh align="left" help={ReportHelp.COL_WASTE_REASON}>Reason</WasteTh>
+                    <WasteTh align="right" help={ReportHelp.COL_WASTE_VALUE}>Lost value</WasteTh>
+                    <WasteTh align="center" help="Traffic-light severity: > 50 lost value = alert, > 15 = watch, otherwise healthy.">Severity</WasteTh>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {wasteData.map((w, i) => {
                     const severity: 'green' | 'yellow' | 'red' = w.lost_value > 50 ? 'red' : w.lost_value > 15 ? 'yellow' : 'green'
                     return (
-                      <tr key={i} className="hover:bg-muted/30">
-                        <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{w.date}</td>
-                        <td className="px-3 py-2 text-xs font-medium">{w.item_name}</td>
-                        <td className="px-3 py-2 text-xs text-muted-foreground">{w.category}</td>
-                        <td className="px-3 py-2 text-right text-xs tabular-nums text-red-600 font-medium">{w.qty_wasted.toFixed(1)} {w.unit}</td>
-                        <td className="px-3 py-2 text-xs">
-                          <Badge variant="outline" className="text-[10px] font-normal">{w.reason}</Badge>
+                      <tr key={i} className={i % 2 === 1 ? 'bg-muted/20 hover:bg-muted/40' : 'hover:bg-muted/30'}>
+                        <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">{w.date}</td>
+                        <td className="px-4 py-3 text-sm font-medium">{w.item_name}</td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">{w.category}</td>
+                        <td className="px-4 py-3 text-right text-sm tabular-nums text-red-600 font-medium">{w.qty_wasted.toFixed(1)} {w.unit}</td>
+                        <td className="px-4 py-3 text-sm">
+                          <Badge variant="outline" className="text-xs font-normal">{w.reason}</Badge>
                         </td>
-                        <td className="px-3 py-2 text-right text-xs tabular-nums font-semibold text-red-600">{formatCurrency(w.lost_value)}</td>
-                        <td className="px-3 py-2 text-center"><TrafficLight status={severity} /></td>
+                        <td className="px-4 py-3 text-right text-sm tabular-nums font-semibold text-red-600">{formatCurrency(w.lost_value)}</td>
+                        <td className="px-4 py-3 text-center"><TrafficLight status={severity} /></td>
                       </tr>
                     )
                   })}
@@ -1641,6 +1778,65 @@ function ReportsTab({ report, loading, period, setPeriod }: {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function KpiCard({ icon, tint, label, value, valueTone = '', cardClass = '', hint, footer }: {
+  icon: React.ReactNode
+  tint: string
+  label: string
+  value: string
+  valueTone?: string
+  cardClass?: string
+  hint: string
+  footer?: string
+}) {
+  return (
+    <Card className={cardClass}>
+      <CardContent className="pt-5 pb-4 px-5">
+        <div className="flex items-start gap-3">
+          <div className={`p-2.5 rounded-xl ${tint} shrink-0`}>{icon}</div>
+          <div className="min-w-0 flex-1">
+            <p className={`text-2xl font-bold truncate ${valueTone}`}>{value}</p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <p className="text-xs text-muted-foreground truncate">{label}</p>
+              <MetricHint text={hint} label={label} />
+            </div>
+            {footer && <p className="text-[11px] text-muted-foreground/80 mt-1 truncate">{footer}</p>}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function VarianceTh({ children, align, help }: {
+  children: React.ReactNode; align: 'left' | 'right' | 'center'; help: string
+}) {
+  const alignCls = align === 'left' ? 'text-left' : align === 'right' ? 'text-right' : 'text-center'
+  const flexJustify = align === 'left' ? 'justify-start' : align === 'right' ? 'justify-end' : 'justify-center'
+  return (
+    <th className={`${alignCls} px-4 py-3 font-medium text-sm`}>
+      <span className={`inline-flex items-center gap-1.5 ${flexJustify}`}>
+        {children}
+        <MetricHint text={help} label={String(children)} />
+      </span>
+    </th>
+  )
+}
+
+function WasteTh({ children, align, help }: {
+  children: React.ReactNode; align: 'left' | 'right' | 'center'; help: string
+}) {
+  const alignCls = align === 'left' ? 'text-left' : align === 'right' ? 'text-right' : 'text-center'
+  const flexJustify = align === 'left' ? 'justify-start' : align === 'right' ? 'justify-end' : 'justify-center'
+  return (
+    <th className={`${alignCls} px-4 py-3 font-medium text-sm`}>
+      <span className={`inline-flex items-center gap-1.5 ${flexJustify}`}>
+        {children}
+        <MetricHint text={help} label={String(children)} />
+      </span>
+    </th>
   )
 }
 
@@ -1953,10 +2149,17 @@ function IssueForm({ item, users, onClose, qc, showToast }: { item: StockItem; u
   )
 }
 
+type AdjustReason = typeof ADJUST_REASONS[number]['value']
+type AdjustFormState = {
+  reason: AdjustReason
+  unit_cost: number
+  note: string
+}
+
 function AdjustForm({ item, onClose, qc, showToast }: { item: StockItem; onClose: () => void; qc: any; showToast: (t: 'success' | 'error', m: string) => void }) {
   const { formatCurrency, currencyCode } = useCurrency()
   const [qtyStr, setQtyStr] = useState('')
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<AdjustFormState>({
     reason: ADJUST_REASONS[0].value,
     unit_cost: item.default_unit_cost ?? 0,
     note: '',
@@ -2026,7 +2229,7 @@ function AdjustForm({ item, onClose, qc, showToast }: { item: StockItem; onClose
         <p className="text-xs text-muted-foreground">Lot value: {formatCurrency(delta * form.unit_cost)}</p>
       )}
       <FormField label="Reason" required>
-        <select value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} required>
+        <select value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value as AdjustReason }))} required>
           {ADJUST_REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
         </select>
       </FormField>
