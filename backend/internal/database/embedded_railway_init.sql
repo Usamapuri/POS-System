@@ -22,10 +22,13 @@ CREATE TABLE IF NOT EXISTS users (
     last_name VARCHAR(50) NOT NULL,
     role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'manager', 'server', 'counter', 'kitchen', 'store_manager')),
     manager_pin VARCHAR(4),
+    profile_image_url TEXT,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image_url TEXT;
 
 CREATE TABLE IF NOT EXISTS categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -174,6 +177,41 @@ CREATE TABLE IF NOT EXISTS stock_items (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS suppliers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(150) NOT NULL,
+    contact_name VARCHAR(100),
+    phone VARCHAR(40),
+    email VARCHAR(120),
+    notes TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    status VARCHAR(24) NOT NULL DEFAULT 'draft'
+        CHECK (status IN ('draft', 'ordered', 'partially_received', 'received', 'cancelled')),
+    expected_date DATE,
+    notes TEXT,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS purchase_order_lines (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    purchase_order_id UUID NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+    stock_item_id UUID NOT NULL REFERENCES stock_items(id) ON DELETE RESTRICT,
+    quantity_ordered DECIMAL(10,2) NOT NULL CHECK (quantity_ordered > 0),
+    unit_cost DECIMAL(10,2),
+    quantity_received DECIMAL(10,2) NOT NULL DEFAULT 0 CHECK (quantity_received >= 0),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS stock_movements (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     stock_item_id UUID NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
@@ -183,7 +221,21 @@ CREATE TABLE IF NOT EXISTS stock_movements (
     total_cost DECIMAL(10,2),
     issued_to_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
+    purchase_order_id UUID REFERENCES purchase_orders(id) ON DELETE SET NULL,
     note TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS stock_batches (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    stock_item_id UUID NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    quantity_remaining DECIMAL(10,2) NOT NULL CHECK (quantity_remaining >= 0),
+    initial_quantity DECIMAL(10,2) NOT NULL CHECK (initial_quantity > 0),
+    unit_cost DECIMAL(10,2),
+    expiry_date DATE,
+    stock_movement_id UUID REFERENCES stock_movements(id) ON DELETE SET NULL,
+    purchase_order_line_id UUID REFERENCES purchase_order_lines(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -288,6 +340,12 @@ CREATE INDEX IF NOT EXISTS idx_daily_closings_date ON daily_closings(closing_dat
 CREATE INDEX IF NOT EXISTS idx_stock_movements_item_created ON stock_movements(stock_item_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_type_created ON stock_movements(movement_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_issued_to ON stock_movements(issued_to_user_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_supplier ON stock_movements(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_po ON stock_movements(purchase_order_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_supplier ON purchase_orders(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_po ON purchase_order_lines(purchase_order_id);
+CREATE INDEX IF NOT EXISTS idx_stock_batches_fifo ON stock_batches(stock_item_id, expiry_date NULLS LAST, created_at);
+CREATE INDEX IF NOT EXISTS idx_stock_batches_remaining ON stock_batches(stock_item_id) WHERE quantity_remaining > 0;
 CREATE INDEX IF NOT EXISTS idx_void_log_order ON void_log(order_id);
 CREATE INDEX IF NOT EXISTS idx_void_log_date ON void_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_category_station ON category_station_map(station_id);
@@ -328,6 +386,12 @@ DROP TRIGGER IF EXISTS update_stock_categories_updated_at ON stock_categories;
 CREATE TRIGGER update_stock_categories_updated_at BEFORE UPDATE ON stock_categories FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 DROP TRIGGER IF EXISTS update_stock_items_updated_at ON stock_items;
 CREATE TRIGGER update_stock_items_updated_at BEFORE UPDATE ON stock_items FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_suppliers_updated_at ON suppliers;
+CREATE TRIGGER update_suppliers_updated_at BEFORE UPDATE ON suppliers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_purchase_orders_updated_at ON purchase_orders;
+CREATE TRIGGER update_purchase_orders_updated_at BEFORE UPDATE ON purchase_orders FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_purchase_order_lines_updated_at ON purchase_order_lines;
+CREATE TRIGGER update_purchase_order_lines_updated_at BEFORE UPDATE ON purchase_order_lines FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 DROP TRIGGER IF EXISTS update_expenses_updated_at ON expenses;
 CREATE TRIGGER update_expenses_updated_at BEFORE UPDATE ON expenses FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -335,15 +399,15 @@ CREATE TRIGGER update_expenses_updated_at BEFORE UPDATE ON expenses FOR EACH ROW
 -- SEED DATA (from database/init/02_seed_data.sql)
 -- ============================================================
 
-INSERT INTO users (username, email, password_hash, first_name, last_name, role) VALUES
-('admin', 'admin@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Admin', 'User', 'admin'),
-('manager1', 'manager@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'John', 'Manager', 'manager'),
-('server1', 'server1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Sarah', 'Smith', 'server'),
-('server2', 'server2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Mike', 'Johnson', 'server'),
-('counter1', 'counter1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Lisa', 'Davis', 'counter'),
-('counter2', 'counter2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Tom', 'Wilson', 'counter'),
-('kitchen1', 'kitchen@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Chef', 'Williams', 'kitchen'),
-('store1', 'store@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Ali', 'Store', 'store_manager')
+INSERT INTO users (username, email, password_hash, first_name, last_name, role, profile_image_url) VALUES
+('admin', 'admin@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Admin', 'User', 'admin', 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f60e.png'),
+('manager1', 'manager@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'John', 'Manager', 'manager', 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f603.png'),
+('server1', 'server1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Sarah', 'Smith', 'server', 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f604.png'),
+('server2', 'server2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Mike', 'Johnson', 'server', 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f601.png'),
+('counter1', 'counter1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Lisa', 'Davis', 'counter', 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f606.png'),
+('counter2', 'counter2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Tom', 'Wilson', 'counter', 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f60a.png'),
+('kitchen1', 'kitchen@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Chef', 'Williams', 'kitchen', 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f973.png'),
+('store1', 'store@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Ali', 'Store', 'store_manager', 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f917.png')
 ON CONFLICT (username) DO NOTHING;
 
 INSERT INTO categories (name, description, color, sort_order) VALUES
@@ -441,6 +505,19 @@ INSERT INTO stock_items (category_id, name, unit, quantity_on_hand, reorder_leve
 ((SELECT id FROM stock_categories WHERE name = 'Packaging'), 'Takeout Boxes', 'pack', 20, 5, 6.00, '50 per pack'),
 ((SELECT id FROM stock_categories WHERE name = 'Packaging'), 'Paper Napkins', 'pack', 15, 5, 3.00, '500 per pack');
 
+INSERT INTO suppliers (name, contact_name, phone, email, notes) VALUES
+('Fresh Farms Co', 'Receiving', '+92-300-1110001', 'orders@freshfarms.example', 'Produce supplier'),
+('Metro Supplies', 'Accounts', '+92-300-1110002', 'metro@example', 'Dry goods and packaging');
+
+INSERT INTO purchase_orders (supplier_id, status, expected_date, notes, created_by) VALUES
+((SELECT id FROM suppliers WHERE name = 'Fresh Farms Co'), 'ordered', CURRENT_DATE + 5, 'Weekly produce top-up', (SELECT id FROM users WHERE username = 'store1'));
+
+INSERT INTO purchase_order_lines (purchase_order_id, stock_item_id, quantity_ordered, unit_cost, quantity_received) VALUES
+((SELECT id FROM purchase_orders ORDER BY created_at DESC LIMIT 1),
+ (SELECT id FROM stock_items WHERE name = 'Lettuce'), 20, 1.50, 0),
+((SELECT id FROM purchase_orders ORDER BY created_at DESC LIMIT 1),
+ (SELECT id FROM stock_items WHERE name = 'Tomatoes'), 15, 2.00, 0);
+
 INSERT INTO stock_movements (stock_item_id, movement_type, quantity, unit_cost, total_cost, issued_to_user_id, created_by, note, created_at) VALUES
 ((SELECT id FROM stock_items WHERE name = 'Potatoes'), 'purchase', 50, 1.20, 60.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Initial stock purchase', CURRENT_TIMESTAMP - INTERVAL '7 days'),
 ((SELECT id FROM stock_items WHERE name = 'Chicken Breast'), 'purchase', 25, 6.50, 162.50, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Weekly meat order', CURRENT_TIMESTAMP - INTERVAL '5 days'),
@@ -450,6 +527,11 @@ INSERT INTO stock_movements (stock_item_id, movement_type, quantity, unit_cost, 
 ((SELECT id FROM stock_items WHERE name = 'Air Freshener'), 'purchase', 6, 3.00, 18.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Bathroom supplies', CURRENT_TIMESTAMP - INTERVAL '6 days'),
 ((SELECT id FROM stock_items WHERE name = 'Coffee Beans'), 'purchase', 5, 12.00, 60.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Coffee bean order', CURRENT_TIMESTAMP - INTERVAL '3 days'),
 ((SELECT id FROM stock_items WHERE name = 'Coffee Beans'), 'issue', -1, NULL, NULL, (SELECT id FROM users WHERE username = 'counter1'), (SELECT id FROM users WHERE username = 'store1'), 'For counter coffee machine', CURRENT_TIMESTAMP - INTERVAL '1 day');
+
+INSERT INTO stock_batches (stock_item_id, quantity_remaining, initial_quantity, unit_cost, expiry_date, stock_movement_id, purchase_order_line_id)
+SELECT si.id, si.quantity_on_hand, si.quantity_on_hand, si.default_unit_cost, NULL, NULL, NULL
+FROM stock_items si
+WHERE si.quantity_on_hand > 0;
 
 INSERT INTO expenses (category, amount, description, reference_type, reference_id, expense_date, created_by, created_at) VALUES
 ('inventory_purchase', 60.00, 'Potatoes - Initial stock purchase', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Initial stock purchase' LIMIT 1), CURRENT_DATE - INTERVAL '7 days', (SELECT id FROM users WHERE username = 'store1'), CURRENT_TIMESTAMP - INTERVAL '7 days'),

@@ -13,6 +13,7 @@ CREATE TABLE users (
     last_name VARCHAR(50) NOT NULL,
     role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'manager', 'server', 'counter', 'kitchen', 'store_manager')),
     manager_pin VARCHAR(4),
+    profile_image_url TEXT,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -181,6 +182,43 @@ CREATE TABLE stock_items (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Store inventory: suppliers / vendors
+CREATE TABLE suppliers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(150) NOT NULL,
+    contact_name VARCHAR(100),
+    phone VARCHAR(40),
+    email VARCHAR(120),
+    notes TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Purchase orders (single-site)
+CREATE TABLE purchase_orders (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    status VARCHAR(24) NOT NULL DEFAULT 'draft'
+        CHECK (status IN ('draft', 'ordered', 'partially_received', 'received', 'cancelled')),
+    expected_date DATE,
+    notes TEXT,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE purchase_order_lines (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    purchase_order_id UUID NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+    stock_item_id UUID NOT NULL REFERENCES stock_items(id) ON DELETE RESTRICT,
+    quantity_ordered DECIMAL(10,2) NOT NULL CHECK (quantity_ordered > 0),
+    unit_cost DECIMAL(10,2),
+    quantity_received DECIMAL(10,2) NOT NULL DEFAULT 0 CHECK (quantity_received >= 0),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Store inventory: append-only movement ledger
 CREATE TABLE stock_movements (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -191,7 +229,22 @@ CREATE TABLE stock_movements (
     total_cost DECIMAL(10,2),
     issued_to_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
+    purchase_order_id UUID REFERENCES purchase_orders(id) ON DELETE SET NULL,
     note TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- FIFO lots / optional expiry (quantity_remaining must be kept in sync with purchases/issues in app code)
+CREATE TABLE stock_batches (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    stock_item_id UUID NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    quantity_remaining DECIMAL(10,2) NOT NULL CHECK (quantity_remaining >= 0),
+    initial_quantity DECIMAL(10,2) NOT NULL CHECK (initial_quantity > 0),
+    unit_cost DECIMAL(10,2),
+    expiry_date DATE,
+    stock_movement_id UUID REFERENCES stock_movements(id) ON DELETE SET NULL,
+    purchase_order_line_id UUID REFERENCES purchase_order_lines(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -305,6 +358,12 @@ CREATE INDEX idx_daily_closings_date ON daily_closings(closing_date);
 CREATE INDEX idx_stock_movements_item_created ON stock_movements(stock_item_id, created_at);
 CREATE INDEX idx_stock_movements_type_created ON stock_movements(movement_type, created_at);
 CREATE INDEX idx_stock_movements_issued_to ON stock_movements(issued_to_user_id);
+CREATE INDEX idx_stock_movements_supplier ON stock_movements(supplier_id);
+CREATE INDEX idx_stock_movements_po ON stock_movements(purchase_order_id);
+CREATE INDEX idx_purchase_orders_supplier ON purchase_orders(supplier_id);
+CREATE INDEX idx_purchase_order_lines_po ON purchase_order_lines(purchase_order_id);
+CREATE INDEX idx_stock_batches_fifo ON stock_batches(stock_item_id, expiry_date NULLS LAST, created_at);
+CREATE INDEX idx_stock_batches_remaining ON stock_batches(stock_item_id) WHERE quantity_remaining > 0;
 CREATE INDEX idx_void_log_order ON void_log(order_id);
 CREATE INDEX idx_void_log_date ON void_log(created_at);
 CREATE INDEX idx_category_station ON category_station_map(station_id);
@@ -334,5 +393,8 @@ CREATE TRIGGER update_order_items_updated_at BEFORE UPDATE ON order_items FOR EA
 CREATE TRIGGER update_inventory_updated_at BEFORE UPDATE ON inventory FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_stock_categories_updated_at BEFORE UPDATE ON stock_categories FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_stock_items_updated_at BEFORE UPDATE ON stock_items FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_suppliers_updated_at BEFORE UPDATE ON suppliers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_purchase_orders_updated_at BEFORE UPDATE ON purchase_orders FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_purchase_order_lines_updated_at BEFORE UPDATE ON purchase_order_lines FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_expenses_updated_at BEFORE UPDATE ON expenses FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

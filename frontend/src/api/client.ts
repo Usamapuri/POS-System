@@ -9,7 +9,6 @@ import type {
   Category,
   DiningTable,
   Order,
-  OrderItem,
   Payment,
   CreateOrderRequest,
   OpenCounterTableTabRequest,
@@ -19,11 +18,11 @@ import type {
   DashboardStats,
   SalesReportItem,
   OrdersReportItem,
-  KitchenOrder,
   TableStatus,
   OrderFilters,
   UpdateCounterOrderGuestRequest,
   UpdateCounterOrderServiceRequest,
+  UpdateOrderStatusRequest,
   ProductFilters,
   TableFilters,
   StockCategory,
@@ -33,6 +32,9 @@ import type {
   UserBrief,
   StockSummary,
   AdvancedStockReport,
+  Supplier,
+  PurchaseOrderSummary,
+  PurchaseOrderDetail,
   Expense,
   DailyClosing,
   PnLReport,
@@ -260,7 +262,11 @@ class APIClient {
     });
   }
 
-  async updateOrderStatus(id: string, status: OrderStatus, notes?: string): Promise<APIResponse<Order>> {
+  async updateOrderStatus(
+    id: string,
+    status: UpdateOrderStatusRequest['status'],
+    notes?: string
+  ): Promise<APIResponse<Order>> {
     const statusUpdate: UpdateOrderStatusRequest = { status, notes };
     return this.request({
       method: 'PATCH',
@@ -498,7 +504,7 @@ class APIClient {
 
   async updateUser(id: string, userData: any): Promise<APIResponse<User>> {
     return this.request({
-      method: 'PATCH',
+      method: 'PUT',
       url: `/admin/users/${id}`,
       data: userData,
     });
@@ -610,7 +616,16 @@ class APIClient {
     return this.request({ method: 'DELETE', url: `/store/stock-categories/${id}` });
   }
 
-  async getStockItems(params?: { page?: number; per_page?: number; category_id?: string; search?: string; low_stock?: string }): Promise<PaginatedResponse<StockItem[]>> {
+  async getStockItems(params?: {
+    page?: number;
+    per_page?: number;
+    category_id?: string;
+    search?: string;
+    low_stock?: string;
+    stock_health?: 'low' | 'ok';
+    sort?: 'category' | 'name' | 'on_hand' | 'reorder' | 'unit_cost' | 'expiry';
+    sort_dir?: 'asc' | 'desc';
+  }): Promise<PaginatedResponse<StockItem[]>> {
     return this.request({ method: 'GET', url: '/store/stock-items', params });
   }
 
@@ -630,12 +645,30 @@ class APIClient {
     return this.request({ method: 'DELETE', url: `/store/stock-items/${id}` });
   }
 
-  async purchaseStock(itemId: string, data: { quantity: number; unit_cost?: number; note?: string }): Promise<APIResponse> {
+  async purchaseStock(
+    itemId: string,
+    data: {
+      quantity: number;
+      unit_cost?: number;
+      note?: string;
+      expiry_date?: string;
+      supplier_id?: string;
+      purchase_order_id?: string;
+      purchase_order_line_id?: string;
+    }
+  ): Promise<APIResponse> {
     return this.request({ method: 'POST', url: `/store/stock-items/${itemId}/purchase`, data });
   }
 
   async issueStock(itemId: string, data: { quantity: number; unit?: string; issued_to_user_id: string; reason?: string; note?: string }): Promise<APIResponse> {
     return this.request({ method: 'POST', url: `/store/stock-items/${itemId}/issue`, data });
+  }
+
+  async adjustStock(
+    itemId: string,
+    data: { quantity_delta: number; unit_cost?: number; reason?: string; note?: string }
+  ): Promise<APIResponse> {
+    return this.request({ method: 'POST', url: `/store/stock-items/${itemId}/adjust`, data });
   }
 
   async getStockAlerts(): Promise<APIResponse<StockAlert[]>> {
@@ -656,6 +689,60 @@ class APIClient {
 
   async getStoreUsers(): Promise<APIResponse<UserBrief[]>> {
     return this.request({ method: 'GET', url: '/store/users' });
+  }
+
+  async listSuppliers(): Promise<APIResponse<Supplier[]>> {
+    return this.request({ method: 'GET', url: '/store/suppliers' });
+  }
+
+  async createSupplier(data: {
+    name: string;
+    contact_name?: string;
+    phone?: string;
+    email?: string;
+    notes?: string;
+  }): Promise<APIResponse<{ id: string }>> {
+    return this.request({ method: 'POST', url: '/store/suppliers', data });
+  }
+
+  async updateSupplier(id: string, data: Partial<Supplier>): Promise<APIResponse> {
+    return this.request({ method: 'PUT', url: `/store/suppliers/${id}`, data });
+  }
+
+  async deleteSupplier(id: string): Promise<APIResponse> {
+    return this.request({ method: 'DELETE', url: `/store/suppliers/${id}` });
+  }
+
+  async listPurchaseOrders(params?: { page?: number; per_page?: number; status?: string }): Promise<PaginatedResponse<PurchaseOrderSummary[]>> {
+    return this.request({ method: 'GET', url: '/store/purchase-orders', params });
+  }
+
+  async getPurchaseOrder(id: string): Promise<APIResponse<PurchaseOrderDetail>> {
+    return this.request({ method: 'GET', url: `/store/purchase-orders/${id}` });
+  }
+
+  async createPurchaseOrder(data: {
+    supplier_id: string;
+    expected_date?: string;
+    notes?: string;
+    lines: { stock_item_id: string; quantity_ordered: number; unit_cost?: number }[];
+  }): Promise<APIResponse<{ id: string }>> {
+    return this.request({ method: 'POST', url: '/store/purchase-orders', data });
+  }
+
+  async submitPurchaseOrder(id: string): Promise<APIResponse> {
+    return this.request({ method: 'POST', url: `/store/purchase-orders/${id}/submit` });
+  }
+
+  async cancelPurchaseOrder(id: string): Promise<APIResponse> {
+    return this.request({ method: 'POST', url: `/store/purchase-orders/${id}/cancel` });
+  }
+
+  async receivePurchaseOrder(
+    id: string,
+    data: { lines: { line_id: string; quantity_received: number; unit_cost?: number; expiry_date?: string }[] }
+  ): Promise<APIResponse> {
+    return this.request({ method: 'POST', url: `/store/purchase-orders/${id}/receive`, data });
   }
 
   // Expense endpoints

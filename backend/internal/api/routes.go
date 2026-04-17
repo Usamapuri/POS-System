@@ -205,12 +205,25 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 
 		store.POST("/stock-items/:id/purchase", stockHandler.PurchaseStock)
 		store.POST("/stock-items/:id/issue", stockHandler.IssueStock)
+		store.POST("/stock-items/:id/adjust", stockHandler.AdjustStock)
 
 		store.GET("/stock-alerts", stockHandler.GetStockAlerts)
 		store.GET("/stock-reports/movements", stockHandler.GetMovementsReport)
 		store.GET("/stock-reports/summary", stockHandler.GetStockSummary)
 		store.GET("/stock-reports/advanced", stockHandler.GetAdvancedReport)
 		store.GET("/users", stockHandler.GetStoreUsers)
+
+		store.GET("/suppliers", stockHandler.ListSuppliers)
+		store.POST("/suppliers", stockHandler.CreateSupplier)
+		store.PUT("/suppliers/:id", stockHandler.UpdateSupplier)
+		store.DELETE("/suppliers/:id", stockHandler.DeleteSupplier)
+
+		store.GET("/purchase-orders", stockHandler.ListPurchaseOrders)
+		store.GET("/purchase-orders/:id", stockHandler.GetPurchaseOrder)
+		store.POST("/purchase-orders", stockHandler.CreatePurchaseOrder)
+		store.POST("/purchase-orders/:id/submit", stockHandler.SubmitPurchaseOrder)
+		store.POST("/purchase-orders/:id/cancel", stockHandler.CancelPurchaseOrder)
+		store.POST("/purchase-orders/:id/receive", stockHandler.ReceivePurchaseOrder)
 	}
 
 	// Kitchen routes (kitchen staff access)
@@ -1580,12 +1593,13 @@ func deleteTable(db *sql.DB) gin.HandlerFunc {
 func createUser(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			Username  string `json:"username" binding:"required"`
-			Email     string `json:"email" binding:"required"`
-			Password  string `json:"password" binding:"required"`
-			FirstName string `json:"first_name" binding:"required"`
-			LastName  string `json:"last_name" binding:"required"`
-			Role      string `json:"role" binding:"required"`
+			Username         string  `json:"username" binding:"required"`
+			Email            string  `json:"email" binding:"required"`
+			Password         string  `json:"password" binding:"required"`
+			FirstName        string  `json:"first_name" binding:"required"`
+			LastName         string  `json:"last_name" binding:"required"`
+			Role             string  `json:"role" binding:"required"`
+			ProfileImageURL *string `json:"profile_image_url"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -1610,10 +1624,10 @@ func createUser(db *sql.DB) gin.HandlerFunc {
 
 		var userID string
 		err = db.QueryRow(`
-			INSERT INTO users (username, email, password_hash, first_name, last_name, role)
-			VALUES ($1, $2, $3, $4, $5, $6)
+			INSERT INTO users (username, email, password_hash, first_name, last_name, role, profile_image_url)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			RETURNING id
-		`, req.Username, req.Email, string(hashedPassword), req.FirstName, req.LastName, req.Role).Scan(&userID)
+		`, req.Username, req.Email, string(hashedPassword), req.FirstName, req.LastName, req.Role, req.ProfileImageURL).Scan(&userID)
 
 		if err != nil {
 			c.JSON(500, gin.H{
@@ -1638,13 +1652,14 @@ func updateUser(db *sql.DB) gin.HandlerFunc {
 		userID := c.Param("id")
 
 		var req struct {
-			Username  *string `json:"username"`
-			Email     *string `json:"email"`
-			Password  *string `json:"password"`
-			FirstName *string `json:"first_name"`
-			LastName  *string `json:"last_name"`
-			Role      *string `json:"role"`
-			IsActive  *bool   `json:"is_active"`
+			Username          *string `json:"username"`
+			Email             *string `json:"email"`
+			Password          *string `json:"password"`
+			FirstName         *string `json:"first_name"`
+			LastName          *string `json:"last_name"`
+			Role              *string `json:"role"`
+			IsActive          *bool   `json:"is_active"`
+			ProfileImageURL   *string `json:"profile_image_url"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -1704,6 +1719,15 @@ func updateUser(db *sql.DB) gin.HandlerFunc {
 			updates = append(updates, fmt.Sprintf("is_active = $%d", argCount))
 			args = append(args, *req.IsActive)
 			argCount++
+		}
+		if req.ProfileImageURL != nil {
+			if strings.TrimSpace(*req.ProfileImageURL) == "" {
+				updates = append(updates, "profile_image_url = NULL")
+			} else {
+				updates = append(updates, fmt.Sprintf("profile_image_url = $%d", argCount))
+				args = append(args, strings.TrimSpace(*req.ProfileImageURL))
+				argCount++
+			}
 		}
 
 		if len(updates) == 0 {
@@ -1818,7 +1842,7 @@ func getAdminUsers(db *sql.DB) gin.HandlerFunc {
 		offset := (page - 1) * perPage
 
 		// Build query with filters
-		queryBuilder := "SELECT id, username, email, first_name, last_name, role, is_active, created_at, CASE WHEN manager_pin IS NOT NULL THEN true ELSE false END as has_pin FROM users WHERE 1=1"
+		queryBuilder := "SELECT id, username, email, first_name, last_name, role, is_active, created_at, profile_image_url, CASE WHEN manager_pin IS NOT NULL THEN true ELSE false END as has_pin FROM users WHERE 1=1"
 		args := []interface{}{}
 		argCount := 0
 
@@ -1879,8 +1903,9 @@ func getAdminUsers(db *sql.DB) gin.HandlerFunc {
 			var id, username, email, firstName, lastName, userRole string
 			var isActive, hasPin bool
 			var createdAt time.Time
+			var profileURL sql.NullString
 
-			err := rows.Scan(&id, &username, &email, &firstName, &lastName, &userRole, &isActive, &createdAt, &hasPin)
+			err := rows.Scan(&id, &username, &email, &firstName, &lastName, &userRole, &isActive, &createdAt, &profileURL, &hasPin)
 			if err != nil {
 				c.JSON(500, gin.H{
 					"success": false,
@@ -1899,6 +1924,11 @@ func getAdminUsers(db *sql.DB) gin.HandlerFunc {
 			user["is_active"] = isActive
 			user["created_at"] = createdAt
 			user["has_pin"] = hasPin
+			if profileURL.Valid && strings.TrimSpace(profileURL.String) != "" {
+				user["profile_image_url"] = strings.TrimSpace(profileURL.String)
+			} else {
+				user["profile_image_url"] = nil
+			}
 
 			users = append(users, user)
 		}

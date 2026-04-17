@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, type Dispatch, type SetStateAction } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/api/client'
 import type { StockCategory, StockItem, StockMovement, StockAlert, UserBrief, AdvancedStockReport } from '@/types'
@@ -17,12 +17,14 @@ import {
 import {
   Package, AlertTriangle, TrendingUp, Plus, Search, ArrowDownCircle, ArrowUpCircle,
   Boxes, BarChart3, ShoppingCart, Tag, X, ChevronLeft, ChevronRight, CheckCircle2, XCircle,
-  MoreVertical, Trash2, Pencil, DollarSign, Recycle, RefreshCw,
+  MoreVertical, Trash2, Pencil, DollarSign, Recycle, RefreshCw, SlidersHorizontal,
+  ArrowUpDown, ArrowUp, ArrowDown, GripVertical,
 } from 'lucide-react'
 import {
   PieChart, Pie, Cell, Tooltip as ReTooltip, Legend, ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
+import { InventoryPurchasingTab } from '@/components/store/InventoryPurchasingTab'
 
 // ─── Unit conversion ─────────────────────────────────────────────
 
@@ -82,21 +84,67 @@ const ISSUE_REASONS = [
   { value: 'Other', label: 'Other' },
 ] as const
 
+const ADJUST_REASONS = [
+  { value: 'Physical count correction', label: 'Physical count correction' },
+  { value: 'Damage / loss', label: 'Damage / loss' },
+  { value: 'System correction', label: 'System correction' },
+  { value: 'Other', label: 'Other' },
+] as const
+
 type UnitMode = 'weight' | 'quantity'
 type Toast = { id: number; type: 'success' | 'error'; message: string }
 let toastIdCounter = 0
 
-type Tab = 'items' | 'categories' | 'alerts' | 'movements' | 'reports'
+type Tab = 'items' | 'categories' | 'alerts' | 'movements' | 'reports' | 'purchasing'
 type ModalState =
   | { kind: 'none' }
   | { kind: 'addItem' }
   | { kind: 'editItem'; item: StockItem }
   | { kind: 'purchase'; item: StockItem }
   | { kind: 'issue'; item: StockItem }
+  | { kind: 'adjust'; item: StockItem }
   | { kind: 'addCategory' }
   | { kind: 'editCategory'; category: StockCategory }
 
 type StockStatusFilter = '' | 'low' | 'ok'
+
+export type ItemSortKey = 'category' | 'name' | 'on_hand' | 'reorder' | 'unit_cost' | 'expiry'
+export type ItemsDataColumnId = ItemSortKey
+
+const ITEM_COL_ORDER_STORAGE_KEY = 'pos_inventory_items_col_order_v1'
+const DEFAULT_ITEM_COL_ORDER: ItemsDataColumnId[] = ['name', 'category', 'on_hand', 'reorder', 'unit_cost', 'expiry']
+const ITEM_COL_LABELS: Record<ItemsDataColumnId, string> = {
+  name: 'Item',
+  category: 'Category',
+  on_hand: 'On Hand',
+  reorder: 'Reorder Lvl',
+  unit_cost: 'Unit Cost',
+  expiry: 'Next expiry',
+}
+const ITEM_COL_ALIGN: Record<ItemsDataColumnId, 'left' | 'right'> = {
+  name: 'left',
+  category: 'left',
+  on_hand: 'right',
+  reorder: 'right',
+  unit_cost: 'right',
+  expiry: 'left',
+}
+const INV_COL_DND = 'application/x-pos-inv-col'
+
+function parseStoredItemColOrder(raw: string | null): ItemsDataColumnId[] | null {
+  if (!raw) return null
+  try {
+    const p = JSON.parse(raw) as unknown
+    if (!Array.isArray(p) || p.length !== DEFAULT_ITEM_COL_ORDER.length) return null
+    const set = new Set(DEFAULT_ITEM_COL_ORDER)
+    for (const x of p) {
+      if (typeof x !== 'string' || !set.has(x as ItemsDataColumnId)) return null
+    }
+    return p as ItemsDataColumnId[]
+  } catch {
+    return null
+  }
+}
 
 export function StoreInventoryDashboard() {
   const qc = useQueryClient()
@@ -104,6 +152,7 @@ export function StoreInventoryDashboard() {
   const [tab, setTab] = useState<Tab>('items')
   const [modal, setModal] = useState<ModalState>({ kind: 'none' })
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [filterStatus, setFilterStatus] = useState<StockStatusFilter>('')
   const [itemPage, setItemPage] = useState(1)
@@ -111,8 +160,11 @@ export function StoreInventoryDashboard() {
   const [movType, setMovType] = useState('')
   const [movFrom, setMovFrom] = useState('')
   const [movTo, setMovTo] = useState('')
+  const [movCategory, setMovCategory] = useState('')
   const [toasts, setToasts] = useState<Toast[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [itemSortKey, setItemSortKey] = useState<ItemSortKey>('category')
+  const [itemSortDir, setItemSortDir] = useState<'asc' | 'desc'>('asc')
 
   const showToast = useCallback((type: 'success' | 'error', message: string) => {
     const id = ++toastIdCounter
@@ -120,32 +172,84 @@ export function StoreInventoryDashboard() {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000)
   }, [])
 
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => window.clearTimeout(t)
+  }, [search])
+
   const { data: categoriesRes } = useQuery({ queryKey: ['stockCategories'], queryFn: () => apiClient.getStockCategories() })
   const categories = categoriesRes?.data ?? []
 
-  const { data: itemsRes, isLoading: itemsLoading } = useQuery({
-    queryKey: ['stockItems', itemPage, filterCategory, search],
-    queryFn: () => apiClient.getStockItems({ page: itemPage, per_page: 15, category_id: filterCategory || undefined, search: search || undefined }),
+  const { data: summaryRes } = useQuery({
+    queryKey: ['stockSummary'],
+    queryFn: () => apiClient.getStockSummary('month'),
+    staleTime: 30_000,
   })
-  const allItems = itemsRes?.data ?? []
-  const itemsMeta = itemsRes?.meta
+  const stockOverview = summaryRes?.data?.overview
 
-  const items = filterStatus
-    ? allItems.filter((i: StockItem) => {
-        const isLow = i.quantity_on_hand <= i.reorder_level
-        return filterStatus === 'low' ? isLow : !isLow
-      })
-    : allItems
+  const stockHealthParam: 'low' | 'ok' | undefined =
+    filterStatus === 'low' ? 'low' : filterStatus === 'ok' ? 'ok' : undefined
+
+  const handleItemSort = useCallback((key: ItemSortKey) => {
+    setItemPage(1)
+    setItemSortKey((prevKey) => {
+      if (prevKey === key) {
+        setItemSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+        return prevKey
+      }
+      setItemSortDir('asc')
+      return key
+    })
+  }, [])
+
+  const { data: itemsRes, isLoading: itemsLoading } = useQuery({
+    queryKey: ['stockItems', itemPage, filterCategory, debouncedSearch, filterStatus, itemSortKey, itemSortDir],
+    queryFn: () =>
+      apiClient.getStockItems({
+        page: itemPage,
+        per_page: 15,
+        category_id: filterCategory || undefined,
+        search: debouncedSearch || undefined,
+        stock_health: stockHealthParam,
+        sort: itemSortKey,
+        sort_dir: itemSortDir,
+      }),
+  })
+  const items = itemsRes?.data ?? []
+  const itemsMeta = itemsRes?.meta
 
   const { data: alertsRes } = useQuery({ queryKey: ['stockAlerts'], queryFn: () => apiClient.getStockAlerts() })
   const alerts: StockAlert[] = alertsRes?.data ?? []
+
+  const { data: lowStockItemsForAlertsRes } = useQuery({
+    queryKey: ['stockItems', 'low-for-alerts'],
+    queryFn: () =>
+      apiClient.getStockItems({ page: 1, per_page: 500, stock_health: 'low', sort: 'name', sort_dir: 'asc' }),
+    enabled: tab === 'alerts',
+  })
+  const lowStockItemsForAlerts: StockItem[] = lowStockItemsForAlertsRes?.data ?? []
+
+  const { data: catalogPickRes } = useQuery({
+    queryKey: ['stockItems', 'catalog-pick'],
+    queryFn: () => apiClient.getStockItems({ page: 1, per_page: 500, sort: 'name', sort_dir: 'asc' }),
+    enabled: tab === 'purchasing',
+  })
+  const catalogPickItems: StockItem[] = catalogPickRes?.data ?? []
 
   const { data: usersRes } = useQuery({ queryKey: ['storeUsers'], queryFn: () => apiClient.getStoreUsers() })
   const users: UserBrief[] = usersRes?.data ?? []
 
   const { data: movRes } = useQuery({
-    queryKey: ['stockMovements', movPage, movType, movFrom, movTo, filterCategory],
-    queryFn: () => apiClient.getStockMovements({ page: movPage, per_page: 20, type: movType || undefined, from: movFrom || undefined, to: movTo || undefined, category_id: filterCategory || undefined }),
+    queryKey: ['stockMovements', movPage, movType, movFrom, movTo, movCategory],
+    queryFn: () =>
+      apiClient.getStockMovements({
+        page: movPage,
+        per_page: 20,
+        type: movType || undefined,
+        from: movFrom || undefined,
+        to: movTo || undefined,
+        category_id: movCategory || undefined,
+      }),
     enabled: tab === 'movements',
   })
   const movements: StockMovement[] = movRes?.data ?? []
@@ -161,6 +265,7 @@ export function StoreInventoryDashboard() {
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: 'items', label: 'Inventory', icon: <Package className="w-4 h-4" /> },
+    { id: 'purchasing', label: 'Purchasing', icon: <ShoppingCart className="w-4 h-4" /> },
     { id: 'categories', label: 'Categories', icon: <Tag className="w-4 h-4" /> },
     { id: 'alerts', label: 'Alerts', icon: <AlertTriangle className="w-4 h-4" />, badge: alerts.length },
     { id: 'movements', label: 'Movements', icon: <Boxes className="w-4 h-4" /> },
@@ -190,7 +295,9 @@ export function StoreInventoryDashboard() {
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-50"><Package className="w-5 h-5 text-blue-600" /></div>
               <div>
-                <p className="text-2xl font-bold">{allItems.length > 0 ? itemsMeta?.total ?? '—' : '—'}</p>
+                <p className="text-2xl font-bold">
+                  {stockOverview?.total_items != null ? stockOverview.total_items : (itemsMeta?.total ?? '—')}
+                </p>
                 <p className="text-xs text-muted-foreground">Total Items</p>
               </div>
             </div>
@@ -201,7 +308,9 @@ export function StoreInventoryDashboard() {
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-red-50"><AlertTriangle className="w-5 h-5 text-red-600" /></div>
               <div>
-                <p className="text-2xl font-bold">{alerts.length}</p>
+                <p className="text-2xl font-bold">
+                  {stockOverview?.low_stock_count != null ? stockOverview.low_stock_count : alerts.length}
+                </p>
                 <p className="text-xs text-muted-foreground">Low Stock</p>
               </div>
             </div>
@@ -223,7 +332,9 @@ export function StoreInventoryDashboard() {
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-purple-50"><TrendingUp className="w-5 h-5 text-purple-600" /></div>
               <div>
-                <p className="text-2xl font-bold">{advancedReport?.kpis?.total_stock_value != null ? formatCurrency(advancedReport.kpis.total_stock_value) : '—'}</p>
+                <p className="text-2xl font-bold">
+                  {stockOverview?.total_value != null ? formatCurrency(stockOverview.total_value) : '—'}
+                </p>
                 <p className="text-xs text-muted-foreground">Stock Value</p>
               </div>
             </div>
@@ -245,11 +356,28 @@ export function StoreInventoryDashboard() {
         search={search} setSearch={setSearch} filterCategory={filterCategory} setFilterCategory={setFilterCategory}
         filterStatus={filterStatus} setFilterStatus={setFilterStatus}
         page={itemPage} setPage={setItemPage} setModal={setModal} qc={qc} showToast={showToast}
-        selectedIds={selectedIds} setSelectedIds={setSelectedIds} />}
+        selectedIds={selectedIds} setSelectedIds={setSelectedIds}
+        itemSortKey={itemSortKey} itemSortDir={itemSortDir} onItemSort={handleItemSort} />}
+      {tab === 'purchasing' && <InventoryPurchasingTab stockItems={catalogPickItems} showToast={showToast} />}
       {tab === 'categories' && <CategoriesTab categories={categories} setModal={setModal} qc={qc} showToast={showToast} />}
-      {tab === 'alerts' && <AlertsTab alerts={alerts} setModal={setModal} items={allItems} />}
-      {tab === 'movements' && <MovementsTab movements={movements} meta={movMeta} page={movPage} setPage={setMovPage}
-        movType={movType} setMovType={setMovType} movFrom={movFrom} setMovFrom={setMovFrom} movTo={movTo} setMovTo={setMovTo} />}
+      {tab === 'alerts' && <AlertsTab alerts={alerts} setModal={setModal} items={lowStockItemsForAlerts} />}
+      {tab === 'movements' && (
+        <MovementsTab
+          movements={movements}
+          meta={movMeta}
+          page={movPage}
+          setPage={setMovPage}
+          movType={movType}
+          setMovType={setMovType}
+          movFrom={movFrom}
+          setMovFrom={setMovFrom}
+          movTo={movTo}
+          setMovTo={setMovTo}
+          movCategory={movCategory}
+          setMovCategory={setMovCategory}
+          categories={categories}
+        />
+      )}
       {tab === 'reports' && <ReportsTab report={advancedReport} loading={reportLoading} period={reportPeriod} setPeriod={setReportPeriod} />}
 
       {modal.kind !== 'none' && <ModalOverlay onClose={() => setModal({ kind: 'none' })}>
@@ -257,6 +385,7 @@ export function StoreInventoryDashboard() {
         {modal.kind === 'editItem' && <EditItemForm item={modal.item} categories={categories} onClose={() => setModal({ kind: 'none' })} qc={qc} showToast={showToast} />}
         {modal.kind === 'purchase' && <PurchaseForm item={modal.item} onClose={() => setModal({ kind: 'none' })} qc={qc} showToast={showToast} />}
         {modal.kind === 'issue' && <IssueForm item={modal.item} users={users} onClose={() => setModal({ kind: 'none' })} qc={qc} showToast={showToast} />}
+        {modal.kind === 'adjust' && <AdjustForm item={modal.item} onClose={() => setModal({ kind: 'none' })} qc={qc} showToast={showToast} />}
         {modal.kind === 'addCategory' && <AddCategoryForm onClose={() => setModal({ kind: 'none' })} qc={qc} showToast={showToast} />}
         {modal.kind === 'editCategory' && <EditCategoryForm category={modal.category} onClose={() => setModal({ kind: 'none' })} qc={qc} showToast={showToast} />}
       </ModalOverlay>}
@@ -315,17 +444,101 @@ function MenuItem({ icon, label, destructive, onClick }: { icon: React.ReactNode
 
 // ─── Items Tab (redesigned) ──────────────────────────────────────
 
-function ItemsTab({ items, categories, meta, loading, search, setSearch, filterCategory, setFilterCategory,
-  filterStatus, setFilterStatus, page, setPage, setModal, qc, showToast, selectedIds, setSelectedIds }: any) {
+type ItemsTabProps = {
+  items: StockItem[]
+  categories: StockCategory[]
+  meta: { total_pages: number; total?: number } | undefined
+  loading: boolean
+  search: string
+  setSearch: (s: string) => void
+  filterCategory: string
+  setFilterCategory: (s: string) => void
+  filterStatus: StockStatusFilter
+  setFilterStatus: (s: StockStatusFilter) => void
+  page: number
+  setPage: (n: number) => void
+  setModal: (m: ModalState) => void
+  qc: ReturnType<typeof useQueryClient>
+  showToast: (type: 'success' | 'error', message: string) => void
+  selectedIds: Set<string>
+  setSelectedIds: Dispatch<SetStateAction<Set<string>>>
+  itemSortKey: ItemSortKey
+  itemSortDir: 'asc' | 'desc'
+  onItemSort: (key: ItemSortKey) => void
+}
+
+function ItemsTab({
+  items,
+  categories,
+  meta,
+  loading,
+  search,
+  setSearch,
+  filterCategory,
+  setFilterCategory,
+  filterStatus,
+  setFilterStatus,
+  page,
+  setPage,
+  setModal,
+  qc,
+  showToast,
+  selectedIds,
+  setSelectedIds,
+  itemSortKey,
+  itemSortDir,
+  onItemSort,
+}: ItemsTabProps) {
   const { formatCurrency } = useCurrency()
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [bulkBusy, setBulkBusy] = useState(false)
   const [deleteItemOpen, setDeleteItemOpen] = useState(false)
   const [pendingDeleteItem, setPendingDeleteItem] = useState<StockItem | null>(null)
+  const [colOrder, setColOrder] = useState<ItemsDataColumnId[]>(() => {
+    if (typeof window === 'undefined') return DEFAULT_ITEM_COL_ORDER
+    return parseStoredItemColOrder(localStorage.getItem(ITEM_COL_ORDER_STORAGE_KEY)) ?? DEFAULT_ITEM_COL_ORDER
+  })
+
+  function persistColOrder(next: ItemsDataColumnId[]) {
+    try {
+      localStorage.setItem(ITEM_COL_ORDER_STORAGE_KEY, JSON.stringify(next))
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }
+
+  function moveDataColumn(dragId: ItemsDataColumnId, dropId: ItemsDataColumnId) {
+    if (dragId === dropId) return
+    setColOrder((prev) => {
+      const i = prev.indexOf(dragId)
+      const j = prev.indexOf(dropId)
+      if (i < 0 || j < 0) return prev
+      const next = [...prev]
+      next.splice(i, 1)
+      next.splice(j, 0, dragId)
+      persistColOrder(next)
+      return next
+    })
+  }
+
+  function sortIcon(col: ItemSortKey) {
+    if (itemSortKey !== col) return <ArrowUpDown className="w-4 h-4 shrink-0 opacity-40" aria-hidden />
+    return itemSortDir === 'asc' ? (
+      <ArrowUp className="w-4 h-4 shrink-0" aria-hidden />
+    ) : (
+      <ArrowDown className="w-4 h-4 shrink-0" aria-hidden />
+    )
+  }
 
   const deleteMut = useMutation({
     mutationFn: (id: string) => apiClient.deleteStockItem(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['stockItems'] }); qc.invalidateQueries({ queryKey: ['stockCategories'] }); showToast('success', 'Item deleted') },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stockItems'] })
+      qc.invalidateQueries({ queryKey: ['stockCategories'] })
+      qc.invalidateQueries({ queryKey: ['stockSummary'] })
+      qc.invalidateQueries({ queryKey: ['advancedStockReport'] })
+      showToast('success', 'Item deleted')
+    },
     onError: (err: Error) => showToast('error', err.message || 'Failed to delete item'),
   })
 
@@ -384,6 +597,8 @@ function ItemsTab({ items, categories, meta, loading, search, setSearch, filterC
       })
       qc.invalidateQueries({ queryKey: ['stockItems'] })
       qc.invalidateQueries({ queryKey: ['stockCategories'] })
+      qc.invalidateQueries({ queryKey: ['stockSummary'] })
+      qc.invalidateQueries({ queryKey: ['advancedStockReport'] })
       setSelectedIds(new Set())
       setBulkDeleteOpen(false)
       if (fails.length === 0) {
@@ -404,17 +619,17 @@ function ItemsTab({ items, categories, meta, loading, search, setSearch, filterC
       {/* Search + Filter bar */}
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-[200px]">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search items..."
-            className="w-full pl-9 pr-3 py-2 border rounded-md text-sm bg-background" />
+            className="w-full h-11 pl-10 pr-3 border rounded-md text-base bg-background" />
         </div>
         <select value={filterCategory} onChange={e => { setFilterCategory(e.target.value); setPage(1) }}
-          className="border rounded-md px-3 py-2 text-sm bg-background">
+          className="border rounded-md px-3 h-11 text-base bg-background min-w-[160px]">
           <option value="">All Categories</option>
           {categories.map((c: StockCategory) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value as StockStatusFilter); setPage(1) }}
-          className="border rounded-md px-3 py-2 text-sm bg-background">
+          className="border rounded-md px-3 h-11 text-base bg-background min-w-[140px]">
           <option value="">All Status</option>
           <option value="low">Low Stock</option>
           <option value="ok">OK</option>
@@ -424,12 +639,12 @@ function ItemsTab({ items, categories, meta, loading, search, setSearch, filterC
       {/* Bulk actions bar */}
       {someChecked && (
         <div className="flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-lg px-4 py-2.5">
-          <span className="text-sm font-medium">{selectedIds.size} item{selectedIds.size > 1 ? 's' : ''} selected</span>
+          <span className="text-base font-medium">{selectedIds.size} item{selectedIds.size > 1 ? 's' : ''} selected</span>
           <div className="flex-1" />
           <Button
             size="sm"
             variant="outline"
-            className="h-7 text-xs"
+            className="h-9 text-sm"
             disabled={selectedIds.size !== 1}
             title={
               selectedIds.size !== 1
@@ -441,12 +656,12 @@ function ItemsTab({ items, categories, meta, loading, search, setSearch, filterC
               if (first) setModal({ kind: 'purchase', item: first })
             }}
           >
-            <ArrowDownCircle className="w-3 h-3 mr-1" /> Record purchase
+            <ArrowDownCircle className="w-4 h-4 mr-1" /> Record purchase
           </Button>
-          <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => setBulkDeleteOpen(true)}>
-            <Trash2 className="w-3 h-3 mr-1" /> Delete selected…
+          <Button size="sm" variant="destructive" className="h-9 text-sm" onClick={() => setBulkDeleteOpen(true)}>
+            <Trash2 className="w-4 h-4 mr-1" /> Delete selected…
           </Button>
-          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>
+          <Button size="sm" variant="ghost" className="h-9 text-sm" onClick={() => setSelectedIds(new Set())}>
             Clear
           </Button>
         </div>
@@ -481,55 +696,130 @@ function ItemsTab({ items, categories, meta, loading, search, setSearch, filterC
         </DialogContent>
       </Dialog>
 
-      {/* Table */}
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50">
+      {/* Table — sortable headers + draggable column order (saved locally) */}
+      <div className="border rounded-lg overflow-hidden bg-card">
+        <table className="w-full text-base">
+          <thead className="bg-muted/50 border-b">
             <tr>
-              <th className="w-10 px-3 py-3">
+              <th className="w-12 px-3 py-3.5 align-middle">
                 <input type="checkbox" checked={allChecked} onChange={toggleAll}
-                  className="rounded border-gray-300 cursor-pointer" />
+                  className="h-4 w-4 rounded border-input cursor-pointer" aria-label="Select all rows" />
               </th>
-              <th className="text-left px-4 py-3 font-medium">Item</th>
-              <th className="text-left px-4 py-3 font-medium">Category</th>
-              <th className="text-right px-4 py-3 font-medium">On Hand</th>
-              <th className="text-right px-4 py-3 font-medium">Reorder Lvl</th>
-              <th className="text-right px-4 py-3 font-medium">Unit Cost</th>
-              <th className="text-center px-4 py-3 font-medium">Actions</th>
+              {colOrder.map((col) => {
+                const align = ITEM_COL_ALIGN[col]
+                return (
+                  <th
+                    key={col}
+                    className={`px-4 py-3.5 align-middle ${align === 'right' ? 'text-right' : 'text-left'}`}
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = 'move'
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      const from = e.dataTransfer.getData(INV_COL_DND) as ItemsDataColumnId
+                      if (from && DEFAULT_ITEM_COL_ORDER.includes(from)) moveDataColumn(from, col)
+                    }}
+                  >
+                    <div className={`flex items-center gap-1.5 min-w-0 ${align === 'right' ? 'justify-end' : ''}`}>
+                      <button
+                        type="button"
+                        className="touch-none shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground cursor-grab active:cursor-grabbing"
+                        aria-label={`Reorder ${ITEM_COL_LABELS[col]} column`}
+                        title="Drag to reorder columns"
+                        draggable
+                        onDragStart={(ev) => {
+                          ev.dataTransfer.setData(INV_COL_DND, col)
+                          ev.dataTransfer.effectAllowed = 'move'
+                        }}
+                      >
+                        <GripVertical className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        className="flex min-w-0 items-center gap-1.5 font-semibold text-sm tracking-tight text-foreground hover:text-primary"
+                        onClick={() => onItemSort(col)}
+                      >
+                        <span className="truncate">{ITEM_COL_LABELS[col]}</span>
+                        {sortIcon(col)}
+                      </button>
+                    </div>
+                  </th>
+                )
+              })}
+              <th className="text-center px-4 py-3.5 text-sm font-semibold tracking-tight min-w-[240px]">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y">
-            {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Loading...</td></tr>}
-            {!loading && items.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">No items found</td></tr>}
+          <tbody className="divide-y divide-border">
+            {loading && <tr><td colSpan={8} className="px-4 py-10 text-center text-muted-foreground text-base">Loading…</td></tr>}
+            {!loading && items.length === 0 && <tr><td colSpan={8} className="px-4 py-10 text-center text-muted-foreground text-base">No items found</td></tr>}
             {items.map((item: StockItem) => {
               const low = item.quantity_on_hand <= item.reorder_level
               return (
                 <tr key={item.id} className={`hover:bg-muted/30 ${selectedIds.has(item.id) ? 'bg-primary/5' : ''}`}>
-                  <td className="w-10 px-3 py-3">
+                  <td className="w-12 px-3 py-3.5 align-middle">
                     <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleOne(item.id)}
-                      className="rounded border-gray-300 cursor-pointer" />
+                      className="h-4 w-4 rounded border-input cursor-pointer" aria-label={`Select ${item.name}`} />
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="font-medium">{item.name}</div>
-                    <div className="text-xs text-muted-foreground">{item.unit}</div>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{item.category?.name ?? '—'}</td>
-                  <td className="px-4 py-3 text-right">
-                    <span className={`inline-flex items-center gap-1.5 font-semibold ${low ? 'text-red-600' : 'text-green-700'}`}>
-                      {!low && <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />}
-                      {item.quantity_on_hand} {item.unit}
-                      {low && <Badge variant="destructive" className="text-[10px] px-1.5 py-0 ml-1">LOW</Badge>}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-muted-foreground">{item.reorder_level} {item.unit}</td>
-                  <td className="px-4 py-3 text-right">{item.default_unit_cost != null ? formatCurrency(item.default_unit_cost) : '—'}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1 justify-center">
-                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setModal({ kind: 'purchase', item })}>
-                        <ArrowDownCircle className="w-3 h-3 mr-1" /> Purchase
+                  {colOrder.map((col) => {
+                    const align = ITEM_COL_ALIGN[col]
+                    const cellClass = `px-4 py-3.5 align-middle ${align === 'right' ? 'text-right' : 'text-left'}`
+                    if (col === 'name') {
+                      return (
+                        <td key={col} className={cellClass}>
+                          <div className="font-semibold">{item.name}</div>
+                          <div className="text-sm text-muted-foreground">{item.unit}</div>
+                        </td>
+                      )
+                    }
+                    if (col === 'category') {
+                      return (
+                        <td key={col} className={`${cellClass} text-muted-foreground`}>
+                          {item.category?.name ?? '—'}
+                        </td>
+                      )
+                    }
+                    if (col === 'on_hand') {
+                      return (
+                        <td key={col} className={cellClass}>
+                          <span className={`inline-flex items-center justify-end gap-1.5 font-semibold tabular-nums ${low ? 'text-red-600' : 'text-green-700'}`}>
+                            {!low && <span className="w-2 h-2 rounded-full bg-green-500 inline-block" aria-hidden />}
+                            {item.quantity_on_hand} {item.unit}
+                            {low && <Badge variant="destructive" className="text-xs px-1.5 py-0 ml-1">LOW</Badge>}
+                          </span>
+                        </td>
+                      )
+                    }
+                    if (col === 'reorder') {
+                      return (
+                        <td key={col} className={`${cellClass} text-muted-foreground tabular-nums`}>
+                          {item.reorder_level} {item.unit}
+                        </td>
+                      )
+                    }
+                    if (col === 'unit_cost') {
+                      return (
+                        <td key={col} className={`${cellClass} tabular-nums`}>
+                          {item.default_unit_cost != null ? formatCurrency(item.default_unit_cost) : '—'}
+                        </td>
+                      )
+                    }
+                    return (
+                      <td key={col} className={`${cellClass} text-muted-foreground whitespace-nowrap tabular-nums`}>
+                        {item.earliest_expiry ?? '—'}
+                      </td>
+                    )
+                  })}
+                  <td className="px-4 py-3.5">
+                    <div className="flex flex-wrap items-center gap-1.5 justify-center">
+                      <Button size="sm" variant="outline" className="h-9 text-sm" onClick={() => setModal({ kind: 'purchase', item })}>
+                        <ArrowDownCircle className="w-4 h-4 mr-1" /> Purchase
                       </Button>
-                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setModal({ kind: 'issue', item })}>
-                        <ArrowUpCircle className="w-3 h-3 mr-1" /> Issue
+                      <Button size="sm" variant="outline" className="h-9 text-sm" onClick={() => setModal({ kind: 'issue', item })}>
+                        <ArrowUpCircle className="w-4 h-4 mr-1" /> Issue
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-9 text-sm" onClick={() => setModal({ kind: 'adjust', item })}>
+                        <SlidersHorizontal className="w-4 h-4 mr-1" /> Adjust
                       </Button>
                       <MeatballMenu>
                         <MenuItem icon={<Pencil className="w-3.5 h-3.5" />} label="Edit" onClick={() => setModal({ kind: 'editItem', item })} />
@@ -673,11 +963,54 @@ function AlertsTab({ alerts, setModal, items }: { alerts: StockAlert[]; setModal
   )
 }
 
-function MovementsTab({ movements, meta, page, setPage, movType, setMovType, movFrom, setMovFrom, movTo, setMovTo }: any) {
+function MovementsTab({
+  movements,
+  meta,
+  page,
+  setPage,
+  movType,
+  setMovType,
+  movFrom,
+  setMovFrom,
+  movTo,
+  setMovTo,
+  movCategory,
+  setMovCategory,
+  categories,
+}: {
+  movements: StockMovement[]
+  meta?: { total_pages: number }
+  page: number
+  setPage: (p: number) => void
+  movType: string
+  setMovType: (v: string) => void
+  movFrom: string
+  setMovFrom: (v: string) => void
+  movTo: string
+  setMovTo: (v: string) => void
+  movCategory: string
+  setMovCategory: (v: string) => void
+  categories: StockCategory[]
+}) {
   const { formatCurrency } = useCurrency()
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3 items-center">
+        <select
+          value={movCategory}
+          onChange={e => {
+            setMovCategory(e.target.value)
+            setPage(1)
+          }}
+          className="border rounded-md px-3 py-2 text-sm bg-background min-w-[140px]"
+        >
+          <option value="">All Categories</option>
+          {categories.map((c: StockCategory) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
         <select value={movType} onChange={e => { setMovType(e.target.value); setPage(1) }} className="border rounded-md px-3 py-2 text-sm bg-background">
           <option value="">All Types</option>
           <option value="purchase">Purchase</option>
@@ -919,6 +1252,7 @@ function ReportsTab({ report, loading, period, setPeriod }: {
                   <th className="text-right px-3 py-2.5 font-medium text-xs">Starting</th>
                   <th className="text-right px-3 py-2.5 font-medium text-xs">Purchased</th>
                   <th className="text-right px-3 py-2.5 font-medium text-xs">Issued</th>
+                  <th className="text-right px-3 py-2.5 font-medium text-xs">Net adj.</th>
                   <th className="text-right px-3 py-2.5 font-medium text-xs">Expected</th>
                   <th className="text-right px-3 py-2.5 font-medium text-xs">Actual</th>
                   <th className="text-right px-3 py-2.5 font-medium text-xs">Variance</th>
@@ -927,7 +1261,7 @@ function ReportsTab({ report, loading, period, setPeriod }: {
               </thead>
               <tbody className="divide-y">
                 {filteredVariance.length === 0 && (
-                  <tr><td colSpan={9} className="px-3 py-6 text-center text-muted-foreground text-xs">No variance data for this period.</td></tr>
+                  <tr><td colSpan={10} className="px-3 py-6 text-center text-muted-foreground text-xs">No variance data for this period.</td></tr>
                 )}
                 {filteredVariance.map(v => {
                   const absVar = Math.abs(v.variance)
@@ -943,6 +1277,9 @@ function ReportsTab({ report, loading, period, setPeriod }: {
                       <td className="px-3 py-2 text-right text-xs tabular-nums">{v.starting_stock.toFixed(1)}</td>
                       <td className="px-3 py-2 text-right text-xs tabular-nums text-green-600">+{v.purchased.toFixed(1)}</td>
                       <td className="px-3 py-2 text-right text-xs tabular-nums text-red-600">-{v.issued.toFixed(1)}</td>
+                      <td className={`px-3 py-2 text-right text-xs tabular-nums ${(v.adjustment_net ?? 0) > 0 ? 'text-green-600' : (v.adjustment_net ?? 0) < 0 ? 'text-red-600' : 'text-muted-foreground'}`}>
+                        {(v.adjustment_net ?? 0) > 0 ? '+' : ''}{(v.adjustment_net ?? 0).toFixed(1)}
+                      </td>
                       <td className="px-3 py-2 text-right text-xs tabular-nums font-medium">{v.expected.toFixed(1)}</td>
                       <td className="px-3 py-2 text-right text-xs tabular-nums font-medium">{v.actual_on_hand.toFixed(1)}</td>
                       <td className="px-3 py-2 text-right">
@@ -1084,7 +1421,14 @@ function AddItemForm({ categories, onClose, qc, showToast }: { categories: Stock
       default_unit_cost: form.default_unit_cost || undefined,
       notes: form.notes || undefined,
     }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['stockItems'] }); qc.invalidateQueries({ queryKey: ['stockCategories'] }); showToast('success', `"${form.name}" added to inventory`); onClose() },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stockItems'] })
+      qc.invalidateQueries({ queryKey: ['stockCategories'] })
+      qc.invalidateQueries({ queryKey: ['stockSummary'] })
+      qc.invalidateQueries({ queryKey: ['advancedStockReport'] })
+      showToast('success', `"${form.name}" added to inventory`)
+      onClose()
+    },
     onError: (err: Error) => showToast('error', err.message || 'Failed to add item'),
   })
 
@@ -1130,7 +1474,13 @@ function EditItemForm({ item, categories, onClose, qc, showToast }: { item: Stoc
       default_unit_cost: form.default_unit_cost || undefined,
       notes: form.notes || undefined,
     } as any),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['stockItems'] }); showToast('success', 'Item updated'); onClose() },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stockItems'] })
+      qc.invalidateQueries({ queryKey: ['stockSummary'] })
+      qc.invalidateQueries({ queryKey: ['advancedStockReport'] })
+      showToast('success', 'Item updated')
+      onClose()
+    },
     onError: (err: Error) => showToast('error', err.message || 'Failed to update item'),
   })
 
@@ -1164,10 +1514,24 @@ function EditItemForm({ item, categories, onClose, qc, showToast }: { item: Stoc
 
 function PurchaseForm({ item, onClose, qc, showToast }: { item: StockItem; onClose: () => void; qc: any; showToast: (t: 'success' | 'error', m: string) => void }) {
   const { formatCurrency, currencyCode } = useCurrency()
-  const [form, setForm] = useState({ quantity: 0, unit_cost: item.default_unit_cost ?? 0, note: '' })
+  const [form, setForm] = useState({ quantity: 0, unit_cost: item.default_unit_cost ?? 0, note: '', expiry_date: '' })
   const mut = useMutation({
-    mutationFn: () => apiClient.purchaseStock(item.id, { quantity: form.quantity, unit_cost: form.unit_cost || undefined, note: form.note || undefined }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['stockItems'] }); qc.invalidateQueries({ queryKey: ['stockAlerts'] }); qc.invalidateQueries({ queryKey: ['stockMovements'] }); qc.invalidateQueries({ queryKey: ['stockSummary'] }); showToast('success', `Purchased ${form.quantity} ${item.unit} of ${item.name}`); onClose() },
+    mutationFn: () =>
+      apiClient.purchaseStock(item.id, {
+        quantity: form.quantity,
+        unit_cost: form.unit_cost || undefined,
+        note: form.note || undefined,
+        expiry_date: form.expiry_date.trim() || undefined,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stockItems'] })
+      qc.invalidateQueries({ queryKey: ['stockAlerts'] })
+      qc.invalidateQueries({ queryKey: ['stockMovements'] })
+      qc.invalidateQueries({ queryKey: ['stockSummary'] })
+      qc.invalidateQueries({ queryKey: ['advancedStockReport'] })
+      showToast('success', `Purchased ${form.quantity} ${item.unit} of ${item.name}`)
+      onClose()
+    },
     onError: (err: Error) => showToast('error', err.message || 'Failed to record purchase'),
   })
 
@@ -1183,6 +1547,9 @@ function PurchaseForm({ item, onClose, qc, showToast }: { item: StockItem; onClo
         <FormField label={`Unit Cost (${currencyCode})`}><input type="number" step="0.01" value={form.unit_cost || ''} onChange={e => setForm(f => ({ ...f, unit_cost: +e.target.value }))} /></FormField>
       </div>
       {form.quantity > 0 && form.unit_cost > 0 && <p className="text-sm font-medium">Total cost: {formatCurrency(form.quantity * form.unit_cost)}</p>}
+      <FormField label="Expiry (optional)">
+        <input type="date" value={form.expiry_date} onChange={e => setForm(f => ({ ...f, expiry_date: e.target.value }))} />
+      </FormField>
       <FormField label="Note"><input value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="e.g. Weekly supplier order" /></FormField>
       <Button type="submit" className="w-full" disabled={mut.isPending || form.quantity <= 0}>{mut.isPending ? 'Recording...' : 'Record Purchase'}</Button>
     </form>
@@ -1224,6 +1591,7 @@ function IssueForm({ item, users, onClose, qc, showToast }: { item: StockItem; u
       qc.invalidateQueries({ queryKey: ['stockAlerts'] })
       qc.invalidateQueries({ queryKey: ['stockMovements'] })
       qc.invalidateQueries({ queryKey: ['stockSummary'] })
+      qc.invalidateQueries({ queryKey: ['advancedStockReport'] })
       showToast('success', `Issued ${form.quantity} ${form.unit} of ${item.name} to ${issuedUser?.first_name ?? 'staff'}`)
       onClose()
     },
@@ -1299,6 +1667,93 @@ function IssueForm({ item, users, onClose, qc, showToast }: { item: StockItem; u
 
       <Button type="submit" className="w-full" disabled={!canSubmit}>
         {mut.isPending ? 'Issuing...' : `Issue ${form.quantity > 0 ? form.quantity + ' ' + form.unit : 'Stock'}`}
+      </Button>
+    </form>
+  )
+}
+
+function AdjustForm({ item, onClose, qc, showToast }: { item: StockItem; onClose: () => void; qc: any; showToast: (t: 'success' | 'error', m: string) => void }) {
+  const { formatCurrency, currencyCode } = useCurrency()
+  const [qtyStr, setQtyStr] = useState('')
+  const [form, setForm] = useState({
+    reason: ADJUST_REASONS[0].value,
+    unit_cost: item.default_unit_cost ?? 0,
+    note: '',
+  })
+
+  const delta = qtyStr.trim() === '' ? NaN : Number(qtyStr)
+  const deltaValid = Number.isFinite(delta) && Math.abs(delta) > 1e-9
+  const tooMuchRemoval = deltaValid && delta < 0 && Math.abs(delta) > item.quantity_on_hand + 1e-9
+
+  const mut = useMutation({
+    mutationFn: () =>
+      apiClient.adjustStock(item.id, {
+        quantity_delta: delta,
+        reason: form.reason || undefined,
+        note: form.note.trim() || undefined,
+        ...(delta > 0 && form.unit_cost > 0 ? { unit_cost: form.unit_cost } : {}),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stockItems'] })
+      qc.invalidateQueries({ queryKey: ['stockAlerts'] })
+      qc.invalidateQueries({ queryKey: ['stockMovements'] })
+      qc.invalidateQueries({ queryKey: ['stockSummary'] })
+      qc.invalidateQueries({ queryKey: ['advancedStockReport'] })
+      showToast('success', `Adjusted ${item.name} by ${delta > 0 ? '+' : ''}${delta} ${item.unit}`)
+      onClose()
+    },
+    onError: (err: Error) => showToast('error', err.message || 'Failed to adjust stock'),
+  })
+
+  const canSubmit = deltaValid && !tooMuchRemoval && !mut.isPending
+  const qtyParseError = qtyStr.trim() !== '' && !Number.isFinite(delta)
+
+  return (
+    <form onSubmit={e => { e.preventDefault(); if (!deltaValid || tooMuchRemoval) return; mut.mutate() }} className="p-6 space-y-4">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-lg font-semibold">Adjust: {item.name}</h2>
+        <button type="button" onClick={onClose}><X className="w-5 h-5" /></button>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Current on hand: <span className="font-medium text-foreground">{item.quantity_on_hand} {item.unit}</span>.
+        Use a positive change to add stock, negative to remove (FIFO lots).
+      </p>
+      <FormField label={`Quantity change (${item.unit})`} required>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={qtyStr}
+          onChange={e => setQtyStr(e.target.value)}
+          placeholder="e.g. 2 or -1.5"
+          required
+        />
+      </FormField>
+      {qtyParseError && (
+        <p className="text-sm text-red-600">Enter a valid number.</p>
+      )}
+      {tooMuchRemoval && (
+        <p className="text-sm text-amber-700 bg-amber-50 rounded-md px-3 py-2">
+          Cannot remove more than on hand ({item.quantity_on_hand} {item.unit}).
+        </p>
+      )}
+      {delta > 0 && (
+        <FormField label={`Unit cost for new lot (${currencyCode}, optional)`}>
+          <input type="number" step="0.01" min="0" value={form.unit_cost || ''} onChange={e => setForm(f => ({ ...f, unit_cost: +e.target.value }))} />
+        </FormField>
+      )}
+      {delta > 0 && form.unit_cost > 0 && (
+        <p className="text-xs text-muted-foreground">Lot value: {formatCurrency(delta * form.unit_cost)}</p>
+      )}
+      <FormField label="Reason" required>
+        <select value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} required>
+          {ADJUST_REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+        </select>
+      </FormField>
+      <FormField label="Note (optional)">
+        <input value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="e.g. Year-end count" />
+      </FormField>
+      <Button type="submit" className="w-full" disabled={!canSubmit}>
+        {mut.isPending ? 'Saving...' : 'Apply adjustment'}
       </Button>
     </form>
   )

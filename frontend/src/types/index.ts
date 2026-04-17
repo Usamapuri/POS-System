@@ -31,6 +31,8 @@ export interface User {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  /** HTTPS image URL or data:image/* from a small local upload */
+  profile_image_url?: string | null;
 }
 
 export interface LoginRequest {
@@ -330,6 +332,52 @@ export interface StockItem {
   created_at: string;
   updated_at: string;
   category?: StockCategory;
+  /** Next expiry among open lots (YYYY-MM-DD), when tracked */
+  earliest_expiry?: string;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  contact_name?: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PurchaseOrderSummary {
+  id: string;
+  supplier_id: string;
+  supplier_name: string;
+  status: string;
+  expected_date?: string;
+  notes?: string;
+  created_at: string;
+  total_ordered_qty: number;
+}
+
+export interface PurchaseOrderLine {
+  id: string;
+  stock_item_id: string;
+  item_name: string;
+  unit: string;
+  quantity_ordered: number;
+  unit_cost?: number;
+  quantity_received: number;
+}
+
+export interface PurchaseOrderDetail {
+  id: string;
+  status: string;
+  supplier_id: string;
+  supplier_name: string;
+  expected_date?: string;
+  notes?: string;
+  created_at: string;
+  lines: PurchaseOrderLine[];
 }
 
 export interface StockMovement {
@@ -401,6 +449,8 @@ export interface AdvancedStockReport {
     starting_stock: number;
     purchased: number;
     issued: number;
+    /** Net quantity from adjustment movements in the period (signed: +in, −out) */
+    adjustment_net: number;
     actual_on_hand: number;
     expected: number;
     variance: number;

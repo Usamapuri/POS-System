@@ -30,6 +30,7 @@ import {
   Key,
 } from "lucide-react"
 import type { User } from "@/types"
+import { staffAvatarImageUrl } from "@/lib/staff-avatar"
 
 interface AdminStaffTableProps {
   data: (User & { has_pin?: boolean })[]
@@ -84,14 +85,27 @@ export function AdminStaffTable({
       },
       cell: ({ row }) => {
         const user = row.original
+        const displayName = `${user.first_name} ${user.last_name}`.trim() || user.username
+        const src = staffAvatarImageUrl(user)
         return (
           <div className="flex items-center space-x-3">
             <div className="flex-shrink-0">
-              <div className="h-10 w-10 rounded-full bg-gradient-to-r from-blue-400 to-purple-500 flex items-center justify-center">
-                <span className="text-sm font-semibold text-white">
-                  {user.first_name[0]}{user.last_name[0]}
-                </span>
-              </div>
+              <img
+                src={src}
+                alt={displayName}
+                width={40}
+                height={40}
+                className="h-10 w-10 rounded-full object-cover ring-2 ring-amber-100/90 bg-amber-50 shadow-sm"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  const el = e.currentTarget
+                  if (el.dataset.fallback === "1") return
+                  el.dataset.fallback = "1"
+                  el.src =
+                    "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f600.png"
+                }}
+              />
             </div>
             <div>
               <div className="font-medium text-gray-900">

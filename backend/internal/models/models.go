@@ -16,6 +16,7 @@ type User struct {
 	LastName     string    `json:"last_name"`
 	Role         string    `json:"role"` // admin, manager, server, counter, kitchen, store_manager
 	ManagerPin   *string   `json:"manager_pin,omitempty"`
+	ProfileImageURL *string `json:"profile_image_url,omitempty"`
 	IsActive     bool      `json:"is_active"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -177,6 +178,30 @@ type StockItem struct {
 	CreatedAt       time.Time      `json:"created_at"`
 	UpdatedAt       time.Time      `json:"updated_at"`
 	Category        *StockCategory `json:"category,omitempty"`
+	EarliestExpiry  *string        `json:"earliest_expiry,omitempty"` // YYYY-MM-DD from open lots
+}
+
+// PurchaseOrderLineDetail is one line on a purchase order (API response).
+type PurchaseOrderLineDetail struct {
+	ID               string   `json:"id"`
+	StockItemID      string   `json:"stock_item_id"`
+	ItemName         string   `json:"item_name"`
+	Unit             string   `json:"unit"`
+	QuantityOrdered  float64  `json:"quantity_ordered"`
+	UnitCost         *float64 `json:"unit_cost,omitempty"`
+	QuantityReceived float64  `json:"quantity_received"`
+}
+
+// PurchaseOrderDetail is the GET /store/purchase-orders/:id payload.
+type PurchaseOrderDetail struct {
+	ID            string                    `json:"id"`
+	Status        string                    `json:"status"`
+	SupplierID    string                    `json:"supplier_id"`
+	SupplierName  string                    `json:"supplier_name"`
+	ExpectedDate  *string                   `json:"expected_date,omitempty"`
+	Notes         *string                   `json:"notes,omitempty"`
+	CreatedAt     time.Time                 `json:"created_at"`
+	Lines         []PurchaseOrderLineDetail `json:"lines"`
 }
 
 // StockMovement represents a purchase, issue, or adjustment

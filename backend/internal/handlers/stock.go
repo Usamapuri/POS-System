@@ -140,10 +140,13 @@ func (h *StockHandler) GetStockItems(c *gin.Context) {
 	categoryID := c.Query("category_id")
 	search := c.Query("search")
 	lowStockOnly := c.Query("low_stock") == "true"
+	stockHealth := strings.TrimSpace(strings.ToLower(c.Query("stock_health")))
 
 	qb := `SELECT si.id, si.category_id, si.name, si.unit, si.quantity_on_hand, si.reorder_level,
 	              si.default_unit_cost, si.notes, si.is_active, si.created_at, si.updated_at,
-	              sc.id, sc.name
+	              sc.id, sc.name,
+	              (SELECT MIN(sb.expiry_date)::text FROM stock_batches sb
+	                 WHERE sb.stock_item_id = si.id AND sb.quantity_remaining > 0 AND sb.expiry_date IS NOT NULL) AS earliest_expiry
 	       FROM stock_items si
 	       LEFT JOIN stock_categories sc ON si.category_id = sc.id
 	       WHERE si.is_active = true`
@@ -163,12 +166,44 @@ func (h *StockHandler) GetStockItems(c *gin.Context) {
 	if lowStockOnly {
 		qb += " AND si.quantity_on_hand <= si.reorder_level"
 	}
+	if stockHealth == "low" {
+		qb += " AND si.quantity_on_hand <= si.reorder_level"
+	} else if stockHealth == "ok" {
+		qb += " AND si.quantity_on_hand > si.reorder_level"
+	}
 
 	var total int
 	countQ := "SELECT COUNT(*) FROM (" + qb + ") q"
 	h.db.QueryRow(countQ, args...).Scan(&total)
 
-	qb += " ORDER BY sc.sort_order ASC, si.name ASC"
+	sortKey := strings.ToLower(strings.TrimSpace(c.DefaultQuery("sort", "category")))
+	sortDir := strings.ToUpper(strings.TrimSpace(c.DefaultQuery("sort_dir", "asc")))
+	if sortDir != "ASC" && sortDir != "DESC" {
+		sortDir = "ASC"
+	}
+	orderParts := []string{}
+	switch sortKey {
+	case "name":
+		orderParts = append(orderParts, "LOWER(si.name) "+sortDir)
+	case "on_hand", "qty":
+		orderParts = append(orderParts, "si.quantity_on_hand "+sortDir)
+	case "reorder":
+		orderParts = append(orderParts, "si.reorder_level "+sortDir)
+	case "unit_cost", "cost":
+		orderParts = append(orderParts, "si.default_unit_cost NULLS LAST "+sortDir)
+	case "expiry":
+		orderParts = append(orderParts, `(SELECT MIN(sb.expiry_date) FROM stock_batches sb WHERE sb.stock_item_id = si.id AND sb.quantity_remaining > 0.000001 AND sb.expiry_date IS NOT NULL) NULLS LAST `+sortDir)
+	case "category":
+		// Match legacy list: category display order, then item name (A–Z).
+		orderParts = append(orderParts, "sc.sort_order "+sortDir, "LOWER(si.name) ASC")
+	default:
+		orderParts = append(orderParts, "sc.sort_order ASC", "LOWER(COALESCE(sc.name,'')) ASC")
+	}
+	if sortKey != "name" && sortKey != "category" {
+		orderParts = append(orderParts, "LOWER(si.name) ASC")
+	}
+	orderParts = append(orderParts, "si.id ASC")
+	qb += " ORDER BY " + strings.Join(orderParts, ", ")
 	n++
 	qb += fmt.Sprintf(" LIMIT $%d", n)
 	args = append(args, perPage)
@@ -188,15 +223,20 @@ func (h *StockHandler) GetStockItems(c *gin.Context) {
 		var item models.StockItem
 		var catID sql.NullString
 		var catName sql.NullString
+		var earliest sql.NullString
 		if err := rows.Scan(&item.ID, &item.CategoryID, &item.Name, &item.Unit, &item.QuantityOnHand, &item.ReorderLevel,
 			&item.DefaultUnitCost, &item.Notes, &item.IsActive, &item.CreatedAt, &item.UpdatedAt,
-			&catID, &catName); err != nil {
+			&catID, &catName, &earliest); err != nil {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to scan item", Error: strPtr(err.Error())})
 			return
 		}
 		if catID.Valid {
 			uid, _ := uuid.Parse(catID.String)
 			item.Category = &models.StockCategory{ID: uid, Name: catName.String}
+		}
+		if earliest.Valid && earliest.String != "" {
+			s := earliest.String
+			item.EarliestExpiry = &s
 		}
 		items = append(items, item)
 	}
@@ -212,16 +252,19 @@ func (h *StockHandler) GetStockItem(c *gin.Context) {
 	var item models.StockItem
 	var catID sql.NullString
 	var catName sql.NullString
+	var earliest sql.NullString
 	err := h.db.QueryRow(`
 		SELECT si.id, si.category_id, si.name, si.unit, si.quantity_on_hand, si.reorder_level,
 		       si.default_unit_cost, si.notes, si.is_active, si.created_at, si.updated_at,
-		       sc.id, sc.name
+		       sc.id, sc.name,
+		       (SELECT MIN(sb.expiry_date)::text FROM stock_batches sb
+		          WHERE sb.stock_item_id = si.id AND sb.quantity_remaining > 0 AND sb.expiry_date IS NOT NULL)
 		FROM stock_items si
 		LEFT JOIN stock_categories sc ON si.category_id = sc.id
 		WHERE si.id = $1`, itemID).Scan(
 		&item.ID, &item.CategoryID, &item.Name, &item.Unit, &item.QuantityOnHand, &item.ReorderLevel,
 		&item.DefaultUnitCost, &item.Notes, &item.IsActive, &item.CreatedAt, &item.UpdatedAt,
-		&catID, &catName)
+		&catID, &catName, &earliest)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Stock item not found"})
 		return
@@ -233,6 +276,10 @@ func (h *StockHandler) GetStockItem(c *gin.Context) {
 	if catID.Valid {
 		uid, _ := uuid.Parse(catID.String)
 		item.Category = &models.StockCategory{ID: uid, Name: catName.String}
+	}
+	if earliest.Valid && earliest.String != "" {
+		s := earliest.String
+		item.EarliestExpiry = &s
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock item retrieved", Data: item})
 }
@@ -259,6 +306,10 @@ func (h *StockHandler) CreateStockItem(c *gin.Context) {
 		req.CategoryID, req.Name, req.Unit, req.QuantityOnHand, req.ReorderLevel, req.DefaultUnitCost, req.Notes).Scan(&id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to create item", Error: strPtr(err.Error())})
+		return
+	}
+	if err := insertOpeningBatch(h.db, id, req.QuantityOnHand, req.DefaultUnitCost); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to create opening stock batch", Error: strPtr(err.Error())})
 		return
 	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Message: "Stock item created", Data: map[string]string{"id": id}})
@@ -329,9 +380,13 @@ func (h *StockHandler) PurchaseStock(c *gin.Context) {
 	}
 
 	var req struct {
-		Quantity float64  `json:"quantity" binding:"required"`
-		UnitCost *float64 `json:"unit_cost"`
-		Note     *string  `json:"note"`
+		Quantity            float64  `json:"quantity" binding:"required"`
+		UnitCost            *float64 `json:"unit_cost"`
+		Note                *string  `json:"note"`
+		ExpiryDate          *string  `json:"expiry_date"` // YYYY-MM-DD
+		SupplierID          *string  `json:"supplier_id"`
+		PurchaseOrderID     *string  `json:"purchase_order_id"`
+		PurchaseOrderLineID *string  `json:"purchase_order_line_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request", Error: strPtr(err.Error())})
@@ -340,6 +395,16 @@ func (h *StockHandler) PurchaseStock(c *gin.Context) {
 	if req.Quantity <= 0 {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Quantity must be positive"})
 		return
+	}
+
+	var expiryPtr *time.Time
+	if req.ExpiryDate != nil && strings.TrimSpace(*req.ExpiryDate) != "" {
+		t, err := time.Parse("2006-01-02", strings.TrimSpace(*req.ExpiryDate))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid expiry_date (use YYYY-MM-DD)", Error: strPtr(err.Error())})
+			return
+		}
+		expiryPtr = &t
 	}
 
 	tx, err := h.db.Begin()
@@ -356,8 +421,9 @@ func (h *StockHandler) PurchaseStock(c *gin.Context) {
 	}
 
 	var movementID string
-	err = tx.QueryRow(`INSERT INTO stock_movements (stock_item_id, movement_type, quantity, unit_cost, total_cost, created_by, note)
-		VALUES ($1, 'purchase', $2, $3, $4, $5, $6) RETURNING id`, itemID, req.Quantity, req.UnitCost, totalCost, userID, req.Note).Scan(&movementID)
+	err = tx.QueryRow(`INSERT INTO stock_movements (stock_item_id, movement_type, quantity, unit_cost, total_cost, created_by, note, supplier_id, purchase_order_id)
+		VALUES ($1, 'purchase', $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+		itemID, req.Quantity, req.UnitCost, totalCost, userID, req.Note, req.SupplierID, req.PurchaseOrderID).Scan(&movementID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to record purchase", Error: strPtr(err.Error())})
 		return
@@ -378,6 +444,11 @@ func (h *StockHandler) PurchaseStock(c *gin.Context) {
 		return
 	}
 
+	if err := insertPurchaseBatch(tx, itemID, movementID, req.Quantity, req.UnitCost, expiryPtr, req.PurchaseOrderLineID); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to record stock batch", Error: strPtr(err.Error())})
+		return
+	}
+
 	if totalCost != nil && *totalCost > 0 {
 		var itemName string
 		tx.QueryRow("SELECT name FROM stock_items WHERE id = $1", itemID).Scan(&itemName)
@@ -394,7 +465,10 @@ func (h *StockHandler) PurchaseStock(c *gin.Context) {
 		}
 	}
 
-	tx.Commit()
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to commit purchase", Error: strPtr(err.Error())})
+		return
+	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Purchase recorded successfully"})
 }
 
@@ -422,32 +496,6 @@ func (h *StockHandler) IssueStock(c *gin.Context) {
 		return
 	}
 
-	var currentQty float64
-	var itemUnit string
-	err := h.db.QueryRow("SELECT quantity_on_hand, unit FROM stock_items WHERE id = $1", itemID).Scan(&currentQty, &itemUnit)
-	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Stock item not found"})
-		return
-	}
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to check stock", Error: strPtr(err.Error())})
-		return
-	}
-	deductQty := req.Quantity
-	if req.Unit != nil && *req.Unit != "" && *req.Unit != itemUnit {
-		converted, ok := convertUnits(req.Quantity, *req.Unit, itemUnit)
-		if !ok {
-			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: fmt.Sprintf("Cannot convert from %s to %s", *req.Unit, itemUnit)})
-			return
-		}
-		deductQty = converted
-	}
-
-	if currentQty < deductQty {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: fmt.Sprintf("Insufficient stock (available: %.2f %s)", currentQty, itemUnit), Error: strPtr("insufficient_stock")})
-		return
-	}
-
 	noteText := ""
 	if req.Reason != nil && *req.Reason != "" {
 		noteText = "[" + *req.Reason + "]"
@@ -472,6 +520,48 @@ func (h *StockHandler) IssueStock(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
+	var lockedQty float64
+	var itemUnit string
+	var defCost sql.NullFloat64
+	err = tx.QueryRow(`SELECT quantity_on_hand, unit, default_unit_cost FROM stock_items WHERE id = $1 FOR UPDATE`, itemID).Scan(&lockedQty, &itemUnit, &defCost)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Stock item not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to lock stock item", Error: strPtr(err.Error())})
+		return
+	}
+
+	deductQty := req.Quantity
+	if req.Unit != nil && *req.Unit != "" && *req.Unit != itemUnit {
+		converted, ok := convertUnits(req.Quantity, *req.Unit, itemUnit)
+		if !ok {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: fmt.Sprintf("Cannot convert from %s to %s", *req.Unit, itemUnit)})
+			return
+		}
+		deductQty = converted
+	}
+
+	if lockedQty < deductQty {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: fmt.Sprintf("Insufficient stock (available: %.2f %s)", lockedQty, itemUnit), Error: strPtr("insufficient_stock")})
+		return
+	}
+
+	var unitCostPtr *float64
+	if defCost.Valid {
+		v := defCost.Float64
+		unitCostPtr = &v
+	}
+	if err := ensureBatchesMatchOnHand(tx, itemID, lockedQty, unitCostPtr); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to reconcile stock batches", Error: strPtr(err.Error())})
+		return
+	}
+	if err := deductBatchesFIFO(tx, itemID, deductQty); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error(), Error: strPtr("batch_allocation")})
+		return
+	}
+
 	negQty := -deductQty
 	_, err = tx.Exec(`INSERT INTO stock_movements (stock_item_id, movement_type, quantity, issued_to_user_id, created_by, note)
 		VALUES ($1, 'issue', $2, $3, $4, $5)`, itemID, negQty, req.IssuedToUserID, userID, notePtr)
@@ -486,8 +576,132 @@ func (h *StockHandler) IssueStock(c *gin.Context) {
 		return
 	}
 
-	tx.Commit()
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to commit issue", Error: strPtr(err.Error())})
+		return
+	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock issued successfully"})
+}
+
+func (h *StockHandler) AdjustStock(c *gin.Context) {
+	itemID := c.Param("id")
+	userID, _, _, ok := middleware.GetUserFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.APIResponse{Success: false, Message: "Authentication required"})
+		return
+	}
+
+	var req struct {
+		QuantityDelta float64  `json:"quantity_delta" binding:"required"`
+		UnitCost      *float64 `json:"unit_cost"`
+		Reason        *string  `json:"reason"`
+		Note          *string  `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request", Error: strPtr(err.Error())})
+		return
+	}
+	if math.Abs(req.QuantityDelta) < 0.000001 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "quantity_delta must be non-zero"})
+		return
+	}
+
+	noteText := ""
+	if req.Reason != nil && strings.TrimSpace(*req.Reason) != "" {
+		noteText = "[" + strings.TrimSpace(*req.Reason) + "]"
+	}
+	if req.Note != nil && strings.TrimSpace(*req.Note) != "" {
+		if noteText != "" {
+			noteText += " "
+		}
+		noteText += strings.TrimSpace(*req.Note)
+	}
+	var notePtr *string
+	if noteText != "" {
+		notePtr = &noteText
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Transaction error", Error: strPtr(err.Error())})
+		return
+	}
+	defer tx.Rollback()
+
+	var lockedQty float64
+	var defCost sql.NullFloat64
+	err = tx.QueryRow(`SELECT quantity_on_hand, default_unit_cost FROM stock_items WHERE id = $1 FOR UPDATE`, itemID).Scan(&lockedQty, &defCost)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Stock item not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to lock stock item", Error: strPtr(err.Error())})
+		return
+	}
+
+	delta := req.QuantityDelta
+	if lockedQty+delta < -0.000001 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: fmt.Sprintf("Adjustment would make quantity negative (on hand: %.4f)", lockedQty), Error: strPtr("insufficient_stock")})
+		return
+	}
+
+	var unitCostPtr *float64
+	if req.UnitCost != nil {
+		unitCostPtr = req.UnitCost
+	} else if defCost.Valid {
+		v := defCost.Float64
+		unitCostPtr = &v
+	}
+
+	if delta > 0 {
+		if err := ensureBatchesMatchOnHand(tx, itemID, lockedQty, unitCostPtr); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to reconcile stock batches", Error: strPtr(err.Error())})
+			return
+		}
+		var movementID string
+		err = tx.QueryRow(`INSERT INTO stock_movements (stock_item_id, movement_type, quantity, created_by, note)
+			VALUES ($1, 'adjustment', $2, $3, $4) RETURNING id`,
+			itemID, delta, userID, notePtr).Scan(&movementID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to record adjustment", Error: strPtr(err.Error())})
+			return
+		}
+		if _, err = tx.Exec(`UPDATE stock_items SET quantity_on_hand = quantity_on_hand + $1 WHERE id = $2`, delta, itemID); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update quantity", Error: strPtr(err.Error())})
+			return
+		}
+		if err := insertPurchaseBatch(tx, itemID, movementID, delta, unitCostPtr, nil, nil); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to record stock batch", Error: strPtr(err.Error())})
+			return
+		}
+	} else {
+		deductQty := -delta
+		if err := ensureBatchesMatchOnHand(tx, itemID, lockedQty, unitCostPtr); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to reconcile stock batches", Error: strPtr(err.Error())})
+			return
+		}
+		if err := deductBatchesFIFO(tx, itemID, deductQty); err != nil {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error(), Error: strPtr("batch_allocation")})
+			return
+		}
+		_, err = tx.Exec(`INSERT INTO stock_movements (stock_item_id, movement_type, quantity, created_by, note)
+			VALUES ($1, 'adjustment', $2, $3, $4)`, itemID, delta, userID, notePtr)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to record adjustment", Error: strPtr(err.Error())})
+			return
+		}
+		if _, err = tx.Exec(`UPDATE stock_items SET quantity_on_hand = quantity_on_hand + $1 WHERE id = $2`, delta, itemID); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update quantity", Error: strPtr(err.Error())})
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to commit adjustment", Error: strPtr(err.Error())})
+		return
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock adjusted successfully"})
 }
 
 // ---------- Alerts ----------
@@ -820,17 +1034,18 @@ func (h *StockHandler) GetAdvancedReport(c *gin.Context) {
 
 	// 6. Variance report: per-item starting stock, purchased, issued, current on-hand, variance
 	type VarianceRow struct {
-		ItemID        string  `json:"item_id"`
-		ItemName      string  `json:"item_name"`
-		Unit          string  `json:"unit"`
-		Category      string  `json:"category"`
-		StartingStock float64 `json:"starting_stock"`
-		Purchased     float64 `json:"purchased"`
-		Issued        float64 `json:"issued"`
-		ActualOnHand  float64 `json:"actual_on_hand"`
-		Expected      float64 `json:"expected"`
-		Variance      float64 `json:"variance"`
-		UnitCost      float64 `json:"unit_cost"`
+		ItemID         string  `json:"item_id"`
+		ItemName       string  `json:"item_name"`
+		Unit           string  `json:"unit"`
+		Category       string  `json:"category"`
+		StartingStock  float64 `json:"starting_stock"`
+		Purchased      float64 `json:"purchased"`
+		Issued         float64 `json:"issued"`
+		AdjustmentNet  float64 `json:"adjustment_net"`
+		ActualOnHand   float64 `json:"actual_on_hand"`
+		Expected       float64 `json:"expected"`
+		Variance       float64 `json:"variance"`
+		UnitCost       float64 `json:"unit_cost"`
 	}
 	varRows, _ := h.db.Query(fmt.Sprintf(`
 		SELECT si.id, si.name, si.unit,
@@ -838,7 +1053,8 @@ func (h *StockHandler) GetAdvancedReport(c *gin.Context) {
 		       COALESCE(si.default_unit_cost, 0),
 		       si.quantity_on_hand,
 		       COALESCE(SUM(CASE WHEN sm.movement_type='purchase' THEN sm.quantity ELSE 0 END),0) AS purchased,
-		       COALESCE(SUM(CASE WHEN sm.movement_type='issue' THEN ABS(sm.quantity) ELSE 0 END),0) AS issued
+		       COALESCE(SUM(CASE WHEN sm.movement_type='issue' THEN ABS(sm.quantity) ELSE 0 END),0) AS issued,
+		       COALESCE(SUM(CASE WHEN sm.movement_type='adjustment' THEN sm.quantity ELSE 0 END),0) AS adjustment_net
 		FROM stock_items si
 		LEFT JOIN stock_categories sc ON si.category_id = sc.id
 		LEFT JOIN stock_movements sm ON sm.stock_item_id = si.id
@@ -853,9 +1069,9 @@ func (h *StockHandler) GetAdvancedReport(c *gin.Context) {
 		for varRows.Next() {
 			var vr VarianceRow
 			varRows.Scan(&vr.ItemID, &vr.ItemName, &vr.Unit, &vr.Category,
-				&vr.UnitCost, &vr.ActualOnHand, &vr.Purchased, &vr.Issued)
-			vr.StartingStock = vr.ActualOnHand - vr.Purchased + vr.Issued
-			vr.Expected = vr.StartingStock + vr.Purchased - vr.Issued
+				&vr.UnitCost, &vr.ActualOnHand, &vr.Purchased, &vr.Issued, &vr.AdjustmentNet)
+			vr.StartingStock = vr.ActualOnHand - vr.Purchased + vr.Issued - vr.AdjustmentNet
+			vr.Expected = vr.StartingStock + vr.Purchased - vr.Issued + vr.AdjustmentNet
 			vr.Variance = vr.ActualOnHand - vr.Expected
 			variances = append(variances, vr)
 		}

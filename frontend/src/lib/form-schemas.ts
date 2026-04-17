@@ -8,8 +8,29 @@ export const positiveNumberSchema = z.number().min(0, 'Must be a positive number
 export const priceSchema = z.number().min(0.01, 'Price must be greater than 0')
 
 // User/Staff related schemas
-export const userRoles = ['admin', 'manager', 'server', 'counter', 'kitchen'] as const
+export const userRoles = ['admin', 'manager', 'server', 'counter', 'kitchen', 'store_manager'] as const
 export const userRoleSchema = z.enum(userRoles)
+
+const profileImageUrlSchema = z
+  .string()
+  .max(600_000, 'Image data is too large — use a smaller file or an HTTPS link')
+  .optional()
+  .refine(
+    (val) => {
+      if (val == null || val.trim() === '') return true
+      const t = val.trim()
+      return (
+        t.startsWith('https://') ||
+        t.startsWith('http://') ||
+        t.startsWith('data:image/png') ||
+        t.startsWith('data:image/jpeg') ||
+        t.startsWith('data:image/jpg') ||
+        t.startsWith('data:image/webp') ||
+        t.startsWith('data:image/gif')
+      )
+    },
+    { message: 'Use an http(s) image URL or upload a PNG, JPEG, WebP, or GIF' }
+  )
 
 export const createUserSchema = z.object({
   username: requiredStringSchema.min(3, 'Username must be at least 3 characters'),
@@ -18,6 +39,7 @@ export const createUserSchema = z.object({
   first_name: requiredStringSchema,
   last_name: requiredStringSchema,
   role: userRoleSchema,
+  profile_image_url: profileImageUrlSchema,
 })
 
 export const updateUserSchema = z.object({
@@ -28,6 +50,7 @@ export const updateUserSchema = z.object({
   first_name: requiredStringSchema.optional(),
   last_name: requiredStringSchema.optional(),
   role: userRoleSchema.optional(),
+  profile_image_url: profileImageUrlSchema,
 })
 
 // Product related schemas

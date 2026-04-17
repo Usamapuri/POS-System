@@ -1,7 +1,7 @@
 # POS System - Development Makefile
 # Usage: make <command>
 
-.PHONY: help dev prod up down build logs clean backup restore create-admin remove-data db-shell db-migrate-counter-pricing db-migrate-currency test lint format
+.PHONY: help dev prod up down build logs clean backup restore create-admin remove-data db-shell db-migrate-counter-pricing db-migrate-currency db-migrate-store-purchasing db-migrate-user-profile test lint format
 
 # Default target
 .DEFAULT_GOAL := help
@@ -40,6 +40,8 @@ help:
 	@echo "  make db-shell          - Access PostgreSQL shell"
 	@echo "  make db-migrate-counter-pricing - Add service_charge_amount & checkout columns (existing DBs)"
 	@echo "  make db-migrate-currency         - Set app_settings.currency to PKR (existing DBs)"
+	@echo "  make db-migrate-store-purchasing - Add suppliers, POs, stock_batches (fixes missing suppliers table)"
+	@echo "  make db-migrate-user-profile     - Add users.profile_image_url + demo avatar URLs"
 	@echo "  make db-reset          - Reset database with fresh schema and seed data"
 	@echo ""
 	@echo "$(GREEN)Utility Commands:$(NC)"
@@ -219,6 +221,19 @@ db-migrate-currency:
 	@docker exec -i pos-postgres-dev psql -U postgres -d pos_system < scripts/currency_setting_migration.sql 2>/dev/null || \
 	 docker exec -i pos-postgres psql -U postgres -d pos_system < scripts/currency_setting_migration.sql
 	@echo "$(GREEN)✅ Currency setting applied (PKR).$(NC)"
+
+# Add suppliers, purchase orders, stock_batches, movement columns (existing DBs from before inventory purchasing)
+db-migrate-store-purchasing:
+	@echo "$(GREEN)📦 Applying store purchasing migration (suppliers, POs, batches)...$(NC)"
+	@chmod +x scripts/migrate-store-purchasing.sh
+	@./scripts/migrate-store-purchasing.sh
+	@echo "$(GREEN)✅ Store purchasing migration applied.$(NC)"
+
+db-migrate-user-profile:
+	@echo "$(GREEN)📦 Applying user profile_image_url migration...$(NC)"
+	@chmod +x scripts/migrate-user-profile-image.sh
+	@./scripts/migrate-user-profile-image.sh
+	@echo "$(GREEN)✅ User profile migration applied.$(NC)"
 
 # Reset database with fresh schema and seed data
 db-reset:

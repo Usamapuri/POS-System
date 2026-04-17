@@ -1,15 +1,15 @@
 -- Seed data for POS System
 
--- Insert default users
-INSERT INTO users (username, email, password_hash, first_name, last_name, role, manager_pin) VALUES
-('admin', 'admin@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Admin', 'User', 'admin', NULL),
-('manager1', 'manager@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'John', 'Manager', 'manager', '1234'),
-('server1', 'server1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Sarah', 'Smith', 'server', NULL),
-('server2', 'server2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Mike', 'Johnson', 'server', NULL),
-('counter1', 'counter1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Lisa', 'Davis', 'counter', NULL),
-('counter2', 'counter2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Tom', 'Wilson', 'counter', NULL),
-('kitchen1', 'kitchen@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Chef', 'Williams', 'kitchen', NULL),
-('store1', 'store@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Ali', 'Store', 'store_manager', NULL);
+-- Insert default users (Twemoji PNGs — friendly faces for demo avatars)
+INSERT INTO users (username, email, password_hash, first_name, last_name, role, manager_pin, profile_image_url) VALUES
+('admin', 'admin@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Admin', 'User', 'admin', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f60e.png'),
+('manager1', 'manager@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'John', 'Manager', 'manager', '1234', 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f603.png'),
+('server1', 'server1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Sarah', 'Smith', 'server', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f604.png'),
+('server2', 'server2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Mike', 'Johnson', 'server', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f601.png'),
+('counter1', 'counter1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Lisa', 'Davis', 'counter', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f606.png'),
+('counter2', 'counter2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Tom', 'Wilson', 'counter', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f60a.png'),
+('kitchen1', 'kitchen@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Chef', 'Williams', 'kitchen', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f973.png'),
+('store1', 'store@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Ali', 'Store', 'store_manager', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f917.png');
 
 -- Insert categories
 INSERT INTO categories (name, description, color, sort_order) VALUES
@@ -119,6 +119,11 @@ INSERT INTO stock_categories (name, description, sort_order) VALUES
 ('Bathroom Supplies', 'Tissue, soap, air fresheners', 7),
 ('Packaging', 'Takeout boxes, bags, napkins, and cutlery', 8);
 
+-- Suppliers (store inventory)
+INSERT INTO suppliers (name, contact_name, phone, email, notes) VALUES
+('Fresh Farms Co', 'Receiving', '+92-300-1110001', 'orders@freshfarms.example', 'Produce supplier'),
+('Metro Supplies', 'Accounts', '+92-300-1110002', 'metro@example', 'Dry goods and packaging');
+
 -- Stock items
 INSERT INTO stock_items (category_id, name, unit, quantity_on_hand, reorder_level, default_unit_cost, notes) VALUES
 ((SELECT id FROM stock_categories WHERE name = 'Produce'), 'Potatoes', 'kg', 50, 10, 1.20, NULL),
@@ -145,6 +150,16 @@ INSERT INTO stock_items (category_id, name, unit, quantity_on_hand, reorder_leve
 ((SELECT id FROM stock_categories WHERE name = 'Packaging'), 'Takeout Boxes', 'pack', 20, 5, 6.00, '50 per pack'),
 ((SELECT id FROM stock_categories WHERE name = 'Packaging'), 'Paper Napkins', 'pack', 15, 5, 3.00, '500 per pack');
 
+-- Demo purchase order (ordered, not fully received) — after stock_items exist
+INSERT INTO purchase_orders (supplier_id, status, expected_date, notes, created_by) VALUES
+((SELECT id FROM suppliers WHERE name = 'Fresh Farms Co'), 'ordered', CURRENT_DATE + 5, 'Weekly produce top-up', (SELECT id FROM users WHERE username = 'store1'));
+
+INSERT INTO purchase_order_lines (purchase_order_id, stock_item_id, quantity_ordered, unit_cost, quantity_received) VALUES
+((SELECT id FROM purchase_orders ORDER BY created_at DESC LIMIT 1),
+ (SELECT id FROM stock_items WHERE name = 'Lettuce'), 20, 1.50, 0),
+((SELECT id FROM purchase_orders ORDER BY created_at DESC LIMIT 1),
+ (SELECT id FROM stock_items WHERE name = 'Tomatoes'), 15, 2.00, 0);
+
 -- Sample stock movements
 INSERT INTO stock_movements (stock_item_id, movement_type, quantity, unit_cost, total_cost, issued_to_user_id, created_by, note, created_at) VALUES
 ((SELECT id FROM stock_items WHERE name = 'Potatoes'), 'purchase', 50, 1.20, 60.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Initial stock purchase', CURRENT_TIMESTAMP - INTERVAL '7 days'),
@@ -155,6 +170,12 @@ INSERT INTO stock_movements (stock_item_id, movement_type, quantity, unit_cost, 
 ((SELECT id FROM stock_items WHERE name = 'Air Freshener'), 'purchase', 6, 3.00, 18.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Bathroom supplies', CURRENT_TIMESTAMP - INTERVAL '6 days'),
 ((SELECT id FROM stock_items WHERE name = 'Coffee Beans'), 'purchase', 5, 12.00, 60.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Coffee bean order', CURRENT_TIMESTAMP - INTERVAL '3 days'),
 ((SELECT id FROM stock_items WHERE name = 'Coffee Beans'), 'issue', -1, NULL, NULL, (SELECT id FROM users WHERE username = 'counter1'), (SELECT id FROM users WHERE username = 'store1'), 'For counter coffee machine', CURRENT_TIMESTAMP - INTERVAL '1 day');
+
+-- Opening stock batches (FIFO / expiry tracking); aligns with current quantity_on_hand
+INSERT INTO stock_batches (stock_item_id, quantity_remaining, initial_quantity, unit_cost, expiry_date, stock_movement_id, purchase_order_line_id)
+SELECT si.id, si.quantity_on_hand, si.quantity_on_hand, si.default_unit_cost, NULL, NULL, NULL
+FROM stock_items si
+WHERE si.quantity_on_hand > 0;
 
 -- ============================================================
 -- Expenses Seed Data (auto-linked to stock purchases + manual)

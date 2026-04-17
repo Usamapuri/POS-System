@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
+	"strings"
 
 	"pos-backend/internal/middleware"
 	"pos-backend/internal/models"
@@ -44,16 +45,21 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// Get user from database
 	var user models.User
 	query := `
-		SELECT id, username, email, password_hash, first_name, last_name, role, is_active, created_at, updated_at 
+		SELECT id, username, email, password_hash, first_name, last_name, role, is_active, created_at, updated_at,
+		       profile_image_url
 		FROM users 
 		WHERE username = $1 AND is_active = true
 	`
-	
+	var profileURL sql.NullString
 	err := h.db.QueryRow(query, req.Username).Scan(
 		&user.ID, &user.Username, &user.Email, &user.PasswordHash,
 		&user.FirstName, &user.LastName, &user.Role, &user.IsActive,
-		&user.CreatedAt, &user.UpdatedAt,
+		&user.CreatedAt, &user.UpdatedAt, &profileURL,
 	)
+	if profileURL.Valid && strings.TrimSpace(profileURL.String) != "" {
+		s := strings.TrimSpace(profileURL.String)
+		user.ProfileImageURL = &s
+	}
 
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusUnauthorized, models.APIResponse{
@@ -120,16 +126,21 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	// Get user from database
 	var user models.User
 	query := `
-		SELECT id, username, email, first_name, last_name, role, is_active, created_at, updated_at 
+		SELECT id, username, email, first_name, last_name, role, is_active, created_at, updated_at,
+		       profile_image_url
 		FROM users 
 		WHERE id = $1
 	`
-	
+	var profileURL2 sql.NullString
 	err := h.db.QueryRow(query, userID).Scan(
 		&user.ID, &user.Username, &user.Email,
 		&user.FirstName, &user.LastName, &user.Role, &user.IsActive,
-		&user.CreatedAt, &user.UpdatedAt,
+		&user.CreatedAt, &user.UpdatedAt, &profileURL2,
 	)
+	if profileURL2.Valid && strings.TrimSpace(profileURL2.String) != "" {
+		s := strings.TrimSpace(profileURL2.String)
+		user.ProfileImageURL = &s
+	}
 
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, models.APIResponse{
