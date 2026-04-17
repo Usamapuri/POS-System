@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef, useEffect, type Dispatch, type SetStateAction } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/api/client'
-import type { StockCategory, StockItem, StockMovement, StockAlert, UserBrief, AdvancedStockReport } from '@/types'
+import type { StockCategory, StockItem, StockMovement, StockAlert, UserBrief, AdvancedStockReport, InventoryActivityEntry } from '@/types'
 import { useCurrency } from '@/contexts/CurrencyContext'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -18,7 +19,7 @@ import {
   Package, AlertTriangle, TrendingUp, Plus, Search, ArrowDownCircle, ArrowUpCircle,
   Boxes, BarChart3, ShoppingCart, Tag, X, ChevronLeft, ChevronRight, CheckCircle2, XCircle,
   MoreVertical, Trash2, Pencil, DollarSign, Recycle, RefreshCw, SlidersHorizontal,
-  ArrowUpDown, ArrowUp, ArrowDown, GripVertical,
+  ArrowUpDown, ArrowUp, ArrowDown, GripVertical, History, Undo2,
 } from 'lucide-react'
 import {
   PieChart, Pie, Cell, Tooltip as ReTooltip, Legend, ResponsiveContainer,
@@ -95,7 +96,7 @@ type UnitMode = 'weight' | 'quantity'
 type Toast = { id: number; type: 'success' | 'error'; message: string }
 let toastIdCounter = 0
 
-type Tab = 'items' | 'categories' | 'alerts' | 'movements' | 'reports' | 'purchasing'
+type Tab = 'items' | 'categories' | 'alerts' | 'movements' | 'reports' | 'purchasing' | 'activity'
 type ModalState =
   | { kind: 'none' }
   | { kind: 'addItem' }
@@ -161,6 +162,10 @@ export function StoreInventoryDashboard() {
   const [movFrom, setMovFrom] = useState('')
   const [movTo, setMovTo] = useState('')
   const [movCategory, setMovCategory] = useState('')
+  const [actPage, setActPage] = useState(1)
+  const [actAction, setActAction] = useState('')
+  const [actFrom, setActFrom] = useState('')
+  const [actTo, setActTo] = useState('')
   const [toasts, setToasts] = useState<Toast[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [itemSortKey, setItemSortKey] = useState<ItemSortKey>('category')
@@ -255,6 +260,21 @@ export function StoreInventoryDashboard() {
   const movements: StockMovement[] = movRes?.data ?? []
   const movMeta = movRes?.meta
 
+  const { data: actRes, isLoading: actLoading } = useQuery({
+    queryKey: ['inventoryActivity', actPage, actAction, actFrom, actTo],
+    queryFn: () =>
+      apiClient.getInventoryActivity({
+        page: actPage,
+        per_page: 25,
+        action: actAction.trim() || undefined,
+        from: actFrom || undefined,
+        to: actTo || undefined,
+      }),
+    enabled: tab === 'activity',
+  })
+  const activityEntries: InventoryActivityEntry[] = actRes?.data ?? []
+  const actMeta = actRes?.meta
+
   const [reportPeriod, setReportPeriod] = useState('30')
   const { data: advancedRes, isLoading: reportLoading } = useQuery({
     queryKey: ['advancedStockReport', reportPeriod],
@@ -269,6 +289,7 @@ export function StoreInventoryDashboard() {
     { id: 'categories', label: 'Categories', icon: <Tag className="w-4 h-4" /> },
     { id: 'alerts', label: 'Alerts', icon: <AlertTriangle className="w-4 h-4" />, badge: alerts.length },
     { id: 'movements', label: 'Movements', icon: <Boxes className="w-4 h-4" /> },
+    { id: 'activity', label: 'Activity', icon: <History className="w-4 h-4" /> },
     { id: 'reports', label: 'Reports', icon: <BarChart3 className="w-4 h-4" /> },
   ]
 
@@ -344,7 +365,7 @@ export function StoreInventoryDashboard() {
 
       <div className="flex gap-1 border-b pb-0">
         {tabs.map(t => (
-          <button key={t.id} onClick={() => { setTab(t.id); setItemPage(1); setMovPage(1) }}
+          <button key={t.id} onClick={() => { setTab(t.id); setItemPage(1); setMovPage(1); setActPage(1) }}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
             {t.icon} {t.label}
             {t.badge != null && t.badge > 0 && <Badge variant="destructive" className="ml-1 text-xs px-1.5 py-0">{t.badge}</Badge>}
@@ -376,6 +397,22 @@ export function StoreInventoryDashboard() {
           movCategory={movCategory}
           setMovCategory={setMovCategory}
           categories={categories}
+          showToast={showToast}
+        />
+      )}
+      {tab === 'activity' && (
+        <ActivityTab
+          entries={activityEntries}
+          meta={actMeta}
+          page={actPage}
+          setPage={setActPage}
+          actionFilter={actAction}
+          setActionFilter={setActAction}
+          from={actFrom}
+          setFrom={setActFrom}
+          to={actTo}
+          setTo={setActTo}
+          loading={actLoading}
         />
       )}
       {tab === 'reports' && <ReportsTab report={advancedReport} loading={reportLoading} period={reportPeriod} setPeriod={setReportPeriod} />}
@@ -963,6 +1000,99 @@ function AlertsTab({ alerts, setModal, items }: { alerts: StockAlert[]; setModal
   )
 }
 
+function ActivityTab({
+  entries,
+  meta,
+  page,
+  setPage,
+  actionFilter,
+  setActionFilter,
+  from,
+  setFrom,
+  to,
+  setTo,
+  loading,
+}: {
+  entries: InventoryActivityEntry[]
+  meta?: { total_pages: number }
+  page: number
+  setPage: (p: number) => void
+  actionFilter: string
+  setActionFilter: (v: string) => void
+  from: string
+  setFrom: (v: string) => void
+  to: string
+  setTo: (v: string) => void
+  loading: boolean
+}) {
+  if (loading) {
+    return (
+      <div className="text-center py-16 text-muted-foreground">
+        <RefreshCw className="w-8 h-8 mx-auto mb-3 animate-spin opacity-50" />
+        <p className="font-medium">Loading activity…</p>
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground max-w-3xl">
+        Append-only audit of inventory changes. Entries are not edited in place. Wrong purchases can be voided (removes stock and expense)
+        or corrected (new unit cost) from Movements when the received lot has not been consumed yet.
+      </p>
+      <div className="flex flex-wrap gap-3 items-center">
+        <input
+          type="text"
+          placeholder="Filter by action (e.g. purchase, void)"
+          value={actionFilter}
+          onChange={e => {
+            setActionFilter(e.target.value)
+            setPage(1)
+          }}
+          className="border rounded-md px-3 py-2 text-sm bg-background min-w-[220px]"
+        />
+        <input type="date" value={from} onChange={e => { setFrom(e.target.value); setPage(1) }} className="border rounded-md px-3 py-2 text-sm bg-background" />
+        <span className="text-sm text-muted-foreground">to</span>
+        <input type="date" value={to} onChange={e => { setTo(e.target.value); setPage(1) }} className="border rounded-md px-3 py-2 text-sm bg-background" />
+      </div>
+
+      <div className="border rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="text-left px-4 py-3 font-medium">When</th>
+              <th className="text-left px-4 py-3 font-medium">Who</th>
+              <th className="text-left px-4 py-3 font-medium">Action</th>
+              <th className="text-left px-4 py-3 font-medium">Summary</th>
+              <th className="text-left px-4 py-3 font-medium">Details</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {entries.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                  No activity yet. Stock changes will appear here.
+                </td>
+              </tr>
+            )}
+            {entries.map((a: InventoryActivityEntry) => (
+              <tr key={a.id} className="hover:bg-muted/30 align-top">
+                <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{new Date(a.created_at).toLocaleString()}</td>
+                <td className="px-4 py-2">{a.actor_name?.trim() || '—'}</td>
+                <td className="px-4 py-2 font-mono text-xs">{a.action}</td>
+                <td className="px-4 py-2 max-w-[300px]">{a.summary}</td>
+                <td className="px-4 py-2 text-xs text-muted-foreground font-mono max-w-[340px] whitespace-pre-wrap break-all">
+                  {a.metadata && Object.keys(a.metadata).length > 0 ? JSON.stringify(a.metadata, null, 2) : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {meta && meta.total_pages > 1 && <Pagination page={page} totalPages={meta.total_pages} setPage={setPage} />}
+    </div>
+  )
+}
+
 function MovementsTab({
   movements,
   meta,
@@ -977,6 +1107,7 @@ function MovementsTab({
   movCategory,
   setMovCategory,
   categories,
+  showToast,
 }: {
   movements: StockMovement[]
   meta?: { total_pages: number }
@@ -991,8 +1122,60 @@ function MovementsTab({
   movCategory: string
   setMovCategory: (v: string) => void
   categories: StockCategory[]
+  showToast: (type: 'success' | 'error', message: string) => void
 }) {
-  const { formatCurrency } = useCurrency()
+  const qc = useQueryClient()
+  const { formatCurrency, currencyCode } = useCurrency()
+  const [voidTarget, setVoidTarget] = useState<StockMovement | null>(null)
+  const [voidReason, setVoidReason] = useState('')
+  const [costTarget, setCostTarget] = useState<StockMovement | null>(null)
+  const [costValue, setCostValue] = useState('')
+  const [costReason, setCostReason] = useState('')
+
+  const voidMut = useMutation({
+    mutationFn: () => apiClient.voidPurchaseMovement(voidTarget!.id, { reason: voidReason.trim() }),
+    onSuccess: res => {
+      if (res.success) {
+        showToast('success', res.message || 'Purchase voided')
+        setVoidTarget(null)
+        setVoidReason('')
+        qc.invalidateQueries({ queryKey: ['stockMovements'] })
+        qc.invalidateQueries({ queryKey: ['stockItems'] })
+        qc.invalidateQueries({ queryKey: ['inventoryActivity'] })
+        qc.invalidateQueries({ queryKey: ['stockSummary'] })
+        qc.invalidateQueries({ queryKey: ['advancedStockReport'] })
+        qc.invalidateQueries({ queryKey: ['stockAlerts'] })
+      } else {
+        showToast('error', res.message || 'Could not void purchase')
+      }
+    },
+    onError: (err: Error) => showToast('error', err.message || 'Void failed'),
+  })
+
+  const correctMut = useMutation({
+    mutationFn: () =>
+      apiClient.correctPurchaseMovementCost(costTarget!.id, {
+        unit_cost: Number(costValue),
+        reason: costReason.trim(),
+      }),
+    onSuccess: res => {
+      if (res.success) {
+        showToast('success', res.message || 'Cost updated')
+        setCostTarget(null)
+        setCostValue('')
+        setCostReason('')
+        qc.invalidateQueries({ queryKey: ['stockMovements'] })
+        qc.invalidateQueries({ queryKey: ['stockItems'] })
+        qc.invalidateQueries({ queryKey: ['inventoryActivity'] })
+        qc.invalidateQueries({ queryKey: ['stockSummary'] })
+        qc.invalidateQueries({ queryKey: ['advancedStockReport'] })
+      } else {
+        showToast('error', res.message || 'Could not update cost')
+      }
+    },
+    onError: (err: Error) => showToast('error', err.message || 'Correction failed'),
+  })
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3 items-center">
@@ -1022,8 +1205,8 @@ function MovementsTab({
         <input type="date" value={movTo} onChange={e => { setMovTo(e.target.value); setPage(1) }} className="border rounded-md px-3 py-2 text-sm bg-background" />
       </div>
 
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="border rounded-lg overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm min-w-[920px]">
           <thead className="bg-muted/50">
             <tr>
               <th className="text-left px-4 py-3 font-medium">Date</th>
@@ -1034,32 +1217,130 @@ function MovementsTab({
               <th className="text-left px-4 py-3 font-medium">Issued To</th>
               <th className="text-left px-4 py-3 font-medium">By</th>
               <th className="text-left px-4 py-3 font-medium">Note</th>
+              <th className="text-right px-4 py-3 font-medium w-[120px]">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y">
-            {movements.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">No movements found</td></tr>}
-            {movements.map((m: StockMovement) => (
-              <tr key={m.id} className="hover:bg-muted/30">
-                <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{new Date(m.created_at).toLocaleDateString()}</td>
-                <td className="px-4 py-2 font-medium">{m.item_name}</td>
-                <td className="px-4 py-2">
-                  <Badge variant={m.movement_type === 'purchase' ? 'default' : m.movement_type === 'issue' ? 'secondary' : 'outline'} className="text-xs capitalize">
-                    {m.movement_type}
-                  </Badge>
-                </td>
-                <td className={`px-4 py-2 text-right font-medium ${m.quantity < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  {m.quantity > 0 ? '+' : ''}{m.quantity} {m.item_unit}
-                </td>
-                <td className="px-4 py-2 text-right">{m.total_cost != null ? formatCurrency(m.total_cost) : '—'}</td>
-                <td className="px-4 py-2 text-muted-foreground">{m.issued_to_name ?? '—'}</td>
-                <td className="px-4 py-2 text-muted-foreground">{m.created_by_name ?? '—'}</td>
-                <td className="px-4 py-2 text-muted-foreground max-w-[200px] truncate">{m.note ?? ''}</td>
+            {movements.length === 0 && (
+              <tr>
+                <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">No movements found</td>
               </tr>
-            ))}
+            )}
+            {movements.map((m: StockMovement) => {
+              const voided = Boolean(m.voided_at)
+              const canFix = m.movement_type === 'purchase' && m.purchase_can_void && !voided
+              return (
+                <tr key={m.id} className={`hover:bg-muted/30 ${voided ? 'opacity-60' : ''}`}>
+                  <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
+                    {new Date(m.created_at).toLocaleDateString()}
+                    {voided && (
+                      <Badge variant="outline" className="ml-2 text-[10px] px-1 py-0">Voided</Badge>
+                    )}
+                  </td>
+                  <td className={`px-4 py-2 font-medium ${voided ? 'line-through' : ''}`}>{m.item_name}</td>
+                  <td className="px-4 py-2">
+                    <Badge variant={m.movement_type === 'purchase' ? 'default' : m.movement_type === 'issue' ? 'secondary' : 'outline'} className="text-xs capitalize">
+                      {m.movement_type}
+                    </Badge>
+                  </td>
+                  <td className={`px-4 py-2 text-right font-medium ${m.quantity < 0 ? 'text-red-600' : 'text-green-600'} ${voided ? 'line-through' : ''}`}>
+                    {m.quantity > 0 ? '+' : ''}{m.quantity} {m.item_unit}
+                  </td>
+                  <td className={`px-4 py-2 text-right ${voided ? 'line-through' : ''}`}>{m.total_cost != null ? formatCurrency(m.total_cost) : '—'}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{m.issued_to_name ?? '—'}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{m.created_by_name ?? '—'}</td>
+                  <td className="px-4 py-2 text-muted-foreground max-w-[160px] truncate" title={m.note ?? ''}>
+                    {voided && m.void_reason ? `${m.void_reason} · ` : ''}{m.note ?? ''}
+                  </td>
+                  <td className="px-4 py-2 text-right whitespace-nowrap">
+                    {canFix && (
+                      <span className="inline-flex gap-1 justify-end">
+                        <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => {
+                          setCostTarget(m)
+                          setCostValue(m.unit_cost != null ? String(m.unit_cost) : '')
+                          setCostReason('')
+                        }}>
+                          <Pencil className="w-3 h-3 mr-0.5" /> Cost
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-xs text-destructive border-destructive/40" onClick={() => {
+                          setVoidTarget(m)
+                          setVoidReason('')
+                        }}>
+                          <Undo2 className="w-3 h-3 mr-0.5" /> Void
+                        </Button>
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
       {meta && meta.total_pages > 1 && <Pagination page={page} totalPages={meta.total_pages} setPage={setPage} />}
+
+      <Dialog open={voidTarget != null} onOpenChange={open => { if (!open) { setVoidTarget(null); setVoidReason('') } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Void purchase</DialogTitle>
+            <DialogDescription>
+              Reverses on-hand quantity, removes the FIFO lot, and deletes the linked expense. Only allowed when nothing has been issued from this receipt.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm font-medium">{voidTarget?.item_name}</p>
+            <label className="text-sm font-medium">Reason (required)</label>
+            <Input value={voidReason} onChange={e => setVoidReason(e.target.value)} placeholder="e.g. entered wrong item" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setVoidTarget(null); setVoidReason('') }}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={voidReason.trim().length === 0 || voidMut.isPending}
+              onClick={() => voidMut.mutate()}
+            >
+              {voidMut.isPending ? 'Voiding…' : 'Void purchase'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={costTarget != null} onOpenChange={open => { if (!open) { setCostTarget(null); setCostValue(''); setCostReason('') } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Correct unit cost</DialogTitle>
+            <DialogDescription>
+              Updates this movement, its stock lot, and the linked expense. Use when the quantity was right but the price was wrong.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm font-medium">{costTarget?.item_name}</p>
+            <div>
+              <label className="text-sm font-medium">New unit cost ({currencyCode})</label>
+              <Input type="number" step="0.01" min={0} value={costValue} onChange={e => setCostValue(e.target.value)} className="mt-1" />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Reason (required)</label>
+              <Input value={costReason} onChange={e => setCostReason(e.target.value)} placeholder="e.g. invoice showed different price" className="mt-1" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setCostTarget(null); setCostValue(''); setCostReason('') }}>Cancel</Button>
+            <Button
+              disabled={
+                costReason.trim().length === 0
+                || costValue === ''
+                || Number.isNaN(Number(costValue))
+                || Number(costValue) < 0
+                || correctMut.isPending
+              }
+              onClick={() => correctMut.mutate()}
+            >
+              {correctMut.isPending ? 'Saving…' : 'Save correction'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

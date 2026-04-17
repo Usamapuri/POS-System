@@ -157,6 +157,10 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		admin.DELETE("/expenses/:id", expenseHandler.DeleteExpense)
 		admin.GET("/expenses/summary", expenseHandler.GetExpenseSummary)
 		admin.GET("/expenses/categories", expenseHandler.GetExpenseCategories)
+		admin.GET("/expense-category-definitions", expenseHandler.ListExpenseCategoryDefinitions)
+		admin.POST("/expense-category-definitions", expenseHandler.CreateExpenseCategoryDefinition)
+		admin.PUT("/expense-category-definitions/:id", expenseHandler.UpdateExpenseCategoryDefinition)
+		admin.DELETE("/expense-category-definitions/:id", expenseHandler.DeleteExpenseCategoryDefinition)
 
 		// Daily closing
 		admin.GET("/daily-closings", closingHandler.GetDailyClosings)
@@ -212,6 +216,9 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		store.GET("/stock-reports/movements", stockHandler.GetMovementsReport)
 		store.GET("/stock-reports/summary", stockHandler.GetStockSummary)
 		store.GET("/stock-reports/advanced", stockHandler.GetAdvancedReport)
+		store.GET("/inventory-activity", stockHandler.GetInventoryActivity)
+		store.POST("/stock-movements/:id/void", stockHandler.VoidPurchaseMovement)
+		store.POST("/stock-movements/:id/correct-purchase-cost", stockHandler.CorrectPurchaseMovementCost)
 		store.GET("/users", stockHandler.GetStoreUsers)
 
 		store.GET("/suppliers", stockHandler.ListSuppliers)

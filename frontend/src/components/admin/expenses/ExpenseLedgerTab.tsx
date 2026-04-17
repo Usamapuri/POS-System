@@ -11,7 +11,8 @@ import {
 } from '@/components/ui/select'
 import { useCurrency } from '@/contexts/CurrencyContext'
 import type { Expense, MetaData } from '@/types'
-import { EXPENSE_CATEGORIES, getCategoryBadge } from './expense-constants'
+import { formatRecordedAtForLedger, getCategoryBadge } from './expense-constants'
+import { useExpenseCategoryDefs } from './use-expense-category-defs'
 import { toastHelpers } from '@/lib/toast-helpers'
 import { Search, X, ChevronLeft, ChevronRight, Plus, Lock, Download } from 'lucide-react'
 
@@ -26,11 +27,12 @@ function downloadCurrentPageExpensesCsv(rows: Expense[], page: number) {
     toastHelpers.warning('Nothing to export', 'There are no rows on this page.')
     return
   }
-  const header = ['expense_date', 'category', 'amount', 'description', 'created_by_name', 'reference_type', 'entry_type']
+  const header = ['recorded_at', 'expense_date', 'category', 'amount', 'description', 'created_by_name', 'reference_type', 'entry_type']
   const lines = [header.join(',')]
   for (const e of rows) {
     lines.push(
       [
+        csvEscape(e.recorded_at ?? ''),
         csvEscape(e.expense_date),
         csvEscape(e.category),
         csvEscape(e.amount),
@@ -72,6 +74,7 @@ type Props = {
   onAdd: () => void
   onEdit: (e: Expense) => void
   onDelete: (id: string) => void
+  onManageCategories?: () => void
 }
 
 export function ExpenseLedgerTab({
@@ -94,8 +97,13 @@ export function ExpenseLedgerTab({
   onAdd,
   onEdit,
   onDelete,
+  onManageCategories,
 }: Props) {
   const { formatCurrency } = useCurrency()
+  const { data: categoryDefs = [] } = useExpenseCategoryDefs()
+  const filterCategories = [...categoryDefs]
+    .filter(d => d.is_active)
+    .sort((a, b) => a.sort_order - b.sort_order || a.label.localeCompare(b.label))
 
   return (
     <div className="space-y-4">
@@ -121,8 +129,8 @@ export function ExpenseLedgerTab({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All categories</SelectItem>
-            {EXPENSE_CATEGORIES.map(c => (
-              <SelectItem key={c.value} value={c.value}>
+            {filterCategories.map(c => (
+              <SelectItem key={c.slug} value={c.slug}>
                 {c.label}
               </SelectItem>
             ))}
@@ -204,6 +212,11 @@ export function ExpenseLedgerTab({
             <Download className="mr-1 h-4 w-4" />
             Export CSV
           </Button>
+          {onManageCategories && (
+            <Button type="button" variant="outline" size="sm" onClick={onManageCategories}>
+              Categories
+            </Button>
+          )}
           <Button type="button" onClick={onAdd}>
             <Plus className="mr-1 h-4 w-4" />
             Add expense
@@ -216,7 +229,7 @@ export function ExpenseLedgerTab({
           <table className="w-full min-w-[860px] text-sm">
             <thead className="sticky top-0 z-30 border-b bg-muted/95 backdrop-blur supports-[backdrop-filter]:bg-muted/75">
               <tr>
-                <th className="p-3 text-left font-medium text-muted-foreground">Date</th>
+                <th className="p-3 text-left font-medium text-muted-foreground">Date &amp; time</th>
                 <th className="p-3 text-left font-medium text-muted-foreground">Category</th>
                 <th className="p-3 text-left font-medium text-muted-foreground">Description</th>
                 <th className="p-3 text-right font-medium text-muted-foreground">Amount</th>
@@ -230,11 +243,13 @@ export function ExpenseLedgerTab({
             <tbody className="divide-y">
               {expenses && expenses.length > 0 ? (
                 expenses.map(e => {
-                  const badge = getCategoryBadge(e.category)
+                  const badge = getCategoryBadge(e.category, categoryDefs)
                   const isAutoLinked = !!e.reference_type
                   return (
                     <tr key={e.id} className="hover:bg-muted/40">
-                      <td className="p-3 tabular-nums text-muted-foreground">{e.expense_date}</td>
+                      <td className="p-3 tabular-nums text-muted-foreground">
+                        {formatRecordedAtForLedger(e.recorded_at, e.expense_date)}
+                      </td>
                       <td className="p-3">
                         <Badge className={badge.color}>{badge.label}</Badge>
                       </td>

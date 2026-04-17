@@ -23,13 +23,24 @@ func NewExpenseHandler(db *sql.DB) *ExpenseHandler {
 	return &ExpenseHandler{db: db}
 }
 
-var validExpenseCategories = map[string]bool{
-	"inventory_purchase": true, "utilities": true, "rent": true, "salaries": true,
-	"maintenance": true, "marketing": true, "supplies": true, "other": true,
-}
-
-func isValidExpenseCategory(cat string) bool {
-	return validExpenseCategories[cat]
+func parseExpenseRecordedAt(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, fmt.Errorf("empty recorded_at")
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.UTC(), nil
+	}
+	if t, err := time.ParseInLocation("2006-01-02T15:04:05", s, time.Local); err == nil {
+		return t.UTC(), nil
+	}
+	if t, err := time.ParseInLocation("2006-01-02T15:04", s, time.Local); err == nil {
+		return t.UTC(), nil
+	}
+	if t, err := time.ParseInLocation("2006-01-02", s, time.Local); err == nil {
+		return t.UTC(), nil
+	}
+	return time.Time{}, fmt.Errorf("invalid recorded_at")
 }
 
 func (h *ExpenseHandler) GetExpenses(c *gin.Context) {
@@ -41,7 +52,7 @@ func (h *ExpenseHandler) GetExpenses(c *gin.Context) {
 	search := c.Query("search")
 
 	qb := `SELECT e.id, e.category, e.amount, e.description, e.reference_type, e.reference_id,
-	              e.expense_date, e.created_by, e.created_at, e.updated_at,
+	              e.expense_date, e.recorded_at, e.created_by, e.created_at, e.updated_at,
 	              u.first_name, u.last_name
 	       FROM expenses e
 	       LEFT JOIN users u ON e.created_by = u.id
@@ -78,8 +89,10 @@ func (h *ExpenseHandler) GetExpenses(c *gin.Context) {
 	if sortDir != "ASC" && sortDir != "DESC" {
 		sortDir = "DESC"
 	}
-	orderCol := "e.expense_date"
+	orderCol := "e.recorded_at"
 	switch sortBy {
+	case "expense_date":
+		orderCol = "e.recorded_at"
 	case "amount":
 		orderCol = "e.amount"
 	case "category":
@@ -107,7 +120,7 @@ func (h *ExpenseHandler) GetExpenses(c *gin.Context) {
 		var e models.Expense
 		var fn, ln sql.NullString
 		if err := rows.Scan(&e.ID, &e.Category, &e.Amount, &e.Description, &e.ReferenceType, &e.ReferenceID,
-			&e.ExpenseDate, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt, &fn, &ln); err != nil {
+			&e.ExpenseDate, &e.RecordedAt, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt, &fn, &ln); err != nil {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to scan expense", Error: strPtr(err.Error())})
 			return
 		}
@@ -136,14 +149,20 @@ func (h *ExpenseHandler) CreateExpense(c *gin.Context) {
 		Amount      float64 `json:"amount" binding:"required"`
 		Description *string `json:"description"`
 		ExpenseDate *string `json:"expense_date"`
+		RecordedAt  *string `json:"recorded_at"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request", Error: strPtr(err.Error())})
 		return
 	}
 
-	if !isValidExpenseCategory(req.Category) {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid expense category"})
+	okCat, err := h.expenseCategorySlugActive(req.Category)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to validate category", Error: strPtr(err.Error())})
+		return
+	}
+	if !okCat {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid or inactive expense category", Error: strPtr("invalid_category")})
 		return
 	}
 	if req.Amount <= 0 {
@@ -151,15 +170,29 @@ func (h *ExpenseHandler) CreateExpense(c *gin.Context) {
 		return
 	}
 
-	expenseDate := time.Now().Format("2006-01-02")
-	if req.ExpenseDate != nil && *req.ExpenseDate != "" {
-		expenseDate = *req.ExpenseDate
+	var recordedAt time.Time
+	if req.RecordedAt != nil && strings.TrimSpace(*req.RecordedAt) != "" {
+		recordedAt, err = parseExpenseRecordedAt(*req.RecordedAt)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid recorded_at (use ISO date-time)", Error: strPtr(err.Error())})
+			return
+		}
+	} else if req.ExpenseDate != nil && strings.TrimSpace(*req.ExpenseDate) != "" {
+		recordedAt, err = time.ParseInLocation("2006-01-02", strings.TrimSpace(*req.ExpenseDate), time.Local)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid expense_date", Error: strPtr(err.Error())})
+			return
+		}
+		recordedAt = recordedAt.UTC()
+	} else {
+		recordedAt = time.Now().UTC()
 	}
+	expenseDate := recordedAt.In(time.Local).Format("2006-01-02")
 
 	var id string
-	err := h.db.QueryRow(`INSERT INTO expenses (category, amount, description, expense_date, created_by)
-		VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		req.Category, req.Amount, req.Description, expenseDate, userID).Scan(&id)
+	err = h.db.QueryRow(`INSERT INTO expenses (category, amount, description, expense_date, recorded_at, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		req.Category, req.Amount, req.Description, expenseDate, recordedAt.UTC(), userID).Scan(&id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to create expense", Error: strPtr(err.Error())})
 		return
@@ -183,24 +216,59 @@ func (h *ExpenseHandler) UpdateExpense(c *gin.Context) {
 		Amount      *float64 `json:"amount"`
 		Description *string  `json:"description"`
 		ExpenseDate *string  `json:"expense_date"`
+		RecordedAt  *string  `json:"recorded_at"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request", Error: strPtr(err.Error())})
 		return
 	}
 
-	if req.Category != nil && !isValidExpenseCategory(*req.Category) {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid expense category"})
-		return
+	if req.Category != nil {
+		okCat, vErr := h.expenseCategorySlugActive(*req.Category)
+		if vErr != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to validate category", Error: strPtr(vErr.Error())})
+			return
+		}
+		if !okCat {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid or inactive expense category", Error: strPtr("invalid_category")})
+			return
+		}
 	}
 	if req.Amount != nil && *req.Amount <= 0 {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Amount must be greater than zero"})
 		return
 	}
 
+	expenseDateForUpdate := req.ExpenseDate
+	var syncRecorded *time.Time
+	if req.RecordedAt != nil && strings.TrimSpace(*req.RecordedAt) != "" {
+		rt, perr := parseExpenseRecordedAt(*req.RecordedAt)
+		if perr != nil {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid recorded_at", Error: strPtr(perr.Error())})
+			return
+		}
+		ut := rt.UTC()
+		syncRecorded = &ut
+		ed := rt.In(time.Local).Format("2006-01-02")
+		expenseDateForUpdate = &ed
+	} else if req.ExpenseDate != nil && strings.TrimSpace(*req.ExpenseDate) != "" {
+		base, perr := time.ParseInLocation("2006-01-02", strings.TrimSpace(*req.ExpenseDate), time.Local)
+		if perr != nil {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid expense_date", Error: strPtr(perr.Error())})
+			return
+		}
+		rt := time.Date(base.Year(), base.Month(), base.Day(), 12, 0, 0, 0, time.Local).UTC()
+		syncRecorded = &rt
+	}
+
 	sets, args, n := buildUpdates(map[string]interface{}{
-		"category": req.Category, "amount": req.Amount, "description": req.Description, "expense_date": req.ExpenseDate,
+		"category": req.Category, "amount": req.Amount, "description": req.Description, "expense_date": expenseDateForUpdate,
 	})
+	if syncRecorded != nil {
+		n++
+		sets = append(sets, fmt.Sprintf("recorded_at = $%d", n))
+		args = append(args, *syncRecorded)
+	}
 	if len(sets) == 0 {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "No fields to update"})
 		return

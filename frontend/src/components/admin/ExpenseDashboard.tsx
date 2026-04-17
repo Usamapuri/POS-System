@@ -19,6 +19,7 @@ import { ExpenseClosingTab } from '@/components/admin/expenses/ExpenseClosingTab
 import { ExpensePnLTab } from '@/components/admin/expenses/ExpensePnLTab'
 import { ExpenseIntelligenceTab } from '@/components/admin/expenses/ExpenseIntelligenceTab'
 import { AddExpenseDialog, EditExpenseDialog, CloseDayDialog } from '@/components/admin/expenses/ExpenseDialogs'
+import { ManageExpenseCategoriesDialog } from '@/components/admin/expenses/ManageExpenseCategoriesDialog'
 import { getMonthToDateRange, getLastNDaysInclusive } from '@/components/admin/expenses/expense-constants'
 import {
   BarChart3,
@@ -127,6 +128,7 @@ export function ExpenseDashboard() {
   const [addOpen, setAddOpen] = useState(false)
   const [editExpense, setEditExpense] = useState<Expense | null>(null)
   const [closeOpen, setCloseOpen] = useState(false)
+  const [manageCategoriesOpen, setManageCategoriesOpen] = useState(false)
 
   const deleteExpenseMut = useMutation({
     mutationFn: (id: string) => apiClient.deleteExpense(id),
@@ -241,6 +243,7 @@ export function ExpenseDashboard() {
               onAdd={() => setAddOpen(true)}
               onEdit={e => setEditExpense(e)}
               onDelete={id => deleteExpenseMut.mutate(id)}
+              onManageCategories={() => setManageCategoriesOpen(true)}
             />
           )}
         </>
@@ -284,8 +287,9 @@ export function ExpenseDashboard() {
         />
       )}
 
-      <AddExpenseDialog open={addOpen} onOpenChange={setAddOpen} />
-      <EditExpenseDialog expense={editExpense} onClose={() => setEditExpense(null)} />
+      <AddExpenseDialog open={addOpen} onOpenChange={setAddOpen} onManageCategories={() => setManageCategoriesOpen(true)} />
+      <EditExpenseDialog expense={editExpense} onClose={() => setEditExpense(null)} onManageCategories={() => setManageCategoriesOpen(true)} />
+      <ManageExpenseCategoriesDialog open={manageCategoriesOpen} onOpenChange={setManageCategoriesOpen} />
       <CloseDayDialog dayStatus={dayStatus ?? null} open={closeOpen} onOpenChange={setCloseOpen} />
     </div>
   )

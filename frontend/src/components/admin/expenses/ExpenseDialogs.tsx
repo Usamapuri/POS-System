@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/api/client'
 import type { Expense, CurrentDayStatus } from '@/types'
@@ -13,7 +13,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { EXPENSE_CATEGORIES, formatLocalYMD } from './expense-constants'
+import {
+  datetimeLocalToRecordedAtIso,
+  formatLocalYMD,
+  toDatetimeLocalValue,
+} from './expense-constants'
 import { toastHelpers } from '@/lib/toast-helpers'
 import {
   Select,
@@ -23,6 +27,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useExpenseCategoryDefs } from './use-expense-category-defs'
 
 function invalidateExpenseQueries(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ['expenses'] })
@@ -31,30 +36,46 @@ function invalidateExpenseQueries(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ['expenseSummary'] })
   qc.invalidateQueries({ queryKey: ['dailyClosings'] })
   qc.invalidateQueries({ queryKey: ['expenseIntelligence'] })
+  qc.invalidateQueries({ queryKey: ['expenseCategoryDefs'] })
 }
 
 export function AddExpenseDialog({
   open,
   onOpenChange,
+  onManageCategories,
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
+  onManageCategories?: () => void
 }) {
   const qc = useQueryClient()
   const { currencyCode } = useCurrency()
+  const { data: defs = [] } = useExpenseCategoryDefs()
+
+  const selectable = useMemo(
+    () => defs.filter(d => d.is_active && d.slug !== 'inventory_purchase').sort((a, b) => a.sort_order - b.sort_order || a.label.localeCompare(b.label)),
+    [defs]
+  )
 
   const [form, setForm] = useState({
     category: 'other',
     amount: '',
     description: '',
-    expense_date: formatLocalYMD(new Date()),
+    recorded_at_local: '',
   })
 
   useEffect(() => {
-    if (open) {
-      setForm(f => ({ ...f, expense_date: formatLocalYMD(new Date()) }))
-    }
-  }, [open])
+    if (!open) return
+    const defaultSlug = selectable.some(s => s.slug === 'other')
+      ? 'other'
+      : (selectable[0]?.slug ?? 'other')
+    setForm({
+      category: defaultSlug,
+      amount: '',
+      description: '',
+      recorded_at_local: toDatetimeLocalValue(undefined, formatLocalYMD(new Date())),
+    })
+  }, [open, selectable])
 
   const mut = useMutation({
     mutationFn: () =>
@@ -62,18 +83,12 @@ export function AddExpenseDialog({
         category: form.category,
         amount: parseFloat(form.amount),
         description: form.description || undefined,
-        expense_date: form.expense_date,
+        recorded_at: datetimeLocalToRecordedAtIso(form.recorded_at_local),
       }),
     onSuccess: () => {
       invalidateExpenseQueries(qc)
       toastHelpers.success('Expense added')
       onOpenChange(false)
-      setForm({
-        category: 'other',
-        amount: '',
-        description: '',
-        expense_date: formatLocalYMD(new Date()),
-      })
     },
     onError: (err: Error) => toastHelpers.apiError('Add expense', err),
   })
@@ -86,14 +101,21 @@ export function AddExpenseDialog({
         </DialogHeader>
         <div className="grid gap-4 py-2">
           <div className="grid gap-2">
-            <Label>Category</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label>Category</Label>
+              {onManageCategories && (
+                <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={onManageCategories}>
+                  Manage categories
+                </Button>
+              )}
+            </div>
             <Select value={form.category} onValueChange={v => setForm({ ...form, category: v })}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder={selectable.length ? 'Select category' : 'Loading categories…'} />
               </SelectTrigger>
               <SelectContent>
-                {EXPENSE_CATEGORIES.filter(c => c.value !== 'inventory_purchase').map(c => (
-                  <SelectItem key={c.value} value={c.value}>
+                {selectable.map(c => (
+                  <SelectItem key={c.slug} value={c.slug}>
                     {c.label}
                   </SelectItem>
                 ))}
@@ -119,15 +141,19 @@ export function AddExpenseDialog({
             />
           </div>
           <div className="grid gap-2">
-            <Label>Date</Label>
-            <Input type="date" value={form.expense_date} onChange={e => setForm({ ...form, expense_date: e.target.value })} />
+            <Label>Date &amp; time</Label>
+            <Input
+              type="datetime-local"
+              value={form.recorded_at_local}
+              onChange={e => setForm({ ...form, recorded_at_local: e.target.value })}
+            />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button disabled={!form.amount || parseFloat(form.amount) <= 0 || mut.isPending} onClick={() => mut.mutate()}>
+          <Button disabled={!form.amount || parseFloat(form.amount) <= 0 || mut.isPending || !selectable.length} onClick={() => mut.mutate()}>
             {mut.isPending ? 'Saving…' : 'Add expense'}
           </Button>
         </DialogFooter>
@@ -139,17 +165,25 @@ export function AddExpenseDialog({
 export function EditExpenseDialog({
   expense,
   onClose,
+  onManageCategories,
 }: {
   expense: Expense | null
   onClose: () => void
+  onManageCategories?: () => void
 }) {
   const qc = useQueryClient()
   const { currencyCode } = useCurrency()
+  const { data: defs = [] } = useExpenseCategoryDefs()
+  const selectable = useMemo(
+    () => defs.filter(d => d.is_active && d.slug !== 'inventory_purchase').sort((a, b) => a.sort_order - b.sort_order || a.label.localeCompare(b.label)),
+    [defs]
+  )
+
   const [form, setForm] = useState({
     category: 'other',
     amount: '',
     description: '',
-    expense_date: formatLocalYMD(new Date()),
+    recorded_at_local: '',
   })
 
   useEffect(() => {
@@ -158,7 +192,7 @@ export function EditExpenseDialog({
       category: expense.category,
       amount: String(expense.amount),
       description: expense.description || '',
-      expense_date: expense.expense_date,
+      recorded_at_local: toDatetimeLocalValue(expense.recorded_at, expense.expense_date),
     })
   }, [expense])
 
@@ -169,7 +203,7 @@ export function EditExpenseDialog({
         category: form.category,
         amount: parseFloat(form.amount),
         description: form.description || undefined,
-        expense_date: form.expense_date,
+        recorded_at: datetimeLocalToRecordedAtIso(form.recorded_at_local),
       })
     },
     onSuccess: () => {
@@ -190,14 +224,21 @@ export function EditExpenseDialog({
           <>
             <div className="grid gap-4 py-2">
               <div className="grid gap-2">
-                <Label>Category</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Category</Label>
+                  {onManageCategories && (
+                    <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={onManageCategories}>
+                      Manage categories
+                    </Button>
+                  )}
+                </div>
                 <Select value={form.category} onValueChange={v => setForm({ ...form, category: v })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {EXPENSE_CATEGORIES.filter(c => c.value !== 'inventory_purchase').map(c => (
-                      <SelectItem key={c.value} value={c.value}>
+                    {selectable.map(c => (
+                      <SelectItem key={c.slug} value={c.slug}>
                         {c.label}
                       </SelectItem>
                     ))}
@@ -219,8 +260,12 @@ export function EditExpenseDialog({
                 <Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
               </div>
               <div className="grid gap-2">
-                <Label>Date</Label>
-                <Input type="date" value={form.expense_date} onChange={e => setForm({ ...form, expense_date: e.target.value })} />
+                <Label>Date &amp; time</Label>
+                <Input
+                  type="datetime-local"
+                  value={form.recorded_at_local}
+                  onChange={e => setForm({ ...form, recorded_at_local: e.target.value })}
+                />
               </div>
             </div>
             <DialogFooter>
@@ -228,7 +273,7 @@ export function EditExpenseDialog({
                 Cancel
               </Button>
               <Button
-                disabled={!form.amount || parseFloat(form.amount) <= 0 || mut.isPending}
+                disabled={!form.amount || parseFloat(form.amount) <= 0 || mut.isPending || !selectable.length}
                 onClick={() => mut.mutate()}
               >
                 {mut.isPending ? 'Saving…' : 'Update'}

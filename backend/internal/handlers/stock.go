@@ -74,6 +74,10 @@ func (h *StockHandler) CreateStockCategory(c *gin.Context) {
 		return
 	}
 
+	if uid, _, _, ok := middleware.GetUserFromContext(c); ok {
+		cid := id
+		_ = insertInventoryActivityLog(h.db, uid, "inventory.category_create", "stock_category", &cid, "Created category: "+req.Name, map[string]interface{}{"name": req.Name})
+	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Message: "Stock category created", Data: map[string]string{"id": id}})
 }
 
@@ -109,11 +113,19 @@ func (h *StockHandler) UpdateStockCategory(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Category not found"})
 		return
 	}
+	if uid, _, _, ok := middleware.GetUserFromContext(c); ok {
+		cid := catID
+		_ = insertInventoryActivityLog(h.db, uid, "inventory.category_update", "stock_category", &cid, "Updated stock category", map[string]interface{}{
+			"name": req.Name, "description": req.Description, "sort_order": req.SortOrder, "is_active": req.IsActive,
+		})
+	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock category updated"})
 }
 
 func (h *StockHandler) DeleteStockCategory(c *gin.Context) {
 	catID := c.Param("id")
+	var catName string
+	_ = h.db.QueryRow("SELECT name FROM stock_categories WHERE id = $1", catID).Scan(&catName)
 	var count int
 	h.db.QueryRow("SELECT COUNT(*) FROM stock_items WHERE category_id = $1", catID).Scan(&count)
 	if count > 0 {
@@ -128,6 +140,14 @@ func (h *StockHandler) DeleteStockCategory(c *gin.Context) {
 	if ra, _ := res.RowsAffected(); ra == 0 {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Category not found"})
 		return
+	}
+	if uid, _, _, ok := middleware.GetUserFromContext(c); ok {
+		cid := catID
+		summary := "Deleted stock category"
+		if catName != "" {
+			summary = "Deleted stock category: " + catName
+		}
+		_ = insertInventoryActivityLog(h.db, uid, "inventory.category_delete", "stock_category", &cid, summary, map[string]interface{}{"name": catName})
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock category deleted"})
 }
@@ -312,6 +332,12 @@ func (h *StockHandler) CreateStockItem(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to create opening stock batch", Error: strPtr(err.Error())})
 		return
 	}
+	if uid, _, _, ok := middleware.GetUserFromContext(c); ok {
+		nid := id
+		_ = insertInventoryActivityLog(h.db, uid, "inventory.item_create", "stock_item", &nid, "Created stock item: "+req.Name, map[string]interface{}{
+			"name": req.Name, "unit": req.Unit, "quantity_on_hand": req.QuantityOnHand,
+		})
+	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Message: "Stock item created", Data: map[string]string{"id": id}})
 }
 
@@ -352,11 +378,20 @@ func (h *StockHandler) UpdateStockItem(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Stock item not found"})
 		return
 	}
+	if uid, _, _, ok := middleware.GetUserFromContext(c); ok {
+		iid := itemID
+		_ = insertInventoryActivityLog(h.db, uid, "inventory.item_update", "stock_item", &iid, "Updated stock item", map[string]interface{}{
+			"category_id": req.CategoryID, "name": req.Name, "unit": req.Unit, "reorder_level": req.ReorderLevel,
+			"default_unit_cost": req.DefaultUnitCost, "notes": req.Notes, "is_active": req.IsActive,
+		})
+	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock item updated"})
 }
 
 func (h *StockHandler) DeleteStockItem(c *gin.Context) {
 	itemID := c.Param("id")
+	var delName string
+	_ = h.db.QueryRow("SELECT name FROM stock_items WHERE id = $1", itemID).Scan(&delName)
 	res, err := h.db.Exec("DELETE FROM stock_items WHERE id = $1", itemID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to delete item", Error: strPtr(err.Error())})
@@ -365,6 +400,14 @@ func (h *StockHandler) DeleteStockItem(c *gin.Context) {
 	if ra, _ := res.RowsAffected(); ra == 0 {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Stock item not found"})
 		return
+	}
+	if uid, _, _, ok := middleware.GetUserFromContext(c); ok {
+		iid := itemID
+		summary := "Deleted stock item"
+		if delName != "" {
+			summary = "Deleted stock item: " + delName
+		}
+		_ = insertInventoryActivityLog(h.db, uid, "inventory.item_delete", "stock_item", &iid, summary, map[string]interface{}{"name": delName})
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock item deleted"})
 }
@@ -449,20 +492,35 @@ func (h *StockHandler) PurchaseStock(c *gin.Context) {
 		return
 	}
 
+	var itemName string
+	_ = tx.QueryRow("SELECT name FROM stock_items WHERE id = $1", itemID).Scan(&itemName)
 	if totalCost != nil && *totalCost > 0 {
-		var itemName string
-		tx.QueryRow("SELECT name FROM stock_items WHERE id = $1", itemID).Scan(&itemName)
 		desc := itemName
 		if req.Note != nil && *req.Note != "" {
 			desc = itemName + " - " + *req.Note
 		}
-		_, err = tx.Exec(`INSERT INTO expenses (category, amount, description, reference_type, reference_id, expense_date, created_by)
-			VALUES ('inventory_purchase', $1, $2, 'stock_movement', $3, CURRENT_DATE, $4)`,
+		_, err = tx.Exec(`INSERT INTO expenses (category, amount, description, reference_type, reference_id, expense_date, recorded_at, created_by)
+			VALUES ('inventory_purchase', $1, $2, 'stock_movement', $3, CURRENT_DATE, CURRENT_TIMESTAMP, $4)`,
 			*totalCost, desc, movementID, userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to create expense record", Error: strPtr(err.Error())})
 			return
 		}
+	}
+
+	meta := map[string]interface{}{
+		"movement_id": movementID, "stock_item_id": itemID, "quantity": req.Quantity,
+	}
+	if req.UnitCost != nil {
+		meta["unit_cost"] = *req.UnitCost
+	}
+	if totalCost != nil {
+		meta["total_cost"] = *totalCost
+	}
+	summary := fmt.Sprintf("Recorded purchase: %s +%.2f", itemName, req.Quantity)
+	if err := insertInventoryActivityLog(tx, userID, "inventory.purchase", "stock_movement", &movementID, summary, meta); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
+		return
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -563,10 +621,24 @@ func (h *StockHandler) IssueStock(c *gin.Context) {
 	}
 
 	negQty := -deductQty
-	_, err = tx.Exec(`INSERT INTO stock_movements (stock_item_id, movement_type, quantity, issued_to_user_id, created_by, note)
-		VALUES ($1, 'issue', $2, $3, $4, $5)`, itemID, negQty, req.IssuedToUserID, userID, notePtr)
+	var issueMovID string
+	err = tx.QueryRow(`INSERT INTO stock_movements (stock_item_id, movement_type, quantity, issued_to_user_id, created_by, note)
+		VALUES ($1, 'issue', $2, $3, $4, $5) RETURNING id`, itemID, negQty, req.IssuedToUserID, userID, notePtr).Scan(&issueMovID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to record issue", Error: strPtr(err.Error())})
+		return
+	}
+	var itemNameIssue string
+	_ = tx.QueryRow("SELECT name FROM stock_items WHERE id = $1", itemID).Scan(&itemNameIssue)
+	issMeta := map[string]interface{}{
+		"movement_id": issueMovID, "stock_item_id": itemID, "quantity": deductQty, "issued_to_user_id": req.IssuedToUserID,
+	}
+	if notePtr != nil {
+		issMeta["note"] = *notePtr
+	}
+	if err := insertInventoryActivityLog(tx, userID, "inventory.issue", "stock_movement", &issueMovID,
+		fmt.Sprintf("Issued stock: %s −%.2f", itemNameIssue, deductQty), issMeta); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
 		return
 	}
 
@@ -675,6 +747,14 @@ func (h *StockHandler) AdjustStock(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to record stock batch", Error: strPtr(err.Error())})
 			return
 		}
+		var adjItemName string
+		_ = tx.QueryRow("SELECT name FROM stock_items WHERE id = $1", itemID).Scan(&adjItemName)
+		adjMeta := map[string]interface{}{"movement_id": movementID, "stock_item_id": itemID, "quantity_delta": delta}
+		if err := insertInventoryActivityLog(tx, userID, "inventory.adjust", "stock_movement", &movementID,
+			fmt.Sprintf("Stock adjustment: %s %+g", adjItemName, delta), adjMeta); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
+			return
+		}
 	} else {
 		deductQty := -delta
 		if err := ensureBatchesMatchOnHand(tx, itemID, lockedQty, unitCostPtr); err != nil {
@@ -685,14 +765,23 @@ func (h *StockHandler) AdjustStock(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error(), Error: strPtr("batch_allocation")})
 			return
 		}
-		_, err = tx.Exec(`INSERT INTO stock_movements (stock_item_id, movement_type, quantity, created_by, note)
-			VALUES ($1, 'adjustment', $2, $3, $4)`, itemID, delta, userID, notePtr)
+		var negAdjID string
+		err = tx.QueryRow(`INSERT INTO stock_movements (stock_item_id, movement_type, quantity, created_by, note)
+			VALUES ($1, 'adjustment', $2, $3, $4) RETURNING id`, itemID, delta, userID, notePtr).Scan(&negAdjID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to record adjustment", Error: strPtr(err.Error())})
 			return
 		}
 		if _, err = tx.Exec(`UPDATE stock_items SET quantity_on_hand = quantity_on_hand + $1 WHERE id = $2`, delta, itemID); err != nil {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update quantity", Error: strPtr(err.Error())})
+			return
+		}
+		var adjItemName2 string
+		_ = tx.QueryRow("SELECT name FROM stock_items WHERE id = $1", itemID).Scan(&adjItemName2)
+		adjMeta2 := map[string]interface{}{"movement_id": negAdjID, "stock_item_id": itemID, "quantity_delta": delta}
+		if err := insertInventoryActivityLog(tx, userID, "inventory.adjust", "stock_movement", &negAdjID,
+			fmt.Sprintf("Stock adjustment: %s %+g", adjItemName2, delta), adjMeta2); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
 			return
 		}
 	}
@@ -759,7 +848,13 @@ func (h *StockHandler) GetMovementsReport(c *gin.Context) {
 	              sm.issued_to_user_id, sm.created_by, sm.note, sm.created_at,
 	              si.name AS item_name, si.unit,
 	              iu.first_name AS issued_fn, iu.last_name AS issued_ln,
-	              cu.first_name AS created_fn, cu.last_name AS created_ln
+	              cu.first_name AS created_fn, cu.last_name AS created_ln,
+	              sm.voided_at, sm.void_reason,
+	              (sm.movement_type = 'purchase' AND sm.voided_at IS NULL AND NOT EXISTS (
+	                  SELECT 1 FROM stock_batches sb
+	                  WHERE sb.stock_movement_id = sm.id
+	                    AND (sb.initial_quantity - sb.quantity_remaining) > 0.00001
+	              )) AS purchase_can_void
 	       FROM stock_movements sm
 	       JOIN stock_items si ON sm.stock_item_id = si.id
 	       LEFT JOIN users iu ON sm.issued_to_user_id = iu.id
@@ -811,29 +906,35 @@ func (h *StockHandler) GetMovementsReport(c *gin.Context) {
 	defer rows.Close()
 
 	type MovementRow struct {
-		ID             uuid.UUID  `json:"id"`
-		StockItemID    uuid.UUID  `json:"stock_item_id"`
-		MovementType   string     `json:"movement_type"`
-		Quantity       float64    `json:"quantity"`
-		UnitCost       *float64   `json:"unit_cost"`
-		TotalCost      *float64   `json:"total_cost"`
-		IssuedToUserID *uuid.UUID `json:"issued_to_user_id"`
-		CreatedBy      *uuid.UUID `json:"created_by"`
-		Note           *string    `json:"note"`
-		CreatedAt      time.Time  `json:"created_at"`
-		ItemName       string     `json:"item_name"`
-		ItemUnit       string     `json:"item_unit"`
-		IssuedToName   *string    `json:"issued_to_name"`
-		CreatedByName  *string    `json:"created_by_name"`
+		ID               uuid.UUID  `json:"id"`
+		StockItemID      uuid.UUID  `json:"stock_item_id"`
+		MovementType     string     `json:"movement_type"`
+		Quantity         float64    `json:"quantity"`
+		UnitCost         *float64   `json:"unit_cost"`
+		TotalCost        *float64   `json:"total_cost"`
+		IssuedToUserID   *uuid.UUID `json:"issued_to_user_id"`
+		CreatedBy        *uuid.UUID `json:"created_by"`
+		Note             *string    `json:"note"`
+		CreatedAt        time.Time  `json:"created_at"`
+		ItemName         string     `json:"item_name"`
+		ItemUnit         string     `json:"item_unit"`
+		IssuedToName     *string    `json:"issued_to_name"`
+		CreatedByName    *string    `json:"created_by_name"`
+		VoidedAt         *time.Time `json:"voided_at"`
+		VoidReason       *string    `json:"void_reason"`
+		PurchaseCanVoid  bool       `json:"purchase_can_void"`
 	}
 
 	var movements []MovementRow
 	for rows.Next() {
 		var m MovementRow
 		var issuedFN, issuedLN, createdFN, createdLN sql.NullString
+		var voidAt sql.NullTime
+		var voidReason sql.NullString
 		if err := rows.Scan(&m.ID, &m.StockItemID, &m.MovementType, &m.Quantity, &m.UnitCost, &m.TotalCost,
 			&m.IssuedToUserID, &m.CreatedBy, &m.Note, &m.CreatedAt,
-			&m.ItemName, &m.ItemUnit, &issuedFN, &issuedLN, &createdFN, &createdLN); err != nil {
+			&m.ItemName, &m.ItemUnit, &issuedFN, &issuedLN, &createdFN, &createdLN,
+			&voidAt, &voidReason, &m.PurchaseCanVoid); err != nil {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to scan movement", Error: strPtr(err.Error())})
 			return
 		}
@@ -844,6 +945,14 @@ func (h *StockHandler) GetMovementsReport(c *gin.Context) {
 		if createdFN.Valid {
 			name := createdFN.String + " " + createdLN.String
 			m.CreatedByName = &name
+		}
+		if voidAt.Valid {
+			t := voidAt.Time
+			m.VoidedAt = &t
+		}
+		if voidReason.Valid && voidReason.String != "" {
+			s := voidReason.String
+			m.VoidReason = &s
 		}
 		movements = append(movements, m)
 	}
@@ -907,6 +1016,7 @@ func (h *StockHandler) GetStockSummary(c *gin.Context) {
 		       COALESCE(SUM(CASE WHEN sm.movement_type = 'purchase' THEN COALESCE(sm.total_cost,0) ELSE 0 END), 0)
 		FROM stock_movements sm
 		WHERE sm.created_at >= CURRENT_DATE - INTERVAL '%s'
+		  AND (sm.movement_type <> 'purchase' OR sm.voided_at IS NULL)
 		GROUP BY DATE_TRUNC('week', sm.created_at)
 		ORDER BY week DESC
 	`, interval))
@@ -1017,6 +1127,7 @@ func (h *StockHandler) GetAdvancedReport(c *gin.Context) {
 		       COALESCE(SUM(CASE WHEN sm.movement_type='issue' THEN ABS(sm.quantity) ELSE 0 END),0)
 		FROM stock_movements sm
 		WHERE sm.created_at >= CURRENT_DATE - INTERVAL '%s days'
+		  AND (sm.movement_type <> 'purchase' OR sm.voided_at IS NULL)
 		GROUP BY DATE_TRUNC('week', sm.created_at)
 		ORDER BY week ASC
 	`, period))
@@ -1059,6 +1170,7 @@ func (h *StockHandler) GetAdvancedReport(c *gin.Context) {
 		LEFT JOIN stock_categories sc ON si.category_id = sc.id
 		LEFT JOIN stock_movements sm ON sm.stock_item_id = si.id
 		  AND sm.created_at >= CURRENT_DATE - INTERVAL '%s days'
+		  AND (sm.movement_type <> 'purchase' OR sm.voided_at IS NULL)
 		WHERE si.is_active = true
 		GROUP BY si.id, si.name, si.unit, sc.name, si.default_unit_cost, si.quantity_on_hand
 		ORDER BY si.name ASC

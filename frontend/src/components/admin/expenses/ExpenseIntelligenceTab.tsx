@@ -4,6 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useCurrency } from '@/contexts/CurrencyContext'
 import type { ExpenseIntelligenceReport } from '@/types'
 import { getCategoryBadge } from './expense-constants'
+import { useExpenseCategoryDefs } from './use-expense-category-defs'
 import {
   DollarSign,
   TrendingUp,
@@ -38,6 +39,7 @@ type Props = {
 
 export function ExpenseIntelligenceTab({ report, loading, periodDays, setPeriodDays }: Props) {
   const { formatCurrency } = useCurrency()
+  const { data: defs = [] } = useExpenseCategoryDefs()
 
   if (loading || !report) {
     return (
@@ -58,7 +60,7 @@ export function ExpenseIntelligenceTab({ report, loading, periodDays, setPeriodD
 
   const { kpis, daily_trend, category_mix, cash_closing_stats } = report
   const pieData = category_mix.map(c => ({
-    name: getCategoryBadge(c.category).label,
+    name: getCategoryBadge(c.category, defs).label,
     value: c.total,
     pct: c.pct,
   }))

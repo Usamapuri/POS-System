@@ -12,6 +12,7 @@ import {
 import { useCurrency } from '@/contexts/CurrencyContext'
 import type { PnLReport } from '@/types'
 import { getCategoryBadge } from './expense-constants'
+import { useExpenseCategoryDefs } from './use-expense-category-defs'
 import {
   DollarSign,
   ArrowUpCircle,
@@ -55,6 +56,7 @@ type Props = {
 
 export function ExpensePnLTab({ pnl, period, setPeriod, from, setFrom, to, setTo }: Props) {
   const { formatCurrency } = useCurrency()
+  const { data: defs = [] } = useExpenseCategoryDefs()
 
   const chartData =
     pnl?.rows?.map(r => ({
@@ -228,7 +230,7 @@ export function ExpensePnLTab({ pnl, period, setPeriod, from, setFrom, to, setTo
           <CardContent className="space-y-2">
             {pnl?.expense_breakdown && pnl.expense_breakdown.length > 0 ? (
               pnl.expense_breakdown.map(eb => {
-                const badge = getCategoryBadge(eb.category)
+                const badge = getCategoryBadge(eb.category, defs)
                 return (
                   <div key={eb.category} className="flex items-center justify-between rounded-lg bg-muted/50 p-2">
                     <Badge className={badge.color}>{badge.label}</Badge>

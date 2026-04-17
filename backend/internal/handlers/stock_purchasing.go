@@ -66,6 +66,7 @@ func (h *StockHandler) ListSuppliers(c *gin.Context) {
 }
 
 func (h *StockHandler) CreateSupplier(c *gin.Context) {
+	userID, _, _, ok := middleware.GetUserFromContext(c)
 	var req struct {
 		Name        string  `json:"name" binding:"required"`
 		ContactName *string `json:"contact_name"`
@@ -84,10 +85,15 @@ func (h *StockHandler) CreateSupplier(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to create supplier", Error: strPtr(err.Error())})
 		return
 	}
+	if ok {
+		sid := id
+		_ = insertInventoryActivityLog(h.db, userID, "inventory.supplier_create", "supplier", &sid, "Created supplier: "+req.Name, map[string]interface{}{"name": req.Name})
+	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Message: "Supplier created", Data: map[string]string{"id": id}})
 }
 
 func (h *StockHandler) UpdateSupplier(c *gin.Context) {
+	userID, _, _, ok := middleware.GetUserFromContext(c)
 	id := c.Param("id")
 	var req struct {
 		Name        *string `json:"name"`
@@ -120,11 +126,20 @@ func (h *StockHandler) UpdateSupplier(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Supplier not found"})
 		return
 	}
+	if ok {
+		sid := id
+		_ = insertInventoryActivityLog(h.db, userID, "inventory.supplier_update", "supplier", &sid, "Updated supplier", map[string]interface{}{
+			"name": req.Name, "contact_name": req.ContactName, "phone": req.Phone, "email": req.Email, "notes": req.Notes, "is_active": req.IsActive,
+		})
+	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Supplier updated"})
 }
 
 func (h *StockHandler) DeleteSupplier(c *gin.Context) {
+	userID, _, _, ok := middleware.GetUserFromContext(c)
 	id := c.Param("id")
+	var supName string
+	_ = h.db.QueryRow(`SELECT name FROM suppliers WHERE id = $1`, id).Scan(&supName)
 	var n int
 	h.db.QueryRow(`SELECT COUNT(*) FROM purchase_orders WHERE supplier_id = $1`, id).Scan(&n)
 	if n > 0 {
@@ -139,6 +154,14 @@ func (h *StockHandler) DeleteSupplier(c *gin.Context) {
 	if ra, _ := res.RowsAffected(); ra == 0 {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Supplier not found"})
 		return
+	}
+	if ok {
+		sid := id
+		summary := "Deleted supplier"
+		if supName != "" {
+			summary = "Deleted supplier: " + supName
+		}
+		_ = insertInventoryActivityLog(h.db, userID, "inventory.supplier_delete", "supplier", &sid, summary, map[string]interface{}{"name": supName})
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Supplier deleted"})
 }
@@ -335,6 +358,14 @@ func (h *StockHandler) CreatePurchaseOrder(c *gin.Context) {
 			return
 		}
 	}
+	var supplierName string
+	_ = tx.QueryRow(`SELECT name FROM suppliers WHERE id = $1`, req.SupplierID).Scan(&supplierName)
+	poMeta := map[string]interface{}{"supplier_id": req.SupplierID, "line_count": len(req.Lines)}
+	if err := insertInventoryActivityLog(tx, userID, "inventory.po_create", "purchase_order", &poID,
+		fmt.Sprintf("Created purchase order for %s (%d lines)", supplierName, len(req.Lines)), poMeta); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
+		return
+	}
 	if err := tx.Commit(); err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Commit failed", Error: strPtr(err.Error())})
 		return
@@ -343,6 +374,7 @@ func (h *StockHandler) CreatePurchaseOrder(c *gin.Context) {
 }
 
 func (h *StockHandler) SubmitPurchaseOrder(c *gin.Context) {
+	userID, _, _, ok := middleware.GetUserFromContext(c)
 	poID := c.Param("id")
 	res, err := h.db.Exec(`UPDATE purchase_orders SET status = 'ordered', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'draft'`, poID)
 	if err != nil {
@@ -353,10 +385,15 @@ func (h *StockHandler) SubmitPurchaseOrder(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "PO not found or not in draft status"})
 		return
 	}
+	if ok {
+		pid := poID
+		_ = insertInventoryActivityLog(h.db, userID, "inventory.po_submit", "purchase_order", &pid, "Submitted purchase order", map[string]interface{}{"status": "ordered"})
+	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Purchase order submitted"})
 }
 
 func (h *StockHandler) CancelPurchaseOrder(c *gin.Context) {
+	userID, _, _, ok := middleware.GetUserFromContext(c)
 	poID := c.Param("id")
 	res, err := h.db.Exec(`UPDATE purchase_orders SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status IN ('draft', 'ordered', 'partially_received')`, poID)
 	if err != nil {
@@ -366,6 +403,10 @@ func (h *StockHandler) CancelPurchaseOrder(c *gin.Context) {
 	if n, _ := res.RowsAffected(); n == 0 {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "PO cannot be cancelled"})
 		return
+	}
+	if ok {
+		pid := poID
+		_ = insertInventoryActivityLog(h.db, userID, "inventory.po_cancel", "purchase_order", &pid, "Cancelled purchase order", map[string]interface{}{"status": "cancelled"})
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Purchase order cancelled"})
 }
@@ -496,12 +537,30 @@ func (h *StockHandler) ReceivePurchaseOrder(c *gin.Context) {
 			var itemName string
 			tx.QueryRow("SELECT name FROM stock_items WHERE id = $1", stockItemID).Scan(&itemName)
 			desc := itemName + " (PO receive)"
-			if _, err := tx.Exec(`INSERT INTO expenses (category, amount, description, reference_type, reference_id, expense_date, created_by)
-				VALUES ('inventory_purchase', $1, $2, 'stock_movement', $3::uuid, CURRENT_DATE, $4)`,
+			if _, err := tx.Exec(`INSERT INTO expenses (category, amount, description, reference_type, reference_id, expense_date, recorded_at, created_by)
+				VALUES ('inventory_purchase', $1, $2, 'stock_movement', $3::uuid, CURRENT_DATE, CURRENT_TIMESTAMP, $4)`,
 				*totalCost, desc, movementID, userID); err != nil {
 				c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to record expense", Error: strPtr(err.Error())})
 				return
 			}
+		}
+
+		var lineItemName string
+		_ = tx.QueryRow("SELECT name FROM stock_items WHERE id = $1", stockItemID).Scan(&lineItemName)
+		lineMeta := map[string]interface{}{
+			"movement_id": movementID, "purchase_order_id": poID, "quantity": rl.QuantityReceived, "purchase_order_line_id": rl.LineID,
+		}
+		if uc != nil {
+			lineMeta["unit_cost"] = *uc
+		}
+		if totalCost != nil {
+			lineMeta["total_cost"] = *totalCost
+		}
+		mid := movementID
+		if err := insertInventoryActivityLog(tx, userID, "inventory.po_line_receive", "stock_movement", &mid,
+			fmt.Sprintf("PO receive: %s +%.2f", lineItemName, rl.QuantityReceived), lineMeta); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
+			return
 		}
 	}
 
@@ -515,6 +574,21 @@ func (h *StockHandler) ReceivePurchaseOrder(c *gin.Context) {
 	}
 	if _, err := tx.Exec(`UPDATE purchase_orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, newStatus, poID); err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update PO status", Error: strPtr(err.Error())})
+		return
+	}
+
+	recvCount := 0
+	for _, rl := range req.Lines {
+		if rl.QuantityReceived > 0 {
+			recvCount++
+		}
+	}
+	pid := poID
+	if err := insertInventoryActivityLog(tx, userID, "inventory.po_receive", "purchase_order", &pid,
+		fmt.Sprintf("Received goods on PO (%d line(s)) → %s", recvCount, newStatus), map[string]interface{}{
+			"new_status": newStatus, "lines_with_receipts": recvCount,
+		}); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
 		return
 	}
 

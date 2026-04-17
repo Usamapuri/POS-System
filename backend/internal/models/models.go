@@ -256,6 +256,7 @@ type Expense struct {
 	ReferenceType *string    `json:"reference_type"`
 	ReferenceID   *uuid.UUID `json:"reference_id"`
 	ExpenseDate   string     `json:"expense_date"`
+	RecordedAt    time.Time  `json:"recorded_at"`
 	CreatedBy     *uuid.UUID `json:"created_by"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`

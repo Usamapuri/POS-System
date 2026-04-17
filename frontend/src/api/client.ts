@@ -28,6 +28,7 @@ import type {
   StockCategory,
   StockItem,
   StockMovement,
+  InventoryActivityEntry,
   StockAlert,
   UserBrief,
   StockSummary,
@@ -41,6 +42,7 @@ import type {
   CurrentDayStatus,
   ExpenseSummary,
   ExpenseIntelligenceReport,
+  ExpenseCategoryDefinition,
   KitchenStation,
   VoidLogEntry,
   FireKOTResponse,
@@ -688,6 +690,27 @@ class APIClient {
     return this.request({ method: 'GET', url: '/store/stock-reports/advanced', params: { period } });
   }
 
+  async getInventoryActivity(params?: {
+    page?: number;
+    per_page?: number;
+    action?: string;
+    from?: string;
+    to?: string;
+  }): Promise<PaginatedResponse<InventoryActivityEntry[]>> {
+    return this.request({ method: 'GET', url: '/store/inventory-activity', params });
+  }
+
+  async voidPurchaseMovement(movementId: string, data: { reason: string }): Promise<APIResponse> {
+    return this.request({ method: 'POST', url: `/store/stock-movements/${movementId}/void`, data });
+  }
+
+  async correctPurchaseMovementCost(
+    movementId: string,
+    data: { unit_cost: number; reason: string }
+  ): Promise<APIResponse> {
+    return this.request({ method: 'POST', url: `/store/stock-movements/${movementId}/correct-purchase-cost`, data });
+  }
+
   async getStoreUsers(): Promise<APIResponse<UserBrief[]>> {
     return this.request({ method: 'GET', url: '/store/users' });
   }
@@ -760,11 +783,23 @@ class APIClient {
     return this.request({ method: 'GET', url: '/admin/expenses', params });
   }
 
-  async createExpense(data: { category: string; amount: number; description?: string; expense_date?: string }): Promise<APIResponse<{ id: string }>> {
+  async createExpense(data: {
+    category: string;
+    amount: number;
+    description?: string;
+    expense_date?: string;
+    recorded_at?: string;
+  }): Promise<APIResponse<{ id: string }>> {
     return this.request({ method: 'POST', url: '/admin/expenses', data });
   }
 
-  async updateExpense(id: string, data: { category?: string; amount?: number; description?: string; expense_date?: string }): Promise<APIResponse> {
+  async updateExpense(id: string, data: {
+    category?: string;
+    amount?: number;
+    description?: string;
+    expense_date?: string;
+    recorded_at?: string;
+  }): Promise<APIResponse> {
     return this.request({ method: 'PUT', url: `/admin/expenses/${id}`, data });
   }
 
@@ -778,6 +813,25 @@ class APIClient {
 
   async getExpenseCategories(): Promise<APIResponse<{ category: string; count: number; total: number }[]>> {
     return this.request({ method: 'GET', url: '/admin/expenses/categories' });
+  }
+
+  async getExpenseCategoryDefinitions(): Promise<APIResponse<ExpenseCategoryDefinition[]>> {
+    return this.request({ method: 'GET', url: '/admin/expense-category-definitions' });
+  }
+
+  async createExpenseCategoryDefinition(data: { label: string; color?: string; sort_order?: number }): Promise<APIResponse<{ id: string; slug: string }>> {
+    return this.request({ method: 'POST', url: '/admin/expense-category-definitions', data });
+  }
+
+  async updateExpenseCategoryDefinition(
+    id: string,
+    data: { label?: string; color?: string; sort_order?: number; is_active?: boolean }
+  ): Promise<APIResponse> {
+    return this.request({ method: 'PUT', url: `/admin/expense-category-definitions/${id}`, data });
+  }
+
+  async deleteExpenseCategoryDefinition(id: string): Promise<APIResponse> {
+    return this.request({ method: 'DELETE', url: `/admin/expense-category-definitions/${id}` });
   }
 
   // Daily Closing endpoints

@@ -15,6 +15,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { getCategoryBadge } from './expense-constants'
+import { useExpenseCategoryDefs } from './use-expense-category-defs'
 import {
   LineChart,
   Line,
@@ -54,6 +55,7 @@ export function ExpenseOverviewTab({
   weekRangeLabel,
 }: Props) {
   const { formatCurrency } = useCurrency()
+  const { data: defs = [] } = useExpenseCategoryDefs()
   const todaySales = dayStatus?.total_sales ?? 0
   const todayExpenses = dayStatus?.total_expenses ?? 0
   const todayProfit = dayStatus?.net_profit ?? 0
@@ -197,7 +199,7 @@ export function ExpenseOverviewTab({
             {dayStatus?.expense_categories && dayStatus.expense_categories.length > 0 ? (
               <>
                 {dayStatus.expense_categories.map(ec => {
-                  const badge = getCategoryBadge(ec.category)
+                  const badge = getCategoryBadge(ec.category, defs)
                   return (
                     <div key={ec.category} className="flex items-center justify-between rounded-lg bg-muted/50 p-2">
                       <Badge className={badge.color}>{badge.label}</Badge>
@@ -229,7 +231,7 @@ export function ExpenseOverviewTab({
           </CardHeader>
           <CardContent className="space-y-2">
             {mtdExpenseSummary.categories.map(row => {
-              const badge = getCategoryBadge(row.category)
+              const badge = getCategoryBadge(row.category, defs)
               return (
                 <div key={row.category} className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
                   <div className="flex flex-wrap items-center gap-2">

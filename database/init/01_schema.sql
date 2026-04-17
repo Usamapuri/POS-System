@@ -232,7 +232,23 @@ CREATE TABLE stock_movements (
     supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
     purchase_order_id UUID REFERENCES purchase_orders(id) ON DELETE SET NULL,
     note TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    voided_at TIMESTAMP WITH TIME ZONE,
+    voided_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    void_reason TEXT
+);
+
+-- Append-only inventory audit trail (UI "Activity" tab); rows are never updated by the app
+CREATE TABLE inventory_activity_log (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    action VARCHAR(80) NOT NULL,
+    entity_type VARCHAR(40) NOT NULL,
+    entity_id UUID,
+    summary TEXT NOT NULL,
+    metadata JSONB,
+    correlation_id UUID
 );
 
 -- FIFO lots / optional expiry (quantity_remaining must be kept in sync with purchases/issues in app code)
@@ -248,19 +264,43 @@ CREATE TABLE stock_batches (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Expense category catalog (CRUD in admin UI; expenses.category stores slug)
+CREATE TABLE expense_category_defs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    slug VARCHAR(64) UNIQUE NOT NULL,
+    label VARCHAR(120) NOT NULL,
+    color VARCHAR(80) NOT NULL DEFAULT 'bg-muted text-muted-foreground',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_system BOOLEAN NOT NULL DEFAULT false,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Expenses: single source of truth for all cash outflow
 CREATE TABLE expenses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    category VARCHAR(30) NOT NULL CHECK (category IN ('inventory_purchase', 'utilities', 'rent', 'salaries', 'maintenance', 'marketing', 'supplies', 'other')),
+    category VARCHAR(64) NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
     description TEXT,
     reference_type VARCHAR(30),
     reference_id UUID,
     expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    recorded_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+INSERT INTO expense_category_defs (slug, label, color, sort_order, is_system) VALUES
+('inventory_purchase', 'Inventory Purchase', 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200', 10, true),
+('utilities', 'Utilities', 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-200', 20, false),
+('rent', 'Rent', 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-200', 30, false),
+('salaries', 'Salaries', 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200', 40, false),
+('maintenance', 'Maintenance', 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-200', 50, false),
+('marketing', 'Marketing', 'bg-pink-100 text-pink-800 dark:bg-pink-950 dark:text-pink-200', 60, false),
+('supplies', 'Supplies', 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-200', 70, false),
+('other', 'Other', 'bg-muted text-muted-foreground', 100, false);
 
 -- Daily closings: end-of-day reconciliation snapshots
 CREATE TABLE daily_closings (
@@ -353,13 +393,20 @@ CREATE INDEX idx_inventory_product_id ON inventory(product_id);
 CREATE INDEX idx_stock_items_category_id ON stock_items(category_id);
 CREATE INDEX idx_expenses_category ON expenses(category);
 CREATE INDEX idx_expenses_date ON expenses(expense_date);
+CREATE INDEX idx_expenses_recorded_at ON expenses(recorded_at DESC);
 CREATE INDEX idx_expenses_reference ON expenses(reference_type, reference_id);
+CREATE INDEX idx_expense_category_defs_slug ON expense_category_defs(slug);
+CREATE INDEX idx_expense_category_defs_active ON expense_category_defs(is_active) WHERE is_active = true;
 CREATE INDEX idx_daily_closings_date ON daily_closings(closing_date);
 CREATE INDEX idx_stock_movements_item_created ON stock_movements(stock_item_id, created_at);
 CREATE INDEX idx_stock_movements_type_created ON stock_movements(movement_type, created_at);
 CREATE INDEX idx_stock_movements_issued_to ON stock_movements(issued_to_user_id);
 CREATE INDEX idx_stock_movements_supplier ON stock_movements(supplier_id);
 CREATE INDEX idx_stock_movements_po ON stock_movements(purchase_order_id);
+CREATE INDEX idx_stock_movements_voided ON stock_movements(voided_at) WHERE voided_at IS NOT NULL;
+CREATE INDEX idx_inventory_activity_created ON inventory_activity_log(created_at DESC);
+CREATE INDEX idx_inventory_activity_action ON inventory_activity_log(action);
+CREATE INDEX idx_inventory_activity_entity ON inventory_activity_log(entity_type, entity_id);
 CREATE INDEX idx_purchase_orders_supplier ON purchase_orders(supplier_id);
 CREATE INDEX idx_purchase_order_lines_po ON purchase_order_lines(purchase_order_id);
 CREATE INDEX idx_stock_batches_fifo ON stock_batches(stock_item_id, expiry_date NULLS LAST, created_at);
@@ -397,4 +444,5 @@ CREATE TRIGGER update_suppliers_updated_at BEFORE UPDATE ON suppliers FOR EACH R
 CREATE TRIGGER update_purchase_orders_updated_at BEFORE UPDATE ON purchase_orders FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_purchase_order_lines_updated_at BEFORE UPDATE ON purchase_order_lines FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_expenses_updated_at BEFORE UPDATE ON expenses FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_expense_category_defs_updated_at BEFORE UPDATE ON expense_category_defs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

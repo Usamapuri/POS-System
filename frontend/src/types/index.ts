@@ -395,6 +395,24 @@ export interface StockMovement {
   item_unit?: string;
   issued_to_name?: string;
   created_by_name?: string;
+  /** Present when a purchase was reversed (ledger row kept for audit) */
+  voided_at?: string;
+  void_reason?: string;
+  /** Server: lot fully intact — void or cost correction allowed */
+  purchase_can_void?: boolean;
+}
+
+/** Append-only row from GET /store/inventory-activity */
+export interface InventoryActivityEntry {
+  id: string;
+  created_at: string;
+  actor_id?: string;
+  actor_name: string;
+  action: string;
+  entity_type: string;
+  entity_id?: string;
+  summary: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface StockAlert {
@@ -468,7 +486,19 @@ export interface AdvancedStockReport {
 }
 
 // Expense Types
-export type ExpenseCategory = 'inventory_purchase' | 'utilities' | 'rent' | 'salaries' | 'maintenance' | 'marketing' | 'supplies' | 'other';
+/** Stored on each expense row; must match an `expense_category_defs.slug` (active) when creating/updating. */
+export type ExpenseCategory = string;
+
+/** Admin-managed catalog row (GET/POST/PUT/DELETE `/admin/expense-category-definitions`). */
+export interface ExpenseCategoryDefinition {
+  id: string;
+  slug: string;
+  label: string;
+  color: string;
+  sort_order: number;
+  is_system: boolean;
+  is_active: boolean;
+}
 
 export interface Expense {
   id: string;
@@ -478,6 +508,8 @@ export interface Expense {
   reference_type?: string;
   reference_id?: string;
   expense_date: string;
+  /** When the expense was recorded (use for ledger date+time display). */
+  recorded_at?: string;
   created_by?: string;
   created_at: string;
   updated_at: string;
