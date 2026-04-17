@@ -107,6 +107,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		counter.POST("/orders", orderHandler.CreateOrder)                   // All order types
 		counter.PATCH("/orders/:id/checkout-intent", orderHandler.UpdateCheckoutIntent)
 		counter.PATCH("/orders/:id/discount", orderHandler.ApplyOrderDiscount)
+		counter.PATCH("/orders/:id/guest", orderHandler.UpdateCounterOrderGuest)
 		counter.POST("/orders/:id/payments", paymentHandler.ProcessPayment) // Process payments
 	}
 

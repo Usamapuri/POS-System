@@ -22,6 +22,7 @@ import type {
   KitchenOrder,
   TableStatus,
   OrderFilters,
+  UpdateCounterOrderGuestRequest,
   ProductFilters,
   TableFilters,
   StockCategory,
@@ -451,6 +452,17 @@ class APIClient {
     return this.request({
       method: 'PATCH',
       url: `/counter/orders/${orderId}/discount`,
+      data: body,
+    });
+  }
+
+  async updateCounterOrderGuest(
+    orderId: string,
+    body: UpdateCounterOrderGuestRequest
+  ): Promise<APIResponse<Order>> {
+    return this.request({
+      method: 'PATCH',
+      url: `/counter/orders/${orderId}/guest`,
       data: body,
     });
   }

@@ -76,6 +76,19 @@ func (h *OrderHandler) GetOrders(c *gin.Context) {
 		args = append(args, orderType)
 	}
 
+	dateFrom := strings.TrimSpace(c.Query("date_from"))
+	dateTo := strings.TrimSpace(c.Query("date_to"))
+	if dateFrom != "" {
+		argIndex++
+		queryBuilder += fmt.Sprintf(" AND o.created_at::date >= $%d::date", argIndex)
+		args = append(args, dateFrom)
+	}
+	if dateTo != "" {
+		argIndex++
+		queryBuilder += fmt.Sprintf(" AND o.created_at::date <= $%d::date", argIndex)
+		args = append(args, dateTo)
+	}
+
 	// Count total records
 	countQuery := "SELECT COUNT(*) FROM (" + queryBuilder + ") as count_query"
 	var total int
@@ -674,6 +687,106 @@ func (h *OrderHandler) ApplyOrderDiscount(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Discount applied", Data: order})
+}
+
+// UpdateCounterOrderGuest updates guest / CRM fields on an order that is not completed or cancelled.
+func (h *OrderHandler) UpdateCounterOrderGuest(c *gin.Context) {
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid order ID", Error: stringPtr("invalid_uuid")})
+		return
+	}
+
+	var req models.UpdateCounterOrderGuestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request body", Error: stringPtr(err.Error())})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to start transaction", Error: stringPtr(err.Error())})
+		return
+	}
+	defer tx.Rollback()
+
+	var st string
+	if err := tx.QueryRow(`SELECT status FROM orders WHERE id = $1::uuid FOR UPDATE`, orderID).Scan(&st); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Order not found", Error: stringPtr("order_not_found")})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load order", Error: stringPtr(err.Error())})
+		return
+	}
+	if st == "completed" || st == "cancelled" {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Guest details cannot be changed for this order", Error: stringPtr("invalid_order_status")})
+		return
+	}
+
+	name := stringPtrVal(req.CustomerName)
+	email := stringPtrVal(req.CustomerEmail)
+	phone := stringPtrVal(req.CustomerPhone)
+	bdayStr := stringPtrVal(req.GuestBirthday)
+
+	var guestBD interface{}
+	if strings.TrimSpace(bdayStr) != "" {
+		if t, e := time.Parse("2006-01-02", strings.TrimSpace(bdayStr)); e == nil {
+			guestBD = t.UTC()
+		}
+	}
+
+	custUUID, rerr := resolveCustomerInTx(tx, strPtrOrNil(name), strPtrOrNil(email), strPtrOrNil(phone), strPtrOrNil(bdayStr))
+	if rerr != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to resolve customer", Error: stringPtr(rerr.Error())})
+		return
+	}
+	var custID interface{}
+	if custUUID != nil {
+		custID = *custUUID
+	}
+
+	_, err = tx.Exec(`
+		UPDATE orders SET
+			customer_id = $1,
+			customer_name = NULLIF(trim($2::text), ''),
+			customer_email = NULLIF(trim($3::text), ''),
+			customer_phone = NULLIF(trim($4::text), ''),
+			guest_birthday = $5,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = $6::uuid
+	`, custID, name, email, phone, guestBD, orderID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update guest details", Error: stringPtr(err.Error())})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to commit", Error: stringPtr(err.Error())})
+		return
+	}
+
+	order, err := h.getOrderByID(orderID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Updated but failed to load order", Error: stringPtr(err.Error())})
+		return
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Guest details updated", Data: order})
+}
+
+func stringPtrVal(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return strings.TrimSpace(*p)
+}
+
+func strPtrOrNil(s string) *string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	v := strings.TrimSpace(s)
+	return &v
 }
 
 func (h *OrderHandler) recalcOrderTotalsTx(tx *sql.Tx, orderID uuid.UUID, checkoutIntent string) error {

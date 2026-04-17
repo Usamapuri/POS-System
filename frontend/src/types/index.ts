@@ -497,6 +497,18 @@ export interface OrderFilters {
   order_type?: string;
   page?: number;
   per_page?: number;
+  /** Inclusive YYYY-MM-DD (server date on `orders.created_at`) */
+  date_from?: string;
+  /** Inclusive YYYY-MM-DD */
+  date_to?: string;
+}
+
+/** Counter: update guest / CRM fields on an open order */
+export interface UpdateCounterOrderGuestRequest {
+  customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  guest_birthday?: string;
 }
 
 export interface ProductFilters {

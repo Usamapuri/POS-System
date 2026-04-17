@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { TableSessionModal, type TableSession } from '@/components/counter/TableSessionModal'
 import { KotPrintModal } from '@/components/counter/KotPrintModal'
 import { CounterPaymentPanel } from '@/components/counter/CounterPaymentPanel'
@@ -19,6 +18,19 @@ import {
   CounterCheckoutSuccessOverlay,
   type CheckoutCelebrationMode,
 } from '@/components/counter/CounterCheckoutSuccessOverlay'
+import {
+  CounterGuestDetailsSection,
+  toGuestDateInputValue,
+} from '@/components/counter/CounterGuestDetailsSection'
+import { CounterOrderHistorySection } from '@/components/counter/CounterOrderHistorySection'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Link } from '@tanstack/react-router'
 import { useCounterHotkeys } from '@/hooks/useCounterHotkeys'
 import { computeCartTotals, mergePricingSettings } from '@/lib/counterPricing'
 import { subscribeOrderReady } from '@/lib/kdsRealtime'
@@ -31,8 +43,8 @@ import {
   Package,
   GripVertical,
   UtensilsCrossed,
-  ChevronDown,
 } from 'lucide-react'
+import { format } from 'date-fns'
 import type {
   Product,
   Category,
@@ -113,6 +125,7 @@ export function CounterInterface() {
   const [lastFireKots, setLastFireKots] = useState<StationKOT[] | undefined>(undefined)
   /** Full-screen thank-you after a completed payment (customer-facing terminal). */
   const [checkoutCelebration, setCheckoutCelebration] = useState<CheckoutCelebrationMode | null>(null)
+  const [historyReadOnlyOrder, setHistoryReadOnlyOrder] = useState<Order | null>(null)
   /** When set, cart adds lines to this existing table order (occupied table flow). */
   const [continuingOrderId, setContinuingOrderId] = useState<string | null>(null)
   /** Full order data when continuing an existing order (includes items already sent to kitchen). */
@@ -264,28 +277,6 @@ export function CounterInterface() {
       queryClient.invalidateQueries({ queryKey: ['tables'] })
       queryClient.invalidateQueries({ queryKey: ['counterPendingOrders'] })
 
-      if (result.mode === 'new') {
-        setSelectedTable(null)
-        setDineInSession(null)
-        setCustomerName('')
-        setCustomerEmail('')
-        setCustomerPhone('')
-        setGuestBirthday('')
-        setContinuingOrderId(null)
-        setExistingOrder(null)
-        setExistingItemsExpanded(false)
-      } else {
-        setExistingOrder(null)
-        setExistingItemsExpanded(false)
-        setContinuingOrderId(null)
-        setSelectedTable(null)
-        setDineInSession(null)
-        setCustomerName('')
-        setCustomerEmail('')
-        setCustomerPhone('')
-        setGuestBirthday('')
-      }
-
       try {
         const fr = await apiClient.fireKOT(result.orderId)
         if (!fr.success) {
@@ -303,6 +294,31 @@ export function CounterInterface() {
         toastHelpers.error('Kitchen (KOT)', msg)
       }
       queryClient.invalidateQueries({ queryKey: ['newEnhancedKitchenOrders'] })
+
+      const ref = await apiClient.getOrder(result.orderId)
+      if (ref.success && ref.data && ref.data.status !== 'completed' && ref.data.status !== 'cancelled') {
+        const od = ref.data
+        setExistingOrder(od)
+        setContinuingOrderId(od.id)
+        setExistingItemsExpanded(false)
+        setCustomerName(od.customer_name ?? '')
+        setCustomerEmail(od.customer_email ?? '')
+        setCustomerPhone(od.customer_phone ?? '')
+        setGuestBirthday(toGuestDateInputValue(od.guest_birthday))
+        if (orderType === 'dine_in') {
+          setDineInSession((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  customerName: od.customer_name ?? undefined,
+                  customerEmail: od.customer_email ?? undefined,
+                  customerPhone: od.customer_phone ?? undefined,
+                  guestBirthday: toGuestDateInputValue(od.guest_birthday) || undefined,
+                }
+              : prev
+          )
+        }
+      }
     },
   })
 
@@ -366,6 +382,10 @@ export function CounterInterface() {
           setSelectedOrder(orderAfter)
           setExistingOrder((prev) => (prev?.id === orderAfter.id ? orderAfter : prev))
           queryClient.setQueryData(['order', variables.orderId, 'payment-panel'], orderAfter)
+          setCustomerName(orderAfter.customer_name ?? '')
+          setCustomerEmail(orderAfter.customer_email ?? '')
+          setCustomerPhone(orderAfter.customer_phone ?? '')
+          setGuestBirthday(toGuestDateInputValue(orderAfter.guest_birthday))
         }
       }
 
@@ -426,7 +446,10 @@ export function CounterInterface() {
       discount_percent?: number
     }) => apiClient.applyOrderDiscount(orderId, { discount_amount, discount_percent }),
     onSuccess: (res, vars) => {
-      if (res.success && res.data) setSelectedOrder(res.data)
+      if (res.success && res.data) {
+        setSelectedOrder(res.data)
+        setExistingOrder((prev) => (prev?.id === res.data!.id ? res.data! : prev))
+      }
       setDiscountValue('')
       queryClient.invalidateQueries({ queryKey: ['order', vars.orderId, 'payment-panel'] })
       queryClient.invalidateQueries({ queryKey: ['counterPendingOrders'] })
@@ -553,6 +576,10 @@ export function CounterInterface() {
           customerPhone: o.customer_phone,
           guestBirthday: o.guest_birthday,
         })
+        setCustomerName(o.customer_name ?? '')
+        setCustomerEmail(o.customer_email ?? '')
+        setCustomerPhone(o.customer_phone ?? '')
+        setGuestBirthday(toGuestDateInputValue(o.guest_birthday))
         setCart([])
         setOrderNotes('')
         toastHelpers.success('Open order loaded', `Adding items to #${o.order_number}`)
@@ -581,6 +608,10 @@ export function CounterInterface() {
       setDineInSession(s)
       setContinuingOrderId(res.data.id)
       setExistingOrder(res.data)
+      setCustomerName(s.customerName ?? res.data.customer_name ?? '')
+      setCustomerEmail(s.customerEmail ?? res.data.customer_email ?? '')
+      setCustomerPhone(s.customerPhone ?? res.data.customer_phone ?? '')
+      setGuestBirthday(s.guestBirthday ?? toGuestDateInputValue(res.data.guest_birthday))
       setSessionModalOpen(false)
       toastHelpers.success('Table opened', `Order #${res.data.order_number}`)
       queryClient.invalidateQueries({ queryKey: ['tables'] })
@@ -647,6 +678,82 @@ export function CounterInterface() {
     setPaymentCheckoutIntent(intent)
     checkoutIntentMutation.mutate({ orderId: order.id, intent })
   }
+
+  const handleGuestUpdated = useCallback((order: Order) => {
+    setExistingOrder(order)
+    setSelectedOrder((prev) => (prev?.id === order.id ? order : prev))
+    setCustomerName(order.customer_name ?? '')
+    setCustomerEmail(order.customer_email ?? '')
+    setCustomerPhone(order.customer_phone ?? '')
+    setGuestBirthday(toGuestDateInputValue(order.guest_birthday))
+    setDineInSession((prev) =>
+      prev && orderType === 'dine_in'
+        ? {
+            ...prev,
+            customerName: order.customer_name ?? undefined,
+            customerEmail: order.customer_email ?? undefined,
+            customerPhone: order.customer_phone ?? undefined,
+            guestBirthday: toGuestDateInputValue(order.guest_birthday) || undefined,
+          }
+        : prev
+    )
+  }, [orderType])
+
+  const handleSelectHistoryOrder = useCallback(
+    async (o: Order) => {
+      if (o.status === 'completed' || o.status === 'cancelled') {
+        const full = await apiClient.getOrder(o.id)
+        setHistoryReadOnlyOrder(full.success && full.data ? full.data : o)
+        return
+      }
+      const r = await apiClient.getOrder(o.id)
+      if (!r.success || !r.data) {
+        toastHelpers.error('Orders', r.message || 'Could not load order')
+        return
+      }
+      const od = r.data
+      if (od.order_type !== orderType) {
+        toastHelpers.error(
+          'Orders',
+          `Switch to ${od.order_type === 'dine_in' ? 'Dine-in' : od.order_type} mode to work this ticket.`
+        )
+        return
+      }
+      setCheckoutOpen(false)
+      setSelectedOrder(null)
+      setExistingOrder(od)
+      setContinuingOrderId(od.id)
+      setExistingItemsExpanded(false)
+      setCustomerName(od.customer_name ?? '')
+      setCustomerEmail(od.customer_email ?? '')
+      setCustomerPhone(od.customer_phone ?? '')
+      setGuestBirthday(toGuestDateInputValue(od.guest_birthday))
+      if (od.order_type === 'dine_in' && od.table_id) {
+        const tbl = sortedTables.find((t) => t.id === od.table_id)
+        if (tbl) {
+          setSelectedTable(tbl)
+          const disp =
+            od.user && (od.user.first_name || od.user.last_name)
+              ? `${od.user.first_name} ${od.user.last_name}`.trim()
+              : od.user?.username ?? '—'
+          setDineInSession({
+            guestCount: Math.max(1, od.guest_count ?? 1),
+            serverId: od.user_id ?? '',
+            serverDisplayName: disp,
+            customerName: od.customer_name ?? undefined,
+            customerEmail: od.customer_email ?? undefined,
+            customerPhone: od.customer_phone ?? undefined,
+            guestBirthday: toGuestDateInputValue(od.guest_birthday) || undefined,
+          })
+        }
+      } else if (od.order_type !== 'dine_in') {
+        setSelectedTable(null)
+        setDineInSession(null)
+      }
+      toastHelpers.success('Order loaded', `#${od.order_number}`)
+    },
+    [orderType, sortedTables]
+  )
 
   const openTableTransferDialog = () => {
     if (!existingOrder?.id) return
@@ -823,6 +930,10 @@ export function CounterInterface() {
   }, [checkoutOpen])
 
   const handleCounterEscape = useCallback(() => {
+    if (historyReadOnlyOrder) {
+      setHistoryReadOnlyOrder(null)
+      return
+    }
     if (checkoutCelebration != null) {
       dismissCheckoutCelebration()
       return
@@ -836,7 +947,7 @@ export function CounterInterface() {
       setCheckoutOpen(false)
       setSelectedOrder(null)
     }
-  }, [checkoutCelebration, dismissCheckoutCelebration, cashModalOpen, checkoutOpen])
+  }, [historyReadOnlyOrder, checkoutCelebration, dismissCheckoutCelebration, cashModalOpen, checkoutOpen])
 
   useCounterHotkeys({
     onSend: () => {
@@ -913,6 +1024,37 @@ export function CounterInterface() {
           onDismiss={dismissCheckoutCelebration}
         />
       )}
+
+      <Dialog open={historyReadOnlyOrder != null} onOpenChange={(open) => !open && setHistoryReadOnlyOrder(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {historyReadOnlyOrder ? `Order #${historyReadOnlyOrder.order_number}` : 'Order'}
+            </DialogTitle>
+            <DialogDescription className="space-y-1 text-left">
+              <span className="block capitalize text-muted-foreground">
+                {historyReadOnlyOrder?.status?.replace('_', ' ')} ·{' '}
+                {historyReadOnlyOrder && formatCurrency(historyReadOnlyOrder.total_amount)}
+              </span>
+              {historyReadOnlyOrder?.created_at && (
+                <span className="block text-xs text-muted-foreground">
+                  {format(new Date(historyReadOnlyOrder.created_at), "MMM d, yyyy 'at' h:mm a")}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This ticket is closed. Use order history above to find open checks, or open{' '}
+            <Link
+              to="/admin/reports"
+              className="font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Reports
+            </Link>{' '}
+            for deeper analysis.
+          </p>
+        </DialogContent>
+      </Dialog>
 
       <div ref={counterSplitRef} className="flex h-full min-h-0 min-w-0 flex-1 flex-row self-stretch">
         <main
@@ -1116,7 +1258,7 @@ export function CounterInterface() {
               selectedTable={selectedTable}
               existingOrder={existingOrder}
               dineInSession={dineInSession}
-              customerName={customerName}
+              customerName={customerName || existingOrder?.customer_name || ''}
               checkoutOpen={checkoutOpen}
               lifecycle={ticketLifecycle}
               continuingOrderId={continuingOrderId}
@@ -1127,54 +1269,36 @@ export function CounterInterface() {
               } : undefined}
             />
             <div className="space-y-3 border-b border-border/80 px-4 pb-3 sm:px-5 sm:pb-4">
-            {orderType === 'dine_in' ? (
-              <>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Tables
+              {orderType === 'dine_in' ? (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Tables
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
+                      <span>
+                        {tableStats.open} open · {tableStats.free} free
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={selectedTable ? 'outline' : 'default'}
+                        className="h-8 gap-1.5"
+                        onClick={() => setTablesPickerOpen(true)}
+                      >
+                        <UtensilsCrossed className="h-3.5 w-3.5" aria-hidden />
+                        {selectedTable ? 'Change' : 'Pick a table'}
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
-                    <span>{tableStats.open} open · {tableStats.free} free</span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={selectedTable ? 'outline' : 'default'}
-                      className="h-8 gap-1.5"
-                      onClick={() => setTablesPickerOpen(true)}
-                    >
-                      <UtensilsCrossed className="h-3.5 w-3.5" aria-hidden />
-                      {selectedTable ? 'Change' : 'Pick a table'}
-                    </Button>
-                  </div>
-                </div>
-                {!selectedTable && (
-                  <div className="rounded-lg border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
-                    Tap <span className="font-semibold">Pick a table</span> to open the floor picker.
-                    Free tables start a new session; open tables load the active tab.
-                  </div>
-                )}
+                  {!selectedTable && (
+                    <div className="rounded-lg border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+                      Tap <span className="font-semibold">Pick a table</span> to open the floor picker. Free tables
+                      start a new session; open tables load the active tab.
+                    </div>
+                  )}
                   {selectedTable && dineInSession && (
                     <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3 text-sm">
-                      {(dineInSession.customerName ||
-                        dineInSession.customerEmail ||
-                        dineInSession.customerPhone ||
-                        dineInSession.guestBirthday) && (
-                        <div className="space-y-0.5 text-xs text-muted-foreground">
-                          {dineInSession.customerName && (
-                            <div>
-                              <span>Guest: </span>
-                              <span className="font-medium text-foreground">{dineInSession.customerName}</span>
-                            </div>
-                          )}
-                          {dineInSession.customerEmail && (
-                            <div className="truncate" title={dineInSession.customerEmail}>
-                              {dineInSession.customerEmail}
-                            </div>
-                          )}
-                          {dineInSession.customerPhone && <div>{dineInSession.customerPhone}</div>}
-                          {dineInSession.guestBirthday && <div>Birthday: {dineInSession.guestBirthday}</div>}
-                        </div>
-                      )}
                       {existingOrder?.is_open_tab && !existingOrder.kot_first_sent_at && continuingOrderId && (
                         <Button
                           type="button"
@@ -1193,7 +1317,7 @@ export function CounterInterface() {
                         orderPayableRemaining(existingOrder) > 0 && (
                           <Button
                             type="button"
-                            className="w-full h-10 text-sm font-semibold"
+                            className="h-10 w-full text-sm font-semibold"
                             onClick={() => selectPaymentOrder(existingOrder)}
                           >
                             Checkout / Pay
@@ -1203,79 +1327,56 @@ export function CounterInterface() {
                   )}
                 </>
               ) : (
-                <details className="group rounded-lg border border-border/70 bg-muted/20 [&_summary::-webkit-details-marker]:hidden">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-medium text-foreground outline-none ring-offset-background hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring rounded-lg">
-                    <span>
-                      Guest <span className="font-normal text-muted-foreground">(optional)</span>
-                      {(customerName.trim() ||
-                        customerEmail.trim() ||
-                        customerPhone.trim() ||
-                        guestBirthday.trim()) && (
-                        <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                          —{' '}
-                          {customerName.trim() ||
-                            customerEmail.trim() ||
-                            customerPhone.trim() ||
-                            (guestBirthday.trim() ? 'Birthday set' : '')}
-                        </span>
-                      )}
-                    </span>
-                    <ChevronDown
-                      className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180"
-                      aria-hidden
-                    />
-                  </summary>
-                  <div className="space-y-3 border-t border-border/60 px-3 pb-3 pt-2">
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Same fields as table session — saved with the order for CRM
-                    </p>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Name on ticket</Label>
-                      <Input
-                        value={customerName}
-                        onChange={(e) => setCustomerName(e.target.value)}
-                        className="h-10 text-base"
-                        placeholder="Display name"
-                        autoComplete="name"
-                      />
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs text-muted-foreground">Email</Label>
-                        <Input
-                          type="email"
-                          className="h-10"
-                          value={customerEmail}
-                          onChange={(e) => setCustomerEmail(e.target.value)}
-                          placeholder="email@example.com"
-                          autoComplete="email"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs text-muted-foreground">Phone</Label>
-                        <Input
-                          className="h-10"
-                          inputMode="tel"
-                          value={customerPhone}
-                          onChange={(e) => setCustomerPhone(e.target.value)}
-                          placeholder="Phone number"
-                          autoComplete="tel"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Birthday (hospitality)</Label>
-                      <Input
-                        type="date"
-                        className="h-10"
-                        value={guestBirthday}
-                        onChange={(e) => setGuestBirthday(e.target.value)}
-                      />
-                    </div>
+                <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3 text-sm">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {orderType === 'takeout' ? 'Pickup (walk-in)' : 'Delivery'}
                   </div>
-                </details>
+                  {!existingOrder ? (
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      Add items, then send to kitchen — the ticket stays on this rail like dine-in (no table
+                      picker). Guest details below can be filled anytime before or after the first send.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="text-xs text-muted-foreground">
+                        Active ticket{' '}
+                        <span className="font-semibold text-foreground">#{existingOrder.order_number}</span>
+                      </div>
+                      {existingOrder &&
+                        continuingOrderId &&
+                        !checkoutOpen &&
+                        orderPayableRemaining(existingOrder) > 0 && (
+                          <Button
+                            type="button"
+                            className="h-10 w-full text-sm font-semibold"
+                            onClick={() => selectPaymentOrder(existingOrder)}
+                          >
+                            Checkout / Pay
+                          </Button>
+                        )}
+                    </div>
+                  )}
+                </div>
               )}
 
+              <CounterGuestDetailsSection
+                customerName={customerName}
+                setCustomerName={setCustomerName}
+                customerEmail={customerEmail}
+                setCustomerEmail={setCustomerEmail}
+                customerPhone={customerPhone}
+                setCustomerPhone={setCustomerPhone}
+                guestBirthday={guestBirthday}
+                setGuestBirthday={setGuestBirthday}
+                existingOrder={existingOrder}
+                onGuestUpdated={handleGuestUpdated}
+              />
+
+              <CounterOrderHistorySection
+                orderType={orderType}
+                formatCurrency={formatCurrency}
+                onSelectOrder={handleSelectHistoryOrder}
+              />
             </div>
             </div>
 

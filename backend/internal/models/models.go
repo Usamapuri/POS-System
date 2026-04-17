@@ -326,6 +326,14 @@ type UpdateCheckoutIntentRequest struct {
 	CheckoutPaymentMethod string `json:"checkout_payment_method" binding:"required,oneof=cash card online"`
 }
 
+// UpdateCounterOrderGuestRequest updates optional guest / CRM fields on an open order (counter).
+type UpdateCounterOrderGuestRequest struct {
+	CustomerName  *string `json:"customer_name"`
+	CustomerEmail *string `json:"customer_email"`
+	CustomerPhone *string `json:"customer_phone"`
+	GuestBirthday *string `json:"guest_birthday"` // YYYY-MM-DD or empty to clear
+}
+
 // ApplyOrderDiscountRequest sets order discount at checkout (counter). Use discount_amount, or discount_percent (0–100) to derive amount from subtotal.
 type ApplyOrderDiscountRequest struct {
 	DiscountAmount  float64  `json:"discount_amount"`
