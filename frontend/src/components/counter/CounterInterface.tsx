@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/api/client'
 import { Button } from '@/components/ui/button'
@@ -46,11 +46,88 @@ interface CartItem {
 }
 
 function categoryColor(cat: Category | undefined, fallback: string): string {
-  if (cat?.color && /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(cat.color)) return cat.color
+  const raw = cat?.color?.trim()
+  if (raw) {
+    if (/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(raw)) return raw
+    if (/^[0-9A-Fa-f]{6}$/.test(raw)) return `#${raw}`
+    if (/^[0-9A-Fa-f]{3}$/.test(raw)) {
+      const [a, b, c] = raw.split('')
+      return `#${a}${a}${b}${b}${c}${c}`
+    }
+  }
   let h = 0
   const s = (cat?.name ?? fallback) || 'x'
   for (let i = 0; i < s.length; i++) h = (h + s.charCodeAt(i) * 17) % 360
   return `hsl(${h} 45% 42%)`
+}
+
+/** Gradient tint that works for both hex and hsl() from categoryColor */
+function categorySurfaceStyle(accent: string): { background: string } {
+  return {
+    background: `linear-gradient(135deg, color-mix(in srgb, ${accent} 30%, var(--card)) 0%, var(--card) 58%)`,
+  }
+}
+
+/** ~30% lighter: blend 30% toward white (RGB) or raise HSL lightness by 30% of distance to 100%. */
+const ACCENT_LIGHTEN = 0.3
+
+function lightenAccent(accent: string): string {
+  const t = accent.trim()
+  const hex6 = t.match(/^#([0-9A-Fa-f]{6})$/i)
+  const hex3 = t.match(/^#([0-9A-Fa-f]{3})$/i)
+  const mix = (c: number) => Math.round(c + (255 - c) * ACCENT_LIGHTEN)
+  if (hex6) {
+    const n = parseInt(hex6[1], 16)
+    const r = mix((n >> 16) & 255)
+    const g = mix((n >> 8) & 255)
+    const b = mix(n & 255)
+    return `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`
+  }
+  if (hex3) {
+    const [a, c, d] = hex3[1].split('')
+    const r = mix(parseInt(a + a, 16))
+    const g = mix(parseInt(c + c, 16))
+    const b = mix(parseInt(d + d, 16))
+    return `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`
+  }
+  const hsl = t.match(/hsl\(\s*([\d.]+)\s+([\d.]+)%\s+([\d.]+)%/)
+  if (hsl) {
+    const h = hsl[1]
+    const s = hsl[2]
+    const l = parseFloat(hsl[3])
+    const newL = Math.min(100, l + (100 - l) * ACCENT_LIGHTEN)
+    return `hsl(${h} ${s}% ${Math.round(newL * 10) / 10}%)`
+  }
+  return accent
+}
+
+/** Light text on dark accents, dark text on light accents (hex or hsl from categoryColor). */
+function pickOnAccentText(accent: string): '#ffffff' | '#0a0a0a' {
+  const t = accent.trim()
+  const hex6 = t.match(/^#([0-9A-Fa-f]{6})$/i)
+  const hex3 = t.match(/^#([0-9A-Fa-f]{3})$/i)
+  let r = 90
+  let g = 90
+  let b = 90
+  if (hex6) {
+    const n = parseInt(hex6[1], 16)
+    r = (n >> 16) & 255
+    g = (n >> 8) & 255
+    b = n & 255
+  } else if (hex3) {
+    const [a, c, d] = hex3[1].split('')
+    r = parseInt(a + a, 16)
+    g = parseInt(c + c, 16)
+    b = parseInt(d + d, 16)
+  } else {
+    const hsl = t.match(/hsl\(\s*([\d.]+)\s+([\d.]+)%\s+([\d.]+)%/)
+    if (hsl) {
+      const l = parseFloat(hsl[3])
+      return l > 52 ? '#0a0a0a' : '#ffffff'
+    }
+  }
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+  return luminance > 0.55 ? '#0a0a0a' : '#ffffff'
 }
 
 export function CounterInterface() {
@@ -79,6 +156,14 @@ export function CounterInterface() {
   const [continuingOrderId, setContinuingOrderId] = useState<string | null>(null)
   /** Full order data when continuing an existing order (includes items already sent to kitchen). */
   const [existingOrder, setExistingOrder] = useState<Order | null>(null)
+  /** Brief highlight on product tile after a successful add-to-cart tap. */
+  const [lastTappedProductId, setLastTappedProductId] = useState<string | null>(null)
+  const tapFlashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Brief highlight on cart row after add / quantity bump (slightly longer than product tile). */
+  const [lastCartFlashProductId, setLastCartFlashProductId] = useState<string | null>(null)
+  const cartFlashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cartRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const [cartLiveAnnouncement, setCartLiveAnnouncement] = useState<{ text: string; id: number }>({ text: '', id: 0 })
   const [existingItemsExpanded, setExistingItemsExpanded] = useState(false)
 
   const queryClient = useQueryClient()
@@ -95,6 +180,19 @@ export function CounterInterface() {
       queryClient.invalidateQueries({ queryKey: ['counterPendingOrders'] })
     })
   }, [queryClient])
+
+  useEffect(() => {
+    return () => {
+      if (tapFlashTimeoutRef.current != null) {
+        clearTimeout(tapFlashTimeoutRef.current)
+        tapFlashTimeoutRef.current = null
+      }
+      if (cartFlashTimeoutRef.current != null) {
+        clearTimeout(cartFlashTimeoutRef.current)
+        cartFlashTimeoutRef.current = null
+      }
+    }
+  }, [])
 
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
@@ -306,6 +404,7 @@ export function CounterInterface() {
   const addToCart = (product: Product) => {
     if (!canUseCart) return
     const existingItem = cart.find((item) => item.product.id === product.id)
+    const wasExisting = Boolean(existingItem)
     if (existingItem) {
       setCart(
         cart.map((item) =>
@@ -315,6 +414,28 @@ export function CounterInterface() {
     } else {
       setCart([...cart, { product, quantity: 1 }])
     }
+    if (tapFlashTimeoutRef.current != null) clearTimeout(tapFlashTimeoutRef.current)
+    setLastTappedProductId(product.id)
+    tapFlashTimeoutRef.current = setTimeout(() => {
+      tapFlashTimeoutRef.current = null
+      setLastTappedProductId((current) => (current === product.id ? null : current))
+    }, 180)
+
+    if (cartFlashTimeoutRef.current != null) clearTimeout(cartFlashTimeoutRef.current)
+    setLastCartFlashProductId(product.id)
+    cartFlashTimeoutRef.current = setTimeout(() => {
+      cartFlashTimeoutRef.current = null
+      setLastCartFlashProductId((current) => (current === product.id ? null : current))
+    }, 280)
+
+    setCartLiveAnnouncement({
+      text: wasExisting ? `Updated ${product.name} in cart` : `Added ${product.name} to cart`,
+      id: Date.now(),
+    })
+
+    requestAnimationFrame(() => {
+      cartRowRefs.current[product.id]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    })
   }
 
   const removeFromCart = (productId: string) => {
@@ -599,17 +720,55 @@ export function CounterInterface() {
                 const cat = product.category_id ? categoryById.get(product.category_id) : undefined
                 const bg = categoryColor(cat, product.name)
                 const disabled = !product.is_available || !canUseCart
+                const showTapFlash = lastTappedProductId === product.id
                 return (
                   <button
                     key={product.id}
                     type="button"
                     disabled={disabled}
                     onClick={() => addToCart(product)}
-                    className="rounded-lg border border-border text-left p-3 min-h-[88px] flex flex-col justify-between transition-opacity disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98] shadow-sm"
-                    style={{ background: `linear-gradient(135deg, ${bg}22 0%, var(--card) 55%)` }}
+                    className={cn(
+                      'flex min-h-[108px] flex-col rounded-lg border border-border border-l-4 p-2.5 text-left shadow-sm select-none',
+                      'transition-[transform,box-shadow,filter,outline] duration-100',
+                      'active:scale-[0.96] active:brightness-[0.97] active:ring-2 active:ring-primary/40 active:ring-offset-2',
+                      'disabled:pointer-events-none disabled:opacity-40'
+                    )}
+                    style={{
+                      borderLeftColor: bg,
+                      ...categorySurfaceStyle(bg),
+                      ...(showTapFlash
+                        ? {
+                            outline: `2px solid ${bg}`,
+                            outlineOffset: '3px',
+                            zIndex: 1,
+                          }
+                        : {}),
+                    }}
                   >
-                    <span className="font-semibold text-sm leading-tight line-clamp-2">{product.name}</span>
-                    <span className="text-base font-bold text-primary mt-1">{formatCurrency(product.price)}</span>
+                    {/* Right column matches image height (h-20) so price bottom lines up with image bottom */}
+                    <div className="flex min-h-0 flex-1 gap-2">
+                      <div className="shrink-0">
+                        {product.image_url ? (
+                          <img
+                            src={product.image_url}
+                            alt={product.name}
+                            className="h-20 w-20 rounded-md object-cover bg-muted"
+                          />
+                        ) : (
+                          <div className="flex h-20 w-20 items-center justify-center rounded-md bg-gradient-to-r from-orange-400 to-pink-500">
+                            <Package className="h-10 w-10 text-white" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex h-20 min-w-0 flex-1 flex-col overflow-hidden">
+                        <span className="min-h-0 flex-1 overflow-hidden text-left text-base font-semibold leading-snug text-foreground line-clamp-3">
+                          {product.name}
+                        </span>
+                        <span className="shrink-0 self-end text-sm font-normal tabular-nums text-primary">
+                          {formatCurrency(product.price)}
+                        </span>
+                      </div>
+                    </div>
                   </button>
                 )
               })}
@@ -764,6 +923,9 @@ export function CounterInterface() {
                 </div>
               )}
 
+              <span key={cartLiveAnnouncement.id} className="sr-only" aria-live="polite" aria-atomic="true">
+                {cartLiveAnnouncement.text}
+              </span>
               <h3 className="font-semibold flex items-center gap-2">
                 <ShoppingCart className="w-4 h-4" />
                 {continuingOrderId ? 'New items' : 'Cart'} ({cart.length})
@@ -772,28 +934,62 @@ export function CounterInterface() {
                 <p className="text-muted-foreground text-sm">Cart is empty</p>
               ) : (
                 <div className="space-y-2">
-                  {cart.map((item) => (
-                    <div
-                      key={item.product.id}
-                      className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/40"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium truncate text-sm">{item.product.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {formatCurrency(item.product.price)} each
+                  {cart.map((item) => {
+                    const lineCat = item.product.category_id ? categoryById.get(item.product.category_id) : undefined
+                    const lineAccent = categoryColor(lineCat, item.product.name)
+                    const lineFill = lightenAccent(lineAccent)
+                    const onAccent = pickOnAccentText(lineFill)
+                    const showCartFlash = lastCartFlashProductId === item.product.id
+                    return (
+                      <div
+                        key={item.product.id}
+                        ref={(el) => {
+                          cartRowRefs.current[item.product.id] = el
+                        }}
+                        className={cn(
+                          'flex items-center justify-between gap-2 rounded-md p-2.5 shadow-sm transition-shadow',
+                          'hover:shadow-md',
+                          showCartFlash && 'animate-pulse'
+                        )}
+                        style={{
+                          backgroundColor: lineFill,
+                          color: onAccent,
+                          ...(showCartFlash
+                            ? {
+                                outline: `2px solid ${onAccent}`,
+                                outlineOffset: '2px',
+                              }
+                            : {}),
+                        }}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold">{item.product.name}</div>
+                          <div className="text-xs opacity-85">
+                            {formatCurrency(item.product.price)} each
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="h-11 w-11 touch-manipulation border-current/35 bg-background/15 text-current hover:bg-background/25 hover:text-current"
+                            onClick={() => removeFromCart(item.product.id)}
+                          >
+                            <Minus className="h-4 w-4" />
+                          </Button>
+                          <span className="w-8 text-center text-sm font-medium tabular-nums">{item.quantity}</span>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="h-11 w-11 touch-manipulation border-current/35 bg-background/15 text-current hover:bg-background/25 hover:text-current"
+                            onClick={() => addToCart(item.product)}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Button size="icon" variant="outline" className="h-9 w-9" onClick={() => removeFromCart(item.product.id)}>
-                          <Minus className="h-4 w-4" />
-                        </Button>
-                        <span className="w-8 text-center font-medium">{item.quantity}</span>
-                        <Button size="icon" variant="outline" className="h-9 w-9" onClick={() => addToCart(item.product)}>
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
 

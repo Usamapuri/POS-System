@@ -1,7 +1,7 @@
 import { useReducer, useState, useCallback, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/api/client'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -474,83 +474,38 @@ export function KOTServerInterface() {
           </div>
         </div>
 
-        {hasLayout ? (
-          <div className="mb-5">
-            <div className="flex gap-2 items-center text-xs mb-2">
-              <span className="rounded-full px-2 py-1 font-medium bg-green-100 text-green-800">Available</span>
-              <span className="rounded-full px-2 py-1 font-medium bg-emerald-100 text-emerald-900">Occupied</span>
-              <span className="rounded-full px-2 py-1 font-medium bg-yellow-100 text-yellow-800">Pending</span>
-            </div>
-            <TableFloorMap
-              tables={visibleTables}
-              selectedTableId={state.tableId ?? undefined}
-              viewportHeight={420}
-              showControls
-              onSelect={(table) => {
-                const order = (table as any).current_order
-                const occupied = table.has_active_order ?? table.is_occupied
-                dispatch({ type: 'SELECT_TABLE', tableId: table.id, tableName: table.table_number })
-                if (!occupied) {
-                  return
-                }
-                if (order?.id) {
-                  dispatch({ type: 'SET_GUEST_COUNT', guestCount: order.guest_count || 1 })
-                  ;(async () => {
-                    const res = await apiClient.getOrder(order.id)
-                    if (res.success && res.data) {
-                      const mapped: KOTItem[] = (res.data.items || []).map((oi: OrderItem) => ({
-                        id: oi.id,
-                        product_id: oi.product_id,
-                        product_name: oi.product?.name || '',
-                        quantity: oi.quantity,
-                        unit_price: oi.unit_price,
-                        special_instructions: oi.special_instructions || '',
-                        status: oi.status as ItemStatus,
-                        category_id: oi.product?.category_id,
-                      }))
-                      dispatch({ type: 'ORDER_CREATED', orderId: order.id, items: mapped })
-                    }
-                  })()
-                }
-              }}
-            />
-          </div>
-        ) : null}
-
-        {availableTables.length > 0 && (
-          <>
-            <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Available Tables</h3>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4 mb-8">
-              {availableTables.map((table: any) => (
-                <button
-                  key={table.id}
-                  onClick={() => dispatch({ type: 'SELECT_TABLE', tableId: table.id, tableName: table.table_number })}
-                  className="p-4 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-500 hover:shadow-md cursor-pointer text-center transition-all"
-                >
-                  <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{table.table_number}</div>
-                  <div className="text-xs text-gray-400 mt-1">{table.seating_capacity} seats</div>
-                  {table.location && <div className="text-xs text-gray-400">{table.location}</div>}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-
-        {occupiedTables.length > 0 && (
-          <>
-            <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Occupied Tables</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {occupiedTables.map((table: any) => {
-                const order = table.current_order
-                const server = order?.server
-                return (
-                  <button
-                    key={table.id}
-                    onClick={() => {
+        {visibleTables.length === 0 ? (
+          <div className="text-center py-12 text-gray-400 dark:text-gray-500">No tables configured</div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-3 items-start">
+            <div className="min-w-0 space-y-5">
+              {hasLayout ? (
+                <div>
+                  <div className="flex flex-wrap gap-2 items-center text-xs mb-2">
+                    <span className="rounded-full px-2 py-1 font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200">
+                      Available
+                    </span>
+                    <span className="rounded-full px-2 py-1 font-medium bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100">
+                      Occupied
+                    </span>
+                    <span className="rounded-full px-2 py-1 font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-100">
+                      Pending
+                    </span>
+                  </div>
+                  <TableFloorMap
+                    tables={visibleTables}
+                    selectedTableId={state.tableId ?? undefined}
+                    viewportHeight={420}
+                    showControls
+                    onSelect={(table) => {
+                      const order = (table as any).current_order
+                      const occupied = table.has_active_order ?? table.is_occupied
+                      dispatch({ type: 'SELECT_TABLE', tableId: table.id, tableName: table.table_number })
+                      if (!occupied) {
+                        return
+                      }
                       if (order?.id) {
-                        dispatch({ type: 'SELECT_TABLE', tableId: table.id, tableName: table.table_number })
                         dispatch({ type: 'SET_GUEST_COUNT', guestCount: order.guest_count || 1 })
-                        // Load existing order
                         ;(async () => {
                           const res = await apiClient.getOrder(order.id)
                           if (res.success && res.data) {
@@ -569,40 +524,108 @@ export function KOTServerInterface() {
                         })()
                       }
                     }}
-                    className="p-4 rounded-xl border-2 border-orange-200 bg-orange-50 hover:border-orange-400 hover:shadow-md cursor-pointer text-left transition-all"
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{table.table_number}</div>
-                      <Badge variant="secondary" className="text-[10px] bg-orange-100 text-orange-700">
-                        {order?.status?.toUpperCase() || 'ACTIVE'}
-                      </Badge>
-                    </div>
-                    {order && (
-                      <div className="space-y-1 mt-2">
-                        <div className="text-xs text-gray-600">
-                          #{order.order_number}
-                          {order.guest_count > 0 && <span className="ml-1">· {order.guest_count} guests</span>}
+                  />
+                </div>
+              ) : null}
+
+              {availableTables.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
+                    Available Tables
+                  </h3>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 sm:gap-4">
+                    {availableTables.map((table: any) => (
+                      <button
+                        key={table.id}
+                        type="button"
+                        onClick={() => dispatch({ type: 'SELECT_TABLE', tableId: table.id, tableName: table.table_number })}
+                        className="p-4 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-500 hover:shadow-md cursor-pointer text-center transition-all"
+                      >
+                        <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{table.table_number}</div>
+                        <div className="text-xs text-gray-400 mt-1">{table.seating_capacity} seats</div>
+                        {table.location && <div className="text-xs text-gray-400">{table.location}</div>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <Card className="w-full border shadow-sm lg:sticky lg:top-4 lg:self-start">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Occupied tables</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 overflow-y-auto max-h-[min(560px,calc(100vh-14rem))] pt-0">
+                {occupiedTables.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No occupied tables on this floor.</p>
+                ) : (
+                  occupiedTables.map((table: any) => {
+                    const order = table.current_order
+                    const server = order?.server
+                    return (
+                      <button
+                        key={table.id}
+                        type="button"
+                        onClick={() => {
+                          if (order?.id) {
+                            dispatch({ type: 'SELECT_TABLE', tableId: table.id, tableName: table.table_number })
+                            dispatch({ type: 'SET_GUEST_COUNT', guestCount: order.guest_count || 1 })
+                            ;(async () => {
+                              const res = await apiClient.getOrder(order.id)
+                              if (res.success && res.data) {
+                                const mapped: KOTItem[] = (res.data.items || []).map((oi: OrderItem) => ({
+                                  id: oi.id,
+                                  product_id: oi.product_id,
+                                  product_name: oi.product?.name || '',
+                                  quantity: oi.quantity,
+                                  unit_price: oi.unit_price,
+                                  special_instructions: oi.special_instructions || '',
+                                  status: oi.status as ItemStatus,
+                                  category_id: oi.product?.category_id,
+                                }))
+                                dispatch({ type: 'ORDER_CREATED', orderId: order.id, items: mapped })
+                              }
+                            })()
+                          }
+                        }}
+                        className="w-full rounded-xl border-2 border-orange-200 dark:border-orange-800/60 bg-orange-50 dark:bg-orange-950/40 p-3 text-left transition-all hover:border-orange-400 dark:hover:border-orange-600 hover:shadow-md"
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <div className="text-base font-bold text-gray-900 dark:text-gray-100 truncate">
+                            {table.table_number}
+                          </div>
+                          <Badge variant="secondary" className="shrink-0 text-[10px] bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-200">
+                            {order?.status?.toUpperCase() || 'ACTIVE'}
+                          </Badge>
                         </div>
-                        {server && (
-                          <div className="flex items-center gap-1 text-xs text-blue-600 font-medium">
-                            <Users className="w-3 h-3" />
-                            {server.first_name} {server.last_name}
+                        {order && (
+                          <div className="space-y-1 mt-2">
+                            <div className="text-xs text-gray-600 dark:text-gray-300">
+                              #{order.order_number}
+                              {order.guest_count > 0 && <span className="ml-1">· {order.guest_count} guests</span>}
+                            </div>
+                            {server && (
+                              <div className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 font-medium">
+                                <Users className="w-3 h-3 shrink-0" />
+                                <span className="truncate">
+                                  {server.first_name} {server.last_name}
+                                </span>
+                              </div>
+                            )}
+                            {order.total_amount > 0 && (
+                              <div className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                                {formatCurrency(Number(order.total_amount))}
+                              </div>
+                            )}
                           </div>
                         )}
-                        {order.total_amount > 0 && (
-                          <div className="text-xs font-semibold text-gray-700">{formatCurrency(Number(order.total_amount))}</div>
-                        )}
-                      </div>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          </>
-        )}
-
-        {visibleTables.length === 0 && (
-          <div className="text-center py-12 text-gray-400">No tables configured</div>
+                      </button>
+                    )
+                  })
+                )}
+              </CardContent>
+            </Card>
+          </div>
         )}
       </div>
     )
