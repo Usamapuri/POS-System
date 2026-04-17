@@ -23,6 +23,7 @@ export type FloorComboboxProps = {
   id?: string
   className?: string
   placeholder?: string
+  allowCreate?: boolean
   /**
    * When false, the input stays empty while the list is closed (placeholder only).
    * Parent `value` still drives the selected floor. Opening always clears the filter so the full list shows.
@@ -47,6 +48,7 @@ export function FloorCombobox({
   id,
   className,
   placeholder = 'Search or type a floor name…',
+  allowCreate = true,
   commitDisplayWhenClosed = true,
 }: FloorComboboxProps) {
   const floors = useMemo(() => sortFloors(options), [options])
@@ -126,6 +128,7 @@ export function FloorCombobox({
       return
     }
 
+    if (!allowCreate) return
     await onCreateFloor(raw)
     onValueChange(raw)
     setOpen(false)
@@ -173,7 +176,9 @@ export function FloorCombobox({
             role="listbox"
           >
             {filtered.length === 0 && (
-              <li className="px-3 py-2 text-sm text-muted-foreground">No match — press Enter to create</li>
+              <li className="px-3 py-2 text-sm text-muted-foreground">
+                {allowCreate ? 'No match - press Enter to create' : 'No floors found'}
+              </li>
             )}
             {filtered.map((f) => (
               <li key={f}>

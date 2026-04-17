@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/dialog'
 import type { DiningTable } from '@/types'
 import { TableLayoutBuilder } from '@/components/tables/TableLayoutBuilder'
-import { buildFloorTabs } from '@/lib/managedFloors'
+import { buildFloorTabs, mergeFloorList } from '@/lib/managedFloors'
 
 type ViewMode = 'list' | 'table-form' | 'layout'
 
@@ -38,7 +38,8 @@ export function AdminTableManagement() {
   const [searchTerm, setSearchTerm] = useState('')
   const [editingTable, setEditingTable] = useState<DiningTable | null>(null)
   const [filterStatus, setFilterStatus] = useState<'all' | 'available' | 'occupied'>('all')
-  const [selectedFloor, setSelectedFloor] = useState<string>('General')
+  const [selectedFloor, setSelectedFloor] = useState<string>('Main Floor')
+  const [pendingFloors, setPendingFloors] = useState<string[]>([])
   const [deleteTableOpen, setDeleteTableOpen] = useState(false)
   const [pendingDeleteTable, setPendingDeleteTable] = useState<DiningTable | null>(null)
 
@@ -101,15 +102,24 @@ export function AdminTableManagement() {
   }
 
   const floors = useMemo(() => {
-    const tableLocations = (allTables as DiningTable[]).map((t) => t.location || 'General')
+    const tableLocations = (allTables as DiningTable[]).map((t) => t.location || 'Main Floor')
     return buildFloorTabs(floorSettingRes?.data, tableLocations)
   }, [allTables, floorSettingRes?.data])
 
+  const effectiveFloors = useMemo(() => mergeFloorList(floors, pendingFloors), [floors, pendingFloors])
+
   useEffect(() => {
-    if (!floors.includes(selectedFloor)) {
-      setSelectedFloor(floors[0] || 'General')
+    if (pendingFloors.length === 0) return
+    setPendingFloors((prev) =>
+      prev.filter((name) => !floors.some((f) => f.toLowerCase() === name.toLowerCase()))
+    )
+  }, [floors, pendingFloors.length])
+
+  useEffect(() => {
+    if (!effectiveFloors.includes(selectedFloor)) {
+      setSelectedFloor(effectiveFloors[0] || 'Main Floor')
     }
-  }, [floors, selectedFloor])
+  }, [effectiveFloors, selectedFloor])
 
   const filteredTables = useMemo(() => {
     return (allTables as DiningTable[]).filter((table) => {
@@ -168,10 +178,16 @@ export function AdminTableManagement() {
   const handleCreateFloor = async (name: string) => {
     const trimmed = name.trim()
     if (!trimmed) return
-    if (floors.some((f) => f.toLowerCase() === trimmed.toLowerCase())) return
+    if (effectiveFloors.some((f) => f.toLowerCase() === trimmed.toLowerCase())) return
+    setPendingFloors((prev) => mergeFloorList(prev, [trimmed]))
     const next = mergeFloorList([...floors, trimmed], [])
-    await floorMutation.mutateAsync(next)
-    toastHelpers.success('Floor added', `${trimmed} is now available.`)
+    try {
+      await floorMutation.mutateAsync(next)
+      toastHelpers.success('Floor added', `${trimmed} is now available.`)
+    } catch (error) {
+      setPendingFloors((prev) => prev.filter((f) => f.toLowerCase() !== trimmed.toLowerCase()))
+      throw error
+    }
   }
 
   const handleRenameFloor = async (from: string, to: string) => {
@@ -179,7 +195,7 @@ export function AdminTableManagement() {
     if (!value || value === from) return
     const next = floors.map((f) => (f === from ? value : f))
     await floorMutation.mutateAsync(Array.from(new Set(next)))
-    const touched = (allTables as DiningTable[]).filter((t) => (t.location || 'General') === from)
+    const touched = (allTables as DiningTable[]).filter((t) => (t.location || 'Main Floor') === from)
     await Promise.all(touched.map((t) => apiClient.updateTable(t.id, { location: value })))
     queryClient.invalidateQueries({ queryKey: ['tables'] })
     queryClient.invalidateQueries({ queryKey: ['tables-summary'] })
@@ -189,7 +205,7 @@ export function AdminTableManagement() {
 
   const handleDeleteFloor = async (name: string, moveTo: string) => {
     if (!moveTo || moveTo === name) return
-    const touched = (allTables as DiningTable[]).filter((t) => (t.location || 'General') === name)
+    const touched = (allTables as DiningTable[]).filter((t) => (t.location || 'Main Floor') === name)
     await Promise.all(touched.map((t) => apiClient.updateTable(t.id, { location: moveTo })))
     const next = floors.filter((f) => f !== name)
     await floorMutation.mutateAsync(next)
@@ -233,7 +249,7 @@ export function AdminTableManagement() {
 
         <TableForm
           table={editingTable || undefined}
-          floors={floors}
+          floors={effectiveFloors}
           onCreateFloor={handleCreateFloor}
           onRenameFloor={handleRenameFloor}
           onDeleteFloor={handleDeleteFloor}
@@ -273,7 +289,7 @@ export function AdminTableManagement() {
 
         <TableLayoutBuilder
           tables={allTables as DiningTable[]}
-          floors={floors}
+          floors={effectiveFloors}
           selectedFloor={selectedFloor}
           onFloorChange={(name) => {
             setSelectedFloor(name)
@@ -335,7 +351,7 @@ export function AdminTableManagement() {
         <Card><CardContent className="pt-6 text-center"><div className="text-2xl font-bold">{stats.total}</div><p className="text-xs text-muted-foreground">Total Tables</p></CardContent></Card>
         <Card><CardContent className="pt-6 text-center"><div className="text-2xl font-bold text-green-600">{stats.available}</div><p className="text-xs text-muted-foreground">Available</p></CardContent></Card>
         <Card><CardContent className="pt-6 text-center"><div className="text-2xl font-bold text-blue-600">{stats.occupied}</div><p className="text-xs text-muted-foreground">Occupied</p></CardContent></Card>
-        <Card><CardContent className="pt-6 text-center"><div className="text-2xl font-bold text-muted-foreground">{floors.length}</div><p className="text-xs text-muted-foreground">Floors / Areas</p></CardContent></Card>
+        <Card><CardContent className="pt-6 text-center"><div className="text-2xl font-bold text-muted-foreground">{effectiveFloors.length}</div><p className="text-xs text-muted-foreground">Floors / Areas</p></CardContent></Card>
         <Card><CardContent className="pt-6 text-center"><div className="text-2xl font-bold text-muted-foreground">{filteredTables.length}</div><p className="text-xs text-muted-foreground">Filtered</p></CardContent></Card>
       </div>
 

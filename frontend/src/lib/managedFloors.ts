@@ -8,7 +8,7 @@ export function mergeFloorList(settingList: string[], tableLocations: string[]):
     new Set([...settingList, ...tableLocations].map((s) => s.trim()).filter(Boolean))
   )
   merged.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-  return merged.length ? merged : ['General']
+  return merged.length ? merged : ['Main Floor']
 }
 
 export function parseManagedFloorsSetting(settingData: unknown): string[] {

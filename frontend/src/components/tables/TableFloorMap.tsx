@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { DiningTable } from '@/types'
 import { Button } from '@/components/ui/button'
 
@@ -14,6 +14,8 @@ type Props = {
 
 const FALLBACK_W = 108
 const FALLBACK_H = 72
+const BASE_MAP_W = 980
+const BASE_MAP_H = 560
 
 export function TableFloorMap({
   tables,
@@ -25,8 +27,30 @@ export function TableFloorMap({
   showControls = true,
 }: Props) {
   const [zoom, setZoom] = useState(1)
+  const [canvasSize, setCanvasSize] = useState({ width: BASE_MAP_W, height: BASE_MAP_H })
+  const mapShellRef = useRef<HTMLDivElement | null>(null)
   const hasLayout = tables.some((t) => typeof t.map_x === 'number' && typeof t.map_y === 'number')
   if (!hasLayout) return null
+
+  useEffect(() => {
+    const shell = mapShellRef.current
+    if (!shell) return
+
+    const updateCanvasSize = () => {
+      const nextWidth = Math.max(BASE_MAP_W, Math.floor(shell.clientWidth) - 16)
+      const nextHeight = Math.max(BASE_MAP_H, viewportHeight - 8)
+      setCanvasSize((prev) =>
+        prev.width === nextWidth && prev.height === nextHeight
+          ? prev
+          : { width: nextWidth, height: nextHeight }
+      )
+    }
+
+    updateCanvasSize()
+    const observer = new ResizeObserver(updateCanvasSize)
+    observer.observe(shell)
+    return () => observer.disconnect()
+  }, [viewportHeight])
 
   return (
     <div className={`border rounded-md bg-[#f4efe6] p-2 ${className ?? ''}`}>
@@ -45,14 +69,15 @@ export function TableFloorMap({
         </div>
       )}
       <div
+        ref={mapShellRef}
         className="relative border rounded bg-[#f7f1e8] overflow-auto"
         style={{ width: '100%', minHeight: 230, height: viewportHeight }}
       >
         <div
           className="relative"
           style={{
-            width: 980,
-            height: 560,
+            width: canvasSize.width,
+            height: canvasSize.height,
             transform: `scale(${zoom})`,
             transformOrigin: 'top left',
             backgroundImage:

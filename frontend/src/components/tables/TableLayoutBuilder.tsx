@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import type { DiningTable } from '@/types'
 import { FloorCombobox } from '@/components/tables/FloorCombobox'
 
@@ -65,9 +66,14 @@ export function TableLayoutBuilder({
   const [saving, setSaving] = useState(false)
   const [savingTable, setSavingTable] = useState(false)
   const [isCreatingTable, setIsCreatingTable] = useState(false)
+  const [addFloorOpen, setAddFloorOpen] = useState(false)
+  const [newFloorName, setNewFloorName] = useState('')
+  const [creatingFloor, setCreatingFloor] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [layout, setLayout] = useState<LayoutTable[]>([])
+  const [canvasSize, setCanvasSize] = useState({ width: CANVAS_W, height: CANVAS_H })
   const canvasRef = useRef<HTMLDivElement | null>(null)
+  const canvasShellRef = useRef<HTMLDivElement | null>(null)
 
   const floorTables = useMemo(
     () => tables.filter((t) => (t.location || 'General') === selectedFloor),
@@ -93,6 +99,26 @@ export function TableLayoutBuilder({
     setActiveId(null)
   }, [floorTables])
 
+  useEffect(() => {
+    const shell = canvasShellRef.current
+    if (!shell) return
+
+    const updateCanvasSize = () => {
+      const nextWidth = Math.max(CANVAS_W, Math.floor(shell.clientWidth) - 16)
+      const nextHeight = Math.max(CANVAS_H, Math.floor(shell.clientHeight) - 16)
+      setCanvasSize((prev) =>
+        prev.width === nextWidth && prev.height === nextHeight
+          ? prev
+          : { width: nextWidth, height: nextHeight }
+      )
+    }
+
+    updateCanvasSize()
+    const observer = new ResizeObserver(updateCanvasSize)
+    observer.observe(shell)
+    return () => observer.disconnect()
+  }, [])
+
   const onPointerDown = (event: React.PointerEvent, tableId: string) => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -116,8 +142,8 @@ export function TableLayoutBuilder({
           const ySnapped = Math.round(yRaw / gridSize) * gridSize
           return {
             ...item,
-            map_x: clamp(xSnapped, 0, CANVAS_W - item.map_w),
-            map_y: clamp(ySnapped, 0, CANVAS_H - item.map_h),
+            map_x: clamp(xSnapped, 0, canvasSize.width - item.map_w),
+            map_y: clamp(ySnapped, 0, canvasSize.height - item.map_h),
           }
         })
       )
@@ -225,6 +251,20 @@ export function TableLayoutBuilder({
     setActiveId(null)
   }
 
+  const handleAddFloor = async () => {
+    const name = newFloorName.trim()
+    if (!name) return
+    setCreatingFloor(true)
+    try {
+      await onCreateFloor(name)
+      onFloorChange(name)
+      setNewFloorName('')
+      setAddFloorOpen(false)
+    } finally {
+      setCreatingFloor(false)
+    }
+  }
+
   const statusCounts = useMemo(() => {
     const available = layout.filter((t) => !(t.has_active_order ?? t.is_occupied)).length
     const occupied = layout.filter((t) => t.has_active_order ?? t.is_occupied).length
@@ -244,9 +284,17 @@ export function TableLayoutBuilder({
               onCreateFloor={onCreateFloor}
               onRenameFloor={onRenameFloor}
               onDeleteFloor={onDeleteFloor}
-              placeholder="Floor — search, pick, or type + Enter"
+              allowCreate={false}
+              placeholder="Floor - search or select"
             />
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setAddFloorOpen(true)}
+          >
+            Add Floor
+          </Button>
           <Button size="sm" onClick={() => { setIsCreatingTable(true); setActiveId(null) }}>
             Add Table
           </Button>
@@ -273,64 +321,62 @@ export function TableLayoutBuilder({
         <BadgePill label={`Pending ${statusCounts.pending}`} className="bg-amber-100 text-amber-900 border border-amber-200" />
       </div>
 
-      {layout.length === 0 ? (
-        <Card>
-          <CardContent className="pt-6 text-sm text-muted-foreground">
-            No tables on this floor yet. Use Add Table above or add tables from the table list.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid lg:grid-cols-[1fr_300px] gap-3">
-          <div className="border rounded-lg bg-[#f4efe6] overflow-auto">
-            <div
-              ref={canvasRef}
-              className="relative m-2 border rounded-md bg-[#f7f1e8]"
-              style={{
-                width: `${CANVAS_W}px`,
-                height: `${CANVAS_H}px`,
-                transform: `scale(${zoom})`,
-                transformOrigin: 'top left',
-                backgroundImage:
-                  'linear-gradient(to right, rgba(74,53,33,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(74,53,33,0.06) 1px, transparent 1px)',
-                backgroundSize: `${gridSize}px ${gridSize}px`,
-              }}
-            >
-              {layout.map((table) => {
-                const occupied = table.has_active_order ?? table.is_occupied
-                return (
-                  <div
-                    key={table.id}
-                    onPointerDown={(e) => onPointerDown(e, table.id)}
-                    onClick={() => setActiveId(table.id)}
-                    className={`absolute select-none border shadow-sm cursor-move flex flex-col items-center justify-center text-sm ${
-                      activeId === table.id ? 'ring-2 ring-primary' : ''
-                    } ${occupied ? 'bg-emerald-100 border-emerald-400' : 'bg-white border-border'}`}
-                    style={{
-                      left: `${table.map_x}px`,
-                      top: `${table.map_y}px`,
-                      width: `${table.map_w}px`,
-                      height: `${table.map_h}px`,
-                      borderRadius: table.shape === 'round' ? '999px' : '10px',
-                      transform: `rotate(${table.map_rotation}deg)`,
-                    }}
-                  >
-                    <div className="font-semibold leading-none">{table.table_number}</div>
-                    <div className="opacity-70 text-[11px]">{table.seating_capacity} seats</div>
-                  </div>
-                )
-              })}
-            </div>
+      <div className="grid lg:grid-cols-[1fr_300px] gap-3">
+        <div ref={canvasShellRef} className="border rounded-lg bg-[#f4efe6] overflow-auto min-h-[560px]">
+          <div
+            ref={canvasRef}
+            className="relative m-2 border rounded-md bg-[#f7f1e8]"
+            style={{
+              width: `${canvasSize.width}px`,
+              height: `${canvasSize.height}px`,
+              transform: `scale(${zoom})`,
+              transformOrigin: 'top left',
+              backgroundImage:
+                'linear-gradient(to right, rgba(74,53,33,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(74,53,33,0.06) 1px, transparent 1px)',
+              backgroundSize: `${gridSize}px ${gridSize}px`,
+            }}
+          >
+            {layout.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-muted-foreground">
+                No tables on this floor yet. Use Add Table above or add tables from the table list.
+              </div>
+            )}
+            {layout.map((table) => {
+              const occupied = table.has_active_order ?? table.is_occupied
+              return (
+                <div
+                  key={table.id}
+                  onPointerDown={(e) => onPointerDown(e, table.id)}
+                  onClick={() => setActiveId(table.id)}
+                  className={`absolute select-none border shadow-sm cursor-move flex flex-col items-center justify-center text-sm ${
+                    activeId === table.id ? 'ring-2 ring-primary' : ''
+                  } ${occupied ? 'bg-emerald-100 border-emerald-400' : 'bg-white border-border'}`}
+                  style={{
+                    left: `${table.map_x}px`,
+                    top: `${table.map_y}px`,
+                    width: `${table.map_w}px`,
+                    height: `${table.map_h}px`,
+                    borderRadius: table.shape === 'round' ? '999px' : '10px',
+                    transform: `rotate(${table.map_rotation}deg)`,
+                  }}
+                >
+                  <div className="font-semibold leading-none">{table.table_number}</div>
+                  <div className="opacity-70 text-[11px]">{table.seating_capacity} seats</div>
+                </div>
+              )
+            })}
           </div>
+        </div>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Selected Table</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {!draft ? (
-                <p className="text-sm text-muted-foreground">Select a table to edit fields and layout.</p>
-              ) : (
-                <>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Selected Table</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {!draft ? (
+              <p className="text-sm text-muted-foreground">Select a table to edit fields and layout.</p>
+            ) : (
+              <>
                   <p className="text-sm font-medium">{isCreatingTable ? 'New Table' : draft.table_number}</p>
                   <div>
                     <label className="text-xs text-muted-foreground">Table Number</label>
@@ -451,12 +497,44 @@ export function TableLayoutBuilder({
                       </Button>
                     )}
                   </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Dialog open={addFloorOpen} onOpenChange={setAddFloorOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Floor</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={newFloorName}
+            onChange={(e) => setNewFloorName(e.target.value)}
+            placeholder="Enter floor name"
+            onKeyDown={async (e) => {
+              if (e.key !== 'Enter') return
+              e.preventDefault()
+              await handleAddFloor()
+            }}
+          />
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setAddFloorOpen(false)
+                setNewFloorName('')
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void handleAddFloor()} disabled={creatingFloor}>
+              {creatingFloor ? 'Adding...' : 'Add Floor'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

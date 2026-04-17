@@ -157,7 +157,7 @@ export function KOTServerInterface() {
   const [fireBusy, setFireBusy] = useState(false)
   const [kotPrintOpen, setKotPrintOpen] = useState(false)
   const [lastFireKots, setLastFireKots] = useState<StationKOT[] | undefined>(undefined)
-  const [layoutLocationFilter, setLayoutLocationFilter] = useState<string>('all')
+  const [layoutLocationFilter, setLayoutLocationFilter] = useState<string>('Main Floor')
   const queryClient = useQueryClient()
   const { formatCurrency } = useCurrency()
 
@@ -226,15 +226,15 @@ export function KOTServerInterface() {
     () =>
       buildFloorTabs(
         floorSettingRes?.data,
-        (tables as DiningTable[]).map((t) => t.location || 'General')
+        (tables as DiningTable[]).map((t) => t.location || 'Main Floor')
       ),
     [floorSettingRes?.data, tables]
   )
 
   useEffect(() => {
-    if (layoutLocationFilter === 'all') return
+    if (floorTabs.length === 0) return
     if (!floorTabs.includes(layoutLocationFilter)) {
-      setLayoutLocationFilter('all')
+      setLayoutLocationFilter(floorTabs.includes('Main Floor') ? 'Main Floor' : floorTabs[0])
     }
   }, [floorTabs, layoutLocationFilter])
 
@@ -447,10 +447,7 @@ export function KOTServerInterface() {
 
   // Phase: Table Selection
   if (state.phase === 'table_select') {
-    const visibleTables =
-      layoutLocationFilter === 'all'
-        ? tables
-        : tables.filter((t: any) => (t.location || 'General') === layoutLocationFilter)
+    const visibleTables = tables.filter((t: any) => (t.location || 'Main Floor') === layoutLocationFilter)
     const availableTables = visibleTables.filter((t: any) => !(t.has_active_order ?? t.is_occupied))
     const occupiedTables = visibleTables.filter((t: any) => t.has_active_order ?? t.is_occupied)
     const hasLayout = tables.some((t: any) => typeof t.map_x === 'number' && typeof t.map_y === 'number')
@@ -463,13 +460,6 @@ export function KOTServerInterface() {
 
         <div className="mb-3 flex flex-wrap gap-2 items-center">
           <div className="flex gap-2 overflow-x-auto">
-            <Button
-              variant={layoutLocationFilter === 'all' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setLayoutLocationFilter('all')}
-            >
-              All areas
-            </Button>
             {floorTabs.map((loc) => (
               <Button
                 key={loc}
