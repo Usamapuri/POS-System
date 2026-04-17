@@ -22,6 +22,15 @@ func NewExpenseHandler(db *sql.DB) *ExpenseHandler {
 	return &ExpenseHandler{db: db}
 }
 
+var validExpenseCategories = map[string]bool{
+	"inventory_purchase": true, "utilities": true, "rent": true, "salaries": true,
+	"maintenance": true, "marketing": true, "supplies": true, "other": true,
+}
+
+func isValidExpenseCategory(cat string) bool {
+	return validExpenseCategories[cat]
+}
+
 func (h *ExpenseHandler) GetExpenses(c *gin.Context) {
 	page, perPage := parsePagination(c)
 	offset := (page - 1) * perPage
@@ -118,12 +127,12 @@ func (h *ExpenseHandler) CreateExpense(c *gin.Context) {
 		return
 	}
 
-	validCategories := map[string]bool{
-		"inventory_purchase": true, "utilities": true, "rent": true, "salaries": true,
-		"maintenance": true, "marketing": true, "supplies": true, "other": true,
-	}
-	if !validCategories[req.Category] {
+	if !isValidExpenseCategory(req.Category) {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid expense category"})
+		return
+	}
+	if req.Amount <= 0 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Amount must be greater than zero"})
 		return
 	}
 
@@ -162,6 +171,15 @@ func (h *ExpenseHandler) UpdateExpense(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request", Error: strPtr(err.Error())})
+		return
+	}
+
+	if req.Category != nil && !isValidExpenseCategory(*req.Category) {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid expense category"})
+		return
+	}
+	if req.Amount != nil && *req.Amount <= 0 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Amount must be greater than zero"})
 		return
 	}
 
@@ -326,7 +344,8 @@ func (h *ExpenseHandler) GetPnLReport(c *gin.Context) {
 			       COUNT(*) AS order_count
 			FROM orders
 			WHERE status = 'completed'
-			  AND created_at::date >= $1 AND created_at::date <= $2
+			  AND completed_at IS NOT NULL
+			  AND completed_at::date >= $1::date AND completed_at::date <= $2::date
 			GROUP BY bucket
 		),
 		expense AS (
@@ -352,7 +371,7 @@ func (h *ExpenseHandler) GetPnLReport(c *gin.Context) {
 		LEFT JOIN expense e ON e.bucket = ab.bucket
 		ORDER BY ab.bucket ASC
 	`,
-		strings.Replace(truncExpr, "ts", "created_at", 1),
+		strings.Replace(truncExpr, "ts", "completed_at", 1),
 		strings.Replace(truncExpr, "ts", "expense_date::timestamp", 1),
 	)
 
