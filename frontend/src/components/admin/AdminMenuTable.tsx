@@ -9,6 +9,7 @@ import {
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
 import {
   Table,
   TableBody,
@@ -37,6 +38,7 @@ interface AdminMenuTableProps {
   categories: Category[]
   onEdit: (product: Product) => void
   onDelete: (product: Product) => void
+  onToggleAvailability: (product: Product) => void
   isLoading?: boolean
   selectedIds: Set<string>
   onToggleSelect: (productId: string) => void
@@ -49,6 +51,7 @@ export function AdminMenuTable({
   categories,
   onEdit,
   onDelete,
+  onToggleAvailability,
   isLoading = false,
   selectedIds,
   onToggleSelect,
@@ -246,13 +249,14 @@ export function AdminMenuTable({
     {
       accessorKey: "is_available",
       header: "Availability",
-      cell: ({ getValue }) => {
-        const isAvailable = getValue() as boolean
+      cell: ({ row }) => {
+        const product = row.original
         return (
-          <Badge variant={isAvailable ? "default" : "secondary"}>
-            <div className={`w-2 h-2 rounded-full mr-2 ${isAvailable ? 'bg-green-400' : 'bg-red-400'}`} />
-            {isAvailable ? "Available" : "Out of Stock"}
-          </Badge>
+          <Switch
+            checked={product.is_available}
+            onCheckedChange={() => onToggleAvailability(product)}
+            aria-label={`Toggle availability for ${product.name}`}
+          />
         )
       },
     },

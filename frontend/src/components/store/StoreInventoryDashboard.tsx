@@ -320,6 +320,8 @@ function ItemsTab({ items, categories, meta, loading, search, setSearch, filterC
   const { formatCurrency } = useCurrency()
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [deleteItemOpen, setDeleteItemOpen] = useState(false)
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<StockItem | null>(null)
 
   const deleteMut = useMutation({
     mutationFn: (id: string) => apiClient.deleteStockItem(id),
@@ -344,6 +346,19 @@ function ItemsTab({ items, categories, meta, loading, search, setSearch, filterC
       if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
+  }
+
+  function handleDeleteItem(item: StockItem) {
+    setPendingDeleteItem(item)
+    setDeleteItemOpen(true)
+  }
+
+  function confirmDeleteItem() {
+    if (pendingDeleteItem) {
+      deleteMut.mutate(pendingDeleteItem.id)
+    }
+    setDeleteItemOpen(false)
+    setPendingDeleteItem(null)
   }
 
   const bulkSelectedItems = items.filter((i: StockItem) => selectedIds.has(i.id))
@@ -519,7 +534,7 @@ function ItemsTab({ items, categories, meta, loading, search, setSearch, filterC
                       <MeatballMenu>
                         <MenuItem icon={<Pencil className="w-3.5 h-3.5" />} label="Edit" onClick={() => setModal({ kind: 'editItem', item })} />
                         <MenuItem icon={<Trash2 className="w-3.5 h-3.5" />} label="Delete" destructive
-                          onClick={() => { if (confirm(`Delete "${item.name}"?`)) deleteMut.mutate(item.id) }} />
+                          onClick={() => handleDeleteItem(item)} />
                       </MeatballMenu>
                     </div>
                   </td>
@@ -530,6 +545,25 @@ function ItemsTab({ items, categories, meta, loading, search, setSearch, filterC
         </table>
       </div>
       {meta && meta.total_pages > 1 && <Pagination page={page} totalPages={meta.total_pages} setPage={setPage} />}
+
+      <Dialog open={deleteItemOpen} onOpenChange={setDeleteItemOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Inventory Item?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{pendingDeleteItem?.name}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteItemOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteItem}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -537,34 +571,71 @@ function ItemsTab({ items, categories, meta, loading, search, setSearch, filterC
 // ─── Other tab components (unchanged) ────────────────────────────
 
 function CategoriesTab({ categories, setModal, qc, showToast }: any) {
+  const [deleteCategoryOpen, setDeleteCategoryOpen] = useState(false)
+  const [pendingDeleteCategory, setPendingDeleteCategory] = useState<StockCategory | null>(null)
+
   const deleteMut = useMutation({
     mutationFn: (id: string) => apiClient.deleteStockCategory(id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['stockCategories'] }); showToast('success', 'Category deleted') },
     onError: (err: Error) => showToast('error', err.message || 'Failed to delete category'),
   })
 
+  function handleDeleteCategory(category: StockCategory) {
+    setPendingDeleteCategory(category)
+    setDeleteCategoryOpen(true)
+  }
+
+  function confirmDeleteCategory() {
+    if (pendingDeleteCategory) {
+      deleteMut.mutate(pendingDeleteCategory.id)
+    }
+    setDeleteCategoryOpen(false)
+    setPendingDeleteCategory(null)
+  }
+
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {categories.map((cat: StockCategory) => (
-        <Card key={cat.id}>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">{cat.name}</CardTitle>
-              <Badge variant="secondary" className="text-xs">{cat.item_count ?? 0} items</Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {cat.description && <p className="text-sm text-muted-foreground mb-3">{cat.description}</p>}
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => setModal({ kind: 'editCategory', category: cat })}>Edit</Button>
-              <Button size="sm" variant="ghost" className="text-xs h-7 text-destructive"
-                onClick={() => { if (confirm(`Delete "${cat.name}"?`)) deleteMut.mutate(cat.id) }}>Delete</Button>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-      {categories.length === 0 && <p className="text-muted-foreground col-span-full text-center py-8">No categories yet.</p>}
-    </div>
+    <>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {categories.map((cat: StockCategory) => (
+          <Card key={cat.id}>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">{cat.name}</CardTitle>
+                <Badge variant="secondary" className="text-xs">{cat.item_count ?? 0} items</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {cat.description && <p className="text-sm text-muted-foreground mb-3">{cat.description}</p>}
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => setModal({ kind: 'editCategory', category: cat })}>Edit</Button>
+                <Button size="sm" variant="ghost" className="text-xs h-7 text-destructive"
+                  onClick={() => handleDeleteCategory(cat)}>Delete</Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+        {categories.length === 0 && <p className="text-muted-foreground col-span-full text-center py-8">No categories yet.</p>}
+      </div>
+
+      <Dialog open={deleteCategoryOpen} onOpenChange={setDeleteCategoryOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Category?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{pendingDeleteCategory?.name}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteCategoryOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteCategory}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

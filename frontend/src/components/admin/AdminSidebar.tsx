@@ -204,18 +204,8 @@ export function AdminSidebar({ user }: AdminSidebarProps) {
             </div>
           )}
           {sidebarCollapsed && !isMobile && !isTablet && (
-            <div className="w-full rounded-lg overflow-hidden border border-border shadow-sm bg-white dark:bg-gray-800">
-              {logoUrl ? (
-                <img 
-                  src={logoUrl} 
-                  alt="Restaurant logo" 
-                  className="w-full h-auto object-contain"
-                />
-              ) : (
-                <div className="w-full aspect-square flex items-center justify-center bg-primary">
-                  <Store className="w-5 h-5 text-primary-foreground" />
-                </div>
-              )}
+            <div className="w-full aspect-square rounded-lg overflow-hidden border border-border shadow-sm bg-white dark:bg-gray-800 flex items-center justify-center">
+              <Store className="w-6 h-6 text-muted-foreground" />
             </div>
           )}
           

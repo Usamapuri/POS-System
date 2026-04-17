@@ -14,9 +14,9 @@ import {
   Trash2,
   Table,
   Grid3X3,
-  DollarSign,
   Clock
 } from 'lucide-react'
+import { useCurrency } from '@/contexts/CurrencyContext'
 import apiClient from '@/api/client'
 import { toastHelpers } from '@/lib/toast-helpers'
 import { ProductForm } from '@/components/forms/ProductForm'
@@ -58,8 +58,13 @@ export function AdminMenuManagement() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [bulkAvailabilityOpen, setBulkAvailabilityOpen] = useState(false)
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [deleteProductOpen, setDeleteProductOpen] = useState(false)
+  const [deleteCategoryOpen, setDeleteCategoryOpen] = useState(false)
+  const [pendingDeleteProduct, setPendingDeleteProduct] = useState<Product | null>(null)
+  const [pendingDeleteCategory, setPendingDeleteCategory] = useState<Category | null>(null)
 
   const queryClient = useQueryClient()
+  const { formatCurrency } = useCurrency()
 
   // Pagination hooks
   const productsPagination = usePagination({ 
@@ -268,6 +273,52 @@ export function AdminMenuManagement() {
     }
   })
 
+  // Toggle product availability mutation
+  const toggleAvailabilityMutation = useMutation({
+    mutationFn: ({ id, isAvailable }: { id: string; isAvailable: boolean }) =>
+      apiClient.updateProduct(id, { is_available: isAvailable }),
+    onMutate: async ({ id, isAvailable }) => {
+      await queryClient.cancelQueries({ queryKey: ['admin-products'] })
+      const previousProducts = queryClient.getQueryData(['admin-products', productsPagination.page, productsPagination.pageSize, debouncedSearch])
+      queryClient.setQueryData(
+        ['admin-products', productsPagination.page, productsPagination.pageSize, debouncedSearch],
+        (old: any) => {
+          if (!old) return old
+          const data = Array.isArray(old) ? old : old.data || []
+          const updatedData = data.map((p: Product) =>
+            String(p.id) === id ? { ...p, is_available: isAvailable } : p
+          )
+          return Array.isArray(old) ? updatedData : { ...old, data: updatedData }
+        }
+      )
+      return { previousProducts }
+    },
+    onSuccess: (_, { isAvailable }) => {
+      queryClient.invalidateQueries({ queryKey: ['admin-products'] })
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      toastHelpers.success(
+        isAvailable ? 'Item available' : 'Item unavailable',
+        isAvailable ? 'Product is now visible on the menu' : 'Product is now hidden from the menu'
+      )
+    },
+    onError: (error: any, _, context) => {
+      if (context?.previousProducts) {
+        queryClient.setQueryData(
+          ['admin-products', productsPagination.page, productsPagination.pageSize, debouncedSearch],
+          context.previousProducts
+        )
+      }
+      toastHelpers.apiError('Update availability', error)
+    }
+  })
+
+  const handleToggleAvailability = useCallback((product: Product) => {
+    toggleAvailabilityMutation.mutate({
+      id: String(product.id),
+      isAvailable: !product.is_available
+    })
+  }, [toggleAvailabilityMutation])
+
   const handleFormSuccess = () => {
     setShowCreateProductForm(false)
     setShowCreateCategoryForm(false)
@@ -285,15 +336,29 @@ export function AdminMenuManagement() {
   }
 
   const handleDeleteProduct = (product: Product) => {
-    if (confirm(`Are you sure you want to delete "${product.name}"?`)) {
-      deleteProductMutation.mutate(product.id.toString())
+    setPendingDeleteProduct(product)
+    setDeleteProductOpen(true)
+  }
+
+  const confirmDeleteProduct = () => {
+    if (pendingDeleteProduct) {
+      deleteProductMutation.mutate(pendingDeleteProduct.id.toString())
     }
+    setDeleteProductOpen(false)
+    setPendingDeleteProduct(null)
   }
 
   const handleDeleteCategory = (category: Category) => {
-    if (confirm(`Are you sure you want to delete "${category.name}"?`)) {
-      deleteCategoryMutation.mutate(category.id.toString())
+    setPendingDeleteCategory(category)
+    setDeleteCategoryOpen(true)
+  }
+
+  const confirmDeleteCategory = () => {
+    if (pendingDeleteCategory) {
+      deleteCategoryMutation.mutate(pendingDeleteCategory.id.toString())
     }
+    setDeleteCategoryOpen(false)
+    setPendingDeleteCategory(null)
   }
 
   // Show form if creating or editing
@@ -437,6 +502,7 @@ export function AdminMenuManagement() {
                 categories={categories}
                 onEdit={setEditingProduct}
                 onDelete={handleDeleteProduct}
+                onToggleAvailability={handleToggleAvailability}
                 isLoading={isLoadingProducts}
                 selectedIds={selectedProductIds}
                 onToggleSelect={toggleProductSelect}
@@ -477,11 +543,11 @@ export function AdminMenuManagement() {
                               <img 
                                 src={product.image_url} 
                                 alt={product.name}
-                                className="h-12 w-12 rounded-lg object-cover"
+                                className="h-16 w-16 rounded-lg object-cover"
                               />
                             ) : (
-                              <div className="h-12 w-12 rounded-lg bg-gradient-to-r from-orange-400 to-pink-500 flex items-center justify-center">
-                                <Package className="h-6 w-6 text-white" />
+                              <div className="h-16 w-16 rounded-lg bg-gradient-to-r from-orange-400 to-pink-500 flex items-center justify-center">
+                                <Package className="h-8 w-8 text-white" />
                               </div>
                             )}
                           </div>
@@ -492,8 +558,7 @@ export function AdminMenuManagement() {
                             </p>
                             <div className="flex items-center gap-2 mt-2">
                               <Badge variant="outline" className="text-green-600">
-                                <DollarSign className="w-3 h-3 mr-1" />
-                                {product.price}
+                                {formatCurrency(product.price)}
                               </Badge>
                               <Badge variant="outline" className="text-blue-600">
                                 <Clock className="w-3 h-3 mr-1" />
@@ -714,6 +779,44 @@ export function AdminMenuManagement() {
             </Button>
             <Button onClick={() => void runBulkSetAvailability(true)} disabled={bulkBusy}>
               {bulkBusy ? 'Updating…' : 'Mark available'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteProductOpen} onOpenChange={setDeleteProductOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Product?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{pendingDeleteProduct?.name}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteProductOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteProduct}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteCategoryOpen} onOpenChange={setDeleteCategoryOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Category?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{pendingDeleteCategory?.name}"? This action cannot be undone. Products in this category will become uncategorized.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteCategoryOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteCategory}>
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>

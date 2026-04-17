@@ -10,8 +10,7 @@ import {
   PriceInputField,
   NumberInputField,
   SelectField,
-  FormSubmitButton,
-  productStatusOptions 
+  FormSubmitButton
 } from '@/components/forms/FormComponents'
 import { createProductSchema, updateProductSchema, type CreateProductData, type UpdateProductData } from '@/lib/form-schemas'
 import { toastHelpers } from '@/lib/toast-helpers'
@@ -55,7 +54,6 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
         price: product.price,
         category_id: product.category_id,
         image_url: product.image_url || '',
-        status: product.status as any,
         preparation_time: product.preparation_time || 5,
       }
     : {
@@ -64,8 +62,8 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
         price: 0,
         category_id: categories[0]?.id || 1,
         image_url: '',
-        status: 'active' as const,
         preparation_time: 5,
+        is_available: true,
       }
 
   const form = useForm<CreateProductData | UpdateProductData>({
@@ -199,25 +197,15 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
               />
             </div>
 
-            {/* Category & Status */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <SelectField
-                control={form.control}
-                name="category_id"
-                label="Category"
-                options={categoryOptions}
-                placeholder="Select a category"
-                description="Product category for menu organization"
-              />
-              
-              <SelectField
-                control={form.control}
-                name="status"
-                label="Status"
-                options={productStatusOptions}
-                description="Active products appear on the menu"
-              />
-            </div>
+            {/* Category */}
+            <SelectField
+              control={form.control}
+              name="category_id"
+              label="Category"
+              options={categoryOptions}
+              placeholder="Select a category"
+              description="Product category for menu organization"
+            />
 
             {/* Action Buttons */}
             <div className="flex gap-3 pt-4">

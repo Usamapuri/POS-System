@@ -12,6 +12,14 @@ import { PaginationControlsComponent } from '@/components/ui/pagination-controls
 import { usePagination } from '@/hooks/usePagination'
 import { UserListSkeleton } from '@/components/ui/skeletons'
 import { InlineLoading } from '@/components/ui/loading-spinner'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import type { User } from '@/types'
 
 export function AdminStaffManagement() {
@@ -24,6 +32,8 @@ export function AdminStaffManagement() {
   const [pinValue, setPinValue] = useState('')
   const [pinConfirm, setPinConfirm] = useState('')
   const [pinError, setPinError] = useState('')
+  const [deleteUserOpen, setDeleteUserOpen] = useState(false)
+  const [pendingDeleteUser, setPendingDeleteUser] = useState<User | null>(null)
 
   const queryClient = useQueryClient()
 
@@ -111,13 +121,20 @@ export function AdminStaffManagement() {
   }
 
   const handleDeleteUser = (user: User) => {
-    const displayName = `${user.first_name} ${user.last_name}`
-    if (confirm(`Are you sure you want to delete ${displayName}?`)) {
+    setPendingDeleteUser(user)
+    setDeleteUserOpen(true)
+  }
+
+  const confirmDeleteUser = () => {
+    if (pendingDeleteUser) {
+      const displayName = `${pendingDeleteUser.first_name} ${pendingDeleteUser.last_name}`
       deleteUserMutation.mutate({ 
-        id: user.id.toString(), 
+        id: pendingDeleteUser.id.toString(), 
         username: displayName
       })
     }
+    setDeleteUserOpen(false)
+    setPendingDeleteUser(null)
   }
 
   // Data is already filtered on the server side
@@ -272,6 +289,25 @@ export function AdminStaffManagement() {
           </div>
         </div>
       )}
+
+      <Dialog open={deleteUserOpen} onOpenChange={setDeleteUserOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Staff Member?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {pendingDeleteUser?.first_name} {pendingDeleteUser?.last_name}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteUserOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteUser}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

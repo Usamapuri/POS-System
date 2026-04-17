@@ -19,6 +19,14 @@ import {
 import apiClient from '@/api/client'
 import { toastHelpers } from '@/lib/toast-helpers'
 import { TableForm } from '@/components/forms/TableForm'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import type { DiningTable } from '@/types'
 import { TableLayoutBuilder } from '@/components/tables/TableLayoutBuilder'
 import { buildFloorTabs } from '@/lib/managedFloors'
@@ -31,6 +39,8 @@ export function AdminTableManagement() {
   const [editingTable, setEditingTable] = useState<DiningTable | null>(null)
   const [filterStatus, setFilterStatus] = useState<'all' | 'available' | 'occupied'>('all')
   const [selectedFloor, setSelectedFloor] = useState<string>('General')
+  const [deleteTableOpen, setDeleteTableOpen] = useState(false)
+  const [pendingDeleteTable, setPendingDeleteTable] = useState<DiningTable | null>(null)
 
   const queryClient = useQueryClient()
 
@@ -75,12 +85,19 @@ export function AdminTableManagement() {
       return
     }
 
-    if (confirm(`Are you sure you want to delete Table ${table.table_number}? This action cannot be undone.`)) {
+    setPendingDeleteTable(table)
+    setDeleteTableOpen(true)
+  }
+
+  const confirmDeleteTable = () => {
+    if (pendingDeleteTable) {
       deleteTableMutation.mutate({ 
-        id: table.id.toString(), 
-        tableNumber: table.table_number 
+        id: pendingDeleteTable.id.toString(), 
+        tableNumber: pendingDeleteTable.table_number 
       })
     }
+    setDeleteTableOpen(false)
+    setPendingDeleteTable(null)
   }
 
   const floors = useMemo(() => {
@@ -452,6 +469,25 @@ export function AdminTableManagement() {
           })}
         </div>
       )}
+
+      <Dialog open={deleteTableOpen} onOpenChange={setDeleteTableOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Table?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete Table {pendingDeleteTable?.table_number}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteTableOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteTable}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

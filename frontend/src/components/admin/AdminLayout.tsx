@@ -220,31 +220,37 @@ export function AdminLayout({ user }: AdminLayoutProps) {
       }`}>
         {/* Header - Logo + Toggle */}
         <div className="px-4 py-5 space-y-3">
-          {/* Logo - Full Width */}
-          <div className="w-full rounded-lg overflow-hidden border border-border shadow-sm bg-white dark:bg-gray-800">
-            {logoUrl ? (
-              <img 
-                src={logoUrl} 
-                alt="Restaurant logo" 
-                className="w-full h-auto object-contain"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none'
-                  const parent = e.currentTarget.parentElement
-                  if (parent) {
-                    parent.innerHTML = '<div class="w-full h-12 flex items-center justify-center bg-primary"><svg class="w-6 h-6 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg></div>'
-                  }
-                }}
-              />
-            ) : (
-              <div className={`w-full flex items-center justify-center bg-primary ${
-                (isMobile || isTablet) ? 'h-16' : 'h-12'
-              }`}>
-                <Store className={`text-primary-foreground ${
-                  (isMobile || isTablet) ? 'w-8 h-8' : 'w-6 h-6'
-                }`} />
-              </div>
-            )}
-          </div>
+          {/* Logo (expanded) or Icon (collapsed) */}
+          {!sidebarCollapsed || isMobile || isTablet ? (
+            <div className="w-full rounded-lg overflow-hidden border border-border shadow-sm bg-white dark:bg-gray-800">
+              {logoUrl ? (
+                <img 
+                  src={logoUrl} 
+                  alt="Restaurant logo" 
+                  className="w-full h-auto object-contain"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none'
+                    const parent = e.currentTarget.parentElement
+                    if (parent) {
+                      parent.innerHTML = '<div class="w-full h-12 flex items-center justify-center bg-primary"><svg class="w-6 h-6 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg></div>'
+                    }
+                  }}
+                />
+              ) : (
+                <div className={`w-full flex items-center justify-center bg-primary ${
+                  (isMobile || isTablet) ? 'h-16' : 'h-12'
+                }`}>
+                  <Store className={`text-primary-foreground ${
+                    (isMobile || isTablet) ? 'w-8 h-8' : 'w-6 h-6'
+                  }`} />
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="w-full aspect-square rounded-lg overflow-hidden border border-border shadow-sm bg-white dark:bg-gray-800 flex items-center justify-center">
+              <Store className="w-6 h-6 text-muted-foreground" />
+            </div>
+          )}
           
           {/* Toggle Button */}
           <Button
