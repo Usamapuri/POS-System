@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { DiningTable } from '@/types'
 import { Button } from '@/components/ui/button'
+import { fallbackMapDimensions } from '@/lib/tableMapSizing'
 
 type Props = {
   tables: DiningTable[]
@@ -12,8 +13,6 @@ type Props = {
   showControls?: boolean
 }
 
-const FALLBACK_W = 108
-const FALLBACK_H = 72
 const BASE_MAP_W = 980
 const BASE_MAP_H = 560
 
@@ -88,6 +87,11 @@ export function TableFloorMap({
           {tables.map((table) => {
             const occupied = table.has_active_order ?? table.is_occupied
             const selectable = canSelect ? canSelect(table) : true
+            const hasW = table.map_w != null && Number.isFinite(Number(table.map_w)) && Number(table.map_w) > 0
+            const hasH = table.map_h != null && Number.isFinite(Number(table.map_h)) && Number(table.map_h) > 0
+            const fb = fallbackMapDimensions(table)
+            const mapW = hasW ? Number(table.map_w) : fb.map_w
+            const mapH = hasH ? Number(table.map_h) : fb.map_h
             return (
               <button
                 key={table.id}
@@ -102,8 +106,8 @@ export function TableFloorMap({
                 style={{
                   left: `${table.map_x ?? 24}px`,
                   top: `${table.map_y ?? 24}px`,
-                  width: `${table.map_w ?? FALLBACK_W}px`,
-                  height: `${table.map_h ?? FALLBACK_H}px`,
+                  width: `${mapW}px`,
+                  height: `${mapH}px`,
                   borderRadius: table.shape === 'round' ? 999 : 10,
                   transform: `rotate(${table.map_rotation ?? 0}deg)`,
                 }}

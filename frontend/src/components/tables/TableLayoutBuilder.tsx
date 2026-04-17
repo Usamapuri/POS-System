@@ -2,9 +2,22 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import type { DiningTable } from '@/types'
 import { FloorCombobox } from '@/components/tables/FloorCombobox'
+import {
+  MAP_H_MAX,
+  MAP_H_MIN,
+  MAP_SIZE_PRESETS,
+  MAP_W_MAX,
+  MAP_W_MIN,
+  normalizeRotationDegrees,
+  snapMapToGrid,
+  snapRotationToStep,
+  suggestMapDimensions,
+} from '@/lib/tableMapSizing'
 
 type LayoutTable = DiningTable & {
   map_x: number
@@ -13,6 +26,24 @@ type LayoutTable = DiningTable & {
   map_h: number
   map_rotation: number
   shape: 'rectangle' | 'square' | 'round'
+}
+
+function seedLayoutRow(t: DiningTable, index: number): LayoutTable {
+  const col = index % 6
+  const row = Math.floor(index / 6)
+  const shape = (t.shape as LayoutTable['shape'] | undefined) ?? 'rectangle'
+  const suggested = suggestMapDimensions(t.seating_capacity ?? 4, shape)
+  const hasW = t.map_w != null && Number.isFinite(Number(t.map_w)) && Number(t.map_w) > 0
+  const hasH = t.map_h != null && Number.isFinite(Number(t.map_h)) && Number(t.map_h) > 0
+  return {
+    ...t,
+    map_x: t.map_x ?? 28 + col * 145,
+    map_y: t.map_y ?? 24 + row * 108,
+    map_w: hasW ? Number(t.map_w) : suggested.map_w,
+    map_h: hasH ? Number(t.map_h) : suggested.map_h,
+    map_rotation: t.map_rotation ?? 0,
+    shape,
+  }
 }
 
 type Props = {
@@ -72,6 +103,8 @@ export function TableLayoutBuilder({
   const [activeId, setActiveId] = useState<string | null>(null)
   const [layout, setLayout] = useState<LayoutTable[]>([])
   const [canvasSize, setCanvasSize] = useState({ width: CANVAS_W, height: CANVAS_H })
+  const [syncSizeWithSeats, setSyncSizeWithSeats] = useState(false)
+  const [snapRotation15, setSnapRotation15] = useState(false)
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const canvasShellRef = useRef<HTMLDivElement | null>(null)
 
@@ -81,19 +114,7 @@ export function TableLayoutBuilder({
   )
 
   useEffect(() => {
-    const seeded = floorTables.map((t, index) => {
-      const col = index % 6
-      const row = Math.floor(index / 6)
-      return {
-        ...t,
-        map_x: t.map_x ?? 28 + col * 145,
-        map_y: t.map_y ?? 24 + row * 108,
-        map_w: t.map_w ?? 108,
-        map_h: t.map_h ?? 72,
-        map_rotation: t.map_rotation ?? 0,
-        shape: (t.shape as 'rectangle' | 'square' | 'round' | undefined) ?? 'rectangle',
-      }
-    })
+    const seeded = floorTables.map((t, index) => seedLayoutRow(t, index))
     setLayout(seeded)
     setDirty(false)
     setActiveId(null)
@@ -160,6 +181,7 @@ export function TableLayoutBuilder({
   }
 
   const activeTable = layout.find((t) => t.id === activeId) ?? null
+  const newTableDims = suggestMapDimensions(4, 'rectangle')
   const selectedTable = isCreatingTable
     ? ({
         id: '',
@@ -172,13 +194,21 @@ export function TableLayoutBuilder({
         updated_at: '',
         map_x: 48,
         map_y: 48,
-        map_w: 108,
-        map_h: 72,
+        map_w: newTableDims.map_w,
+        map_h: newTableDims.map_h,
         map_rotation: 0,
         shape: 'rectangle',
       } as LayoutTable)
     : activeTable
   const [draft, setDraft] = useState<LayoutTable | null>(null)
+
+  useEffect(() => {
+    if (isCreatingTable) setSyncSizeWithSeats(true)
+  }, [isCreatingTable])
+
+  useEffect(() => {
+    if (activeId && !isCreatingTable) setSyncSizeWithSeats(false)
+  }, [activeId, isCreatingTable])
 
   useEffect(() => {
     setDraft(selectedTable ? { ...selectedTable } : null)
@@ -190,20 +220,89 @@ export function TableLayoutBuilder({
     setDirty(true)
   }
 
+  const patchLayoutForActive = (patch: Partial<LayoutTable>) => {
+    if (!activeId || isCreatingTable) return
+    setLayout((prev) => prev.map((t) => (t.id === activeId ? { ...t, ...patch } : t)))
+    setDirty(true)
+  }
+
+  const handleSeatsChange = (raw: string) => {
+    if (!draft) return
+    const seating_capacity = Math.max(1, Math.min(20, Math.round(Number(raw)) || 1))
+    const dims = syncSizeWithSeats ? suggestMapDimensions(seating_capacity, draft.shape) : {}
+    const next = { ...draft, seating_capacity, ...dims }
+    setDraft(next)
+    patchLayoutForActive(next)
+  }
+
+  const handleShapeChange = (shape: LayoutTable['shape']) => {
+    if (!draft) return
+    const dims = syncSizeWithSeats ? suggestMapDimensions(draft.seating_capacity, shape) : {}
+    const next = { ...draft, shape, ...dims }
+    setDraft(next)
+    patchLayoutForActive(next)
+  }
+
+  const handleFitSizeToSeats = () => {
+    if (!draft) return
+    const { map_w, map_h } = suggestMapDimensions(draft.seating_capacity, draft.shape)
+    setDraft({ ...draft, map_w, map_h })
+    patchLayoutForActive({ map_w, map_h })
+  }
+
+  const handleMapWChange = (raw: string) => {
+    if (!draft) return
+    setSyncSizeWithSeats(false)
+    const map_w = snapMapToGrid(clamp(Number(raw) || MAP_W_MIN, MAP_W_MIN, MAP_W_MAX))
+    setDraft({ ...draft, map_w })
+    patchLayoutForActive({ map_w })
+  }
+
+  const handleMapHChange = (raw: string) => {
+    if (!draft) return
+    setSyncSizeWithSeats(false)
+    const map_h = snapMapToGrid(clamp(Number(raw) || MAP_H_MIN, MAP_H_MIN, MAP_H_MAX))
+    setDraft({ ...draft, map_h })
+    patchLayoutForActive({ map_h })
+  }
+
+  const applySizePreset = (label: (typeof MAP_SIZE_PRESETS)[number]['label']) => {
+    if (!draft) return
+    setSyncSizeWithSeats(false)
+    const p = MAP_SIZE_PRESETS.find((x) => x.label === label)!
+    const map_w = snapMapToGrid(p.map_w)
+    const map_h = snapMapToGrid(p.map_h)
+    setDraft({ ...draft, map_w, map_h })
+    patchLayoutForActive({ map_w, map_h })
+  }
+
+  const handleRotationChange = (raw: string) => {
+    if (!draft) return
+    const n = Number(raw)
+    const map_rotation = Number.isFinite(n) ? normalizeRotationDegrees(Math.round(n)) : 0
+    setDraft({ ...draft, map_rotation })
+    patchLayoutForActive({ map_rotation })
+  }
+
+  const handleRotationBlur = () => {
+    if (!draft) return
+    let map_rotation = normalizeRotationDegrees(draft.map_rotation)
+    if (snapRotation15) map_rotation = snapRotationToStep(map_rotation, 15)
+    if (map_rotation !== draft.map_rotation) {
+      setDraft({ ...draft, map_rotation })
+      patchLayoutForActive({ map_rotation })
+    }
+  }
+
+  const setRotationPreset = (deg: number) => {
+    if (!draft) return
+    const map_rotation = normalizeRotationDegrees(deg)
+    setDraft({ ...draft, map_rotation })
+    patchLayoutForActive({ map_rotation })
+  }
+
   const resetFloor = () => {
-    const seeded = floorTables.map((t, index) => {
-      const col = index % 6
-      const row = Math.floor(index / 6)
-      return {
-        ...t,
-        map_x: t.map_x ?? 28 + col * 145,
-        map_y: t.map_y ?? 24 + row * 108,
-        map_w: t.map_w ?? 108,
-        map_h: t.map_h ?? 72,
-        map_rotation: t.map_rotation ?? 0,
-        shape: (t.shape as 'rectangle' | 'square' | 'round' | undefined) ?? 'rectangle',
-      }
-    })
+    const seeded = floorTables.map((t, index) => seedLayoutRow(t, index))
     setLayout(seeded)
     setDirty(false)
     setActiveId(null)
@@ -404,7 +503,7 @@ export function TableLayoutBuilder({
                         min={1}
                         max={20}
                         value={draft.seating_capacity}
-                        onChange={(e) => setDraft({ ...draft, seating_capacity: Math.max(1, Number(e.target.value) || 1) })}
+                        onChange={(e) => handleSeatsChange(e.target.value)}
                         className="mt-1"
                       />
                     </div>
@@ -420,50 +519,109 @@ export function TableLayoutBuilder({
                       </select>
                     </div>
                   </div>
+                  <div className="flex items-start gap-2 rounded-md border border-input/60 p-2">
+                    <Checkbox
+                      id="sync-table-size"
+                      checked={syncSizeWithSeats}
+                      onCheckedChange={(c) => setSyncSizeWithSeats(Boolean(c))}
+                      className="mt-0.5"
+                    />
+                    <Label htmlFor="sync-table-size" className="text-xs font-normal leading-snug cursor-pointer">
+                      Keep card size in sync when seats or shape change
+                    </Label>
+                  </div>
                   <div>
                     <label className="text-xs text-muted-foreground">Shape</label>
                     <select
                       className="w-full p-2 border border-input rounded-md bg-background text-sm mt-1"
                       value={draft.shape}
-                      onChange={(e) => setDraft({ ...draft, shape: e.target.value as LayoutTable['shape'] })}
+                      onChange={(e) => handleShapeChange(e.target.value as LayoutTable['shape'])}
                     >
                       <option value="rectangle">Rectangle</option>
                       <option value="square">Square</option>
                       <option value="round">Round</option>
                     </select>
                   </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" size="sm" variant="secondary" onClick={handleFitSizeToSeats}>
+                      Fit size to seats
+                    </Button>
+                    <span className="text-[11px] text-muted-foreground">Quick size</span>
+                    {MAP_SIZE_PRESETS.map((p) => (
+                      <Button
+                        key={p.label}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 min-w-8 px-2 text-xs"
+                        onClick={() => applySizePreset(p.label)}
+                      >
+                        {p.label}
+                      </Button>
+                    ))}
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs text-muted-foreground">Width</label>
                       <input
                         type="number"
+                        min={MAP_W_MIN}
+                        max={MAP_W_MAX}
+                        step={8}
                         className="w-full p-2 border border-input rounded-md bg-background text-sm mt-1"
                         value={Math.round(draft.map_w)}
-                        onChange={(e) => setDraft({ ...draft, map_w: clamp(Number(e.target.value) || 80, 64, 240) })}
+                        onChange={(e) => handleMapWChange(e.target.value)}
                       />
                     </div>
                     <div>
                       <label className="text-xs text-muted-foreground">Height</label>
                       <input
                         type="number"
+                        min={MAP_H_MIN}
+                        max={MAP_H_MAX}
+                        step={8}
                         className="w-full p-2 border border-input rounded-md bg-background text-sm mt-1"
                         value={Math.round(draft.map_h)}
-                        onChange={(e) => setDraft({ ...draft, map_h: clamp(Number(e.target.value) || 64, 52, 180) })}
+                        onChange={(e) => handleMapHChange(e.target.value)}
                       />
                     </div>
                   </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Rotation</label>
-                    <select
-                      className="w-full p-2 border border-input rounded-md bg-background text-sm mt-1"
+                  <div className="space-y-2">
+                    <label className="text-xs text-muted-foreground">Rotation (degrees)</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={359}
+                      step={snapRotation15 ? 15 : 1}
                       value={draft.map_rotation}
-                      onChange={(e) => setDraft({ ...draft, map_rotation: Number(e.target.value) })}
-                    >
-                      <option value={0}>0°</option>
-                      <option value={90}>90°</option>
-                      <option value={180}>180°</option>
-                      <option value={270}>270°</option>
-                    </select>
+                      onChange={(e) => handleRotationChange(e.target.value)}
+                      onBlur={handleRotationBlur}
+                      className="mt-1"
+                    />
+                    <div className="flex flex-wrap gap-1">
+                      {([0, 90, 180, 270] as const).map((deg) => (
+                        <Button
+                          key={deg}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setRotationPreset(deg)}
+                        >
+                          {deg}°
+                        </Button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="snap-rot-15"
+                        checked={snapRotation15}
+                        onCheckedChange={(c) => setSnapRotation15(Boolean(c))}
+                      />
+                      <Label htmlFor="snap-rot-15" className="text-xs font-normal cursor-pointer">
+                        Snap to 15° on blur
+                      </Label>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 pt-2">
                     <Button
@@ -492,7 +650,14 @@ export function TableLayoutBuilder({
                         Delete
                       </Button>
                     ) : (
-                      <Button size="sm" variant="outline" onClick={() => setIsCreatingTable(false)}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setIsCreatingTable(false)
+                          setSyncSizeWithSeats(false)
+                        }}
+                      >
                         Cancel
                       </Button>
                     )}
