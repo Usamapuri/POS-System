@@ -14,7 +14,9 @@ import { Users, ChevronDown, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type TableSession = {
+  /** 0 = not set yet */
   guestCount: number
+  /** Empty when no server assigned */
   serverId: string
   serverDisplayName: string
   customerName?: string
@@ -35,7 +37,7 @@ function serverLabel(s: CounterServer): string {
 }
 
 export function TableSessionModal({ open, table, onOpenChange, onConfirm }: Props) {
-  const [guestDigits, setGuestDigits] = useState('1')
+  const [guestDigits, setGuestDigits] = useState('')
   const [serverMenuOpen, setServerMenuOpen] = useState(false)
   const [serverFilter, setServerFilter] = useState('')
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null)
@@ -74,7 +76,7 @@ export function TableSessionModal({ open, table, onOpenChange, onConfirm }: Prop
 
   useEffect(() => {
     if (open) {
-      setGuestDigits('1')
+      setGuestDigits('')
       setServerFilter('')
       setSelectedServerId(null)
       setServerMenuOpen(false)
@@ -106,16 +108,17 @@ export function TableSessionModal({ open, table, onOpenChange, onConfirm }: Prop
 
   if (!open || !table) return null
 
-  const guestCount = Math.max(1, parseInt(guestDigits || '1', 10) || 1)
+  const guestCount = guestDigits === '' ? 0 : Math.max(0, parseInt(guestDigits, 10) || 0)
 
   const handleConfirm = async () => {
-    if (!selectedServer) return
     setConfirmLoading(true)
     try {
       const session: TableSession = {
         guestCount,
-        serverId: selectedServer.id,
-        serverDisplayName: `${selectedServer.first_name} ${selectedServer.last_name}`.trim(),
+        serverId: selectedServer?.id ?? '',
+        serverDisplayName: selectedServer
+          ? `${selectedServer.first_name} ${selectedServer.last_name}`.trim()
+          : '',
         customerName: customerName.trim() || undefined,
         customerEmail: customerEmail.trim() || undefined,
         customerPhone: customerPhone.trim() || undefined,
@@ -146,8 +149,8 @@ export function TableSessionModal({ open, table, onOpenChange, onConfirm }: Prop
         <div>
           <h2 className="text-xl font-semibold">Table session</h2>
           <p className="text-muted-foreground text-sm mt-1">
-            Table <span className="font-medium text-foreground">{table.table_number}</span> — set guest count and
-            server before ordering. Order number is assigned when you confirm.
+            Table <span className="font-medium text-foreground">{table.table_number}</span> — party size and server are
+            optional. Add them now or later on the ticket rail. Order number is assigned when you confirm.
           </p>
         </div>
 
@@ -155,7 +158,7 @@ export function TableSessionModal({ open, table, onOpenChange, onConfirm }: Prop
           <div className="space-y-2">
             <Label className="flex items-center gap-2 text-sm font-medium">
               <Users className="h-4 w-4" />
-              Number of guests
+              Number of guests <span className="font-normal text-muted-foreground">(optional)</span>
             </Label>
             <Input
               inputMode="numeric"
@@ -163,12 +166,14 @@ export function TableSessionModal({ open, table, onOpenChange, onConfirm }: Prop
               className="h-11 font-medium tabular-nums"
               value={guestDigits}
               onChange={(e) => onGuestInput(e.target.value)}
-              placeholder="1"
+              placeholder="Not set"
             />
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm font-medium">Server / waiter</Label>
+            <Label className="text-sm font-medium">
+              Server / waiter <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
             <DropdownMenu open={serverMenuOpen} onOpenChange={setServerMenuOpen}>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -178,7 +183,7 @@ export function TableSessionModal({ open, table, onOpenChange, onConfirm }: Prop
                   className="h-11 w-full justify-between font-normal"
                 >
                   <span className={cn('truncate', !selectedServer && 'text-muted-foreground')}>
-                    {selectedServer ? serverLabel(selectedServer) : 'Select server…'}
+                    {selectedServer ? serverLabel(selectedServer) : 'Not assigned'}
                   </span>
                   <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
                 </Button>
@@ -197,6 +202,17 @@ export function TableSessionModal({ open, table, onOpenChange, onConfirm }: Prop
                   </div>
                 </div>
                 <div className="max-h-48 overflow-y-auto py-1">
+                  <button
+                    type="button"
+                    className="w-full border-b border-border px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/80"
+                    onClick={() => {
+                      setSelectedServerId(null)
+                      setServerMenuOpen(false)
+                      setServerFilter('')
+                    }}
+                  >
+                    Clear server
+                  </button>
                   {listEmptyMessage ? (
                     <div className="px-3 py-4 text-sm text-muted-foreground text-center">{listEmptyMessage}</div>
                   ) : (
@@ -270,7 +286,7 @@ export function TableSessionModal({ open, table, onOpenChange, onConfirm }: Prop
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={confirmLoading}>
             Cancel
           </Button>
-          <Button type="button" onClick={() => void handleConfirm()} disabled={!selectedServer || confirmLoading}>
+          <Button type="button" onClick={() => void handleConfirm()} disabled={confirmLoading}>
             {confirmLoading ? 'Opening…' : 'Confirm'}
           </Button>
         </div>

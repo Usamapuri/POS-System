@@ -168,12 +168,21 @@ export interface CreateOrderRequest {
 /** Counter: open dine-in tab (order number + empty bill) after table session modal. */
 export interface OpenCounterTableTabRequest {
   table_id: string;
-  guest_count: number;
-  assigned_server_id: string;
+  /** Omit or 0 if unknown — editable on the rail until checkout closes */
+  guest_count?: number;
+  /** Omit if no server yet — editable on the rail until checkout closes */
+  assigned_server_id?: string;
   customer_name?: string;
   customer_email?: string;
   customer_phone?: string;
   guest_birthday?: string;
+}
+
+/** Counter: party size + assigned server on an open dine-in order */
+export interface UpdateCounterOrderServiceRequest {
+  guest_count: number;
+  /** Empty string clears assigned server */
+  assigned_server_id: string;
 }
 
 export interface CreateOrderItem {

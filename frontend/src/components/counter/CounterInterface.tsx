@@ -23,6 +23,7 @@ import {
   toGuestDateInputValue,
 } from '@/components/counter/CounterGuestDetailsSection'
 import { CounterOrderHistorySection } from '@/components/counter/CounterOrderHistorySection'
+import { CounterTableServiceSection } from '@/components/counter/CounterTableServiceSection'
 import {
   Dialog,
   DialogContent,
@@ -259,8 +260,11 @@ export function CounterInterface() {
         customer_phone: customerPhone.trim() || undefined,
         guest_birthday: guestBirthday.trim() || undefined,
         order_type: orderType,
-        guest_count: orderType === 'dine_in' ? dineInSession!.guestCount : 0,
-        assigned_server_id: orderType === 'dine_in' ? dineInSession!.serverId : undefined,
+        guest_count: orderType === 'dine_in' ? (dineInSession?.guestCount ?? 0) : 0,
+        assigned_server_id:
+          orderType === 'dine_in' && dineInSession?.serverId
+            ? dineInSession.serverId
+            : undefined,
         items: lines,
         notes: orderNotes || undefined,
       }
@@ -306,17 +310,31 @@ export function CounterInterface() {
         setCustomerPhone(od.customer_phone ?? '')
         setGuestBirthday(toGuestDateInputValue(od.guest_birthday))
         if (orderType === 'dine_in') {
-          setDineInSession((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  customerName: od.customer_name ?? undefined,
-                  customerEmail: od.customer_email ?? undefined,
-                  customerPhone: od.customer_phone ?? undefined,
-                  guestBirthday: toGuestDateInputValue(od.guest_birthday) || undefined,
-                }
-              : prev
-          )
+          setDineInSession((prev) => {
+            const disp =
+              od.user && (od.user.first_name || od.user.last_name)
+                ? `${od.user.first_name} ${od.user.last_name}`.trim()
+                : od.user?.username ?? ''
+            const base: TableSession = prev ?? {
+              guestCount: 0,
+              serverId: '',
+              serverDisplayName: '',
+              customerName: undefined,
+              customerEmail: undefined,
+              customerPhone: undefined,
+              guestBirthday: undefined,
+            }
+            return {
+              ...base,
+              guestCount: od.guest_count ?? 0,
+              serverId: od.user_id ?? '',
+              serverDisplayName: disp,
+              customerName: od.customer_name ?? undefined,
+              customerEmail: od.customer_email ?? undefined,
+              customerPhone: od.customer_phone ?? undefined,
+              guestBirthday: toGuestDateInputValue(od.guest_birthday) || undefined,
+            }
+          })
         }
       }
     },
@@ -386,6 +404,34 @@ export function CounterInterface() {
           setCustomerEmail(orderAfter.customer_email ?? '')
           setCustomerPhone(orderAfter.customer_phone ?? '')
           setGuestBirthday(toGuestDateInputValue(orderAfter.guest_birthday))
+          if (orderAfter.order_type === 'dine_in') {
+            setDineInSession((prev) => {
+              const disp =
+                orderAfter.user && (orderAfter.user.first_name || orderAfter.user.last_name)
+                  ? `${orderAfter.user.first_name} ${orderAfter.user.last_name}`.trim()
+                  : orderAfter.user?.username ?? ''
+              const base: TableSession = prev ?? {
+                guestCount: 0,
+                serverId: '',
+                serverDisplayName: '',
+                customerName: undefined,
+                customerEmail: undefined,
+                customerPhone: undefined,
+                guestBirthday: undefined,
+              }
+              return {
+                ...base,
+                guestCount: orderAfter.guest_count ?? 0,
+                serverId: orderAfter.user_id ?? '',
+                serverDisplayName: disp,
+                customerName: orderAfter.customer_name ?? base.customerName,
+                customerEmail: orderAfter.customer_email ?? base.customerEmail,
+                customerPhone: orderAfter.customer_phone ?? base.customerPhone,
+                guestBirthday:
+                  toGuestDateInputValue(orderAfter.guest_birthday) || base.guestBirthday,
+              }
+            })
+          }
         }
       }
 
@@ -568,7 +614,7 @@ export function CounterInterface() {
             ? `${o.user.first_name} ${o.user.last_name}`.trim()
             : o.user?.username ?? '—'
         setDineInSession({
-          guestCount: Math.max(1, o.guest_count ?? 1),
+          guestCount: o.guest_count ?? 0,
           serverId: o.user_id ?? '',
           serverDisplayName: disp,
           customerName: o.customer_name,
@@ -595,7 +641,7 @@ export function CounterInterface() {
       const res = await apiClient.openCounterTableTab({
         table_id: selectedTable.id,
         guest_count: s.guestCount,
-        assigned_server_id: s.serverId,
+        ...(s.serverId ? { assigned_server_id: s.serverId } : {}),
         customer_name: s.customerName,
         customer_email: s.customerEmail,
         customer_phone: s.customerPhone,
@@ -699,6 +745,25 @@ export function CounterInterface() {
     )
   }, [orderType])
 
+  const handleServiceUpdated = useCallback((order: Order) => {
+    setExistingOrder(order)
+    setSelectedOrder((prev) => (prev?.id === order.id ? order : prev))
+    const disp =
+      order.user && (order.user.first_name || order.user.last_name)
+        ? `${order.user.first_name} ${order.user.last_name}`.trim()
+        : order.user?.username ?? ''
+    setDineInSession((prev) =>
+      prev && orderType === 'dine_in'
+        ? {
+            ...prev,
+            guestCount: order.guest_count ?? 0,
+            serverId: order.user_id ?? '',
+            serverDisplayName: disp,
+          }
+        : prev
+    )
+  }, [orderType])
+
   const handleSelectHistoryOrder = useCallback(
     async (o: Order) => {
       if (o.status === 'completed' || o.status === 'cancelled') {
@@ -737,7 +802,7 @@ export function CounterInterface() {
               ? `${od.user.first_name} ${od.user.last_name}`.trim()
               : od.user?.username ?? '—'
           setDineInSession({
-            guestCount: Math.max(1, od.guest_count ?? 1),
+            guestCount: od.guest_count ?? 0,
             serverId: od.user_id ?? '',
             serverDisplayName: disp,
             customerName: od.customer_name ?? undefined,
@@ -1357,6 +1422,13 @@ export function CounterInterface() {
                     </div>
                   )}
                 </div>
+              )}
+
+              {orderType === 'dine_in' && (
+                <CounterTableServiceSection
+                  existingOrder={existingOrder}
+                  onServiceUpdated={handleServiceUpdated}
+                />
               )}
 
               <CounterGuestDetailsSection

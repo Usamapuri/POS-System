@@ -334,26 +334,6 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	_, _, role, roleOk := middleware.GetUserFromContext(c)
-	if roleOk && role == "counter" && req.OrderType == "dine_in" && req.TableID != nil {
-		if req.GuestCount < 1 {
-			c.JSON(http.StatusBadRequest, models.APIResponse{
-				Success: false,
-				Message: "Dine-in orders require guest count of at least 1",
-				Error:   stringPtr("guest_count_required"),
-			})
-			return
-		}
-		if req.AssignedServerID == nil {
-			c.JSON(http.StatusBadRequest, models.APIResponse{
-				Success: false,
-				Message: "Dine-in orders require an assigned server",
-				Error:   stringPtr("assigned_server_required"),
-			})
-			return
-		}
-	}
-
 	// Validate request
 	if len(req.Items) == 0 {
 		c.JSON(http.StatusBadRequest, models.APIResponse{

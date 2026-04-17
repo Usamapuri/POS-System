@@ -28,8 +28,12 @@ func (h *OrderHandler) OpenCounterTableTab(c *gin.Context) {
 		return
 	}
 
-	if req.GuestCount < 1 {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Guest count must be at least 1", Error: stringPtr("guest_count_required")})
+	guestCount := 0
+	if req.GuestCount != nil {
+		guestCount = *req.GuestCount
+	}
+	if guestCount < 0 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Guest count cannot be negative", Error: stringPtr("guest_count_invalid")})
 		return
 	}
 
@@ -61,18 +65,22 @@ func (h *OrderHandler) OpenCounterTableTab(c *gin.Context) {
 		return
 	}
 
-	var serverRole string
-	if err := tx.QueryRow(`SELECT role FROM users WHERE id = $1 AND is_active = true`, req.AssignedServerID).Scan(&serverRole); err != nil {
-		if err == sql.ErrNoRows {
-			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid or inactive assigned server", Error: stringPtr("invalid_assigned_server")})
+	var orderUserID interface{}
+	if req.AssignedServerID != nil {
+		var serverRole string
+		if err := tx.QueryRow(`SELECT role FROM users WHERE id = $1 AND is_active = true`, *req.AssignedServerID).Scan(&serverRole); err != nil {
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid or inactive assigned server", Error: stringPtr("invalid_assigned_server")})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to validate server", Error: stringPtr(err.Error())})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to validate server", Error: stringPtr(err.Error())})
-		return
-	}
-	if serverRole != "server" {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Assigned user must be a server", Error: stringPtr("invalid_assigned_server")})
-		return
+		if serverRole != "server" {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Assigned user must be a server", Error: stringPtr("invalid_assigned_server")})
+			return
+		}
+		orderUserID = *req.AssignedServerID
 	}
 
 	custID, err := resolveCustomerInTx(tx, req.CustomerName, req.CustomerEmail, req.CustomerPhone, req.GuestBirthday)
@@ -114,10 +122,10 @@ func (h *OrderHandler) OpenCounterTableTab(c *gin.Context) {
 			$9, $10, true, 'dine_in', 'pending',
 			0, $11, 0, $12, $13, $14, $15
 		)`,
-		orderID, orderNumber, req.TableID, req.AssignedServerID, custIDArg,
+		orderID, orderNumber, req.TableID, orderUserID, custIDArg,
 		req.CustomerName, nullIfEmptyPtr(req.CustomerEmail), nullIfEmptyPtr(req.CustomerPhone),
 		guestBD, openedAt,
-		taxAmount, serviceCharge, totalAmount, req.GuestCount, checkoutIntent,
+		taxAmount, serviceCharge, totalAmount, guestCount, checkoutIntent,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to create open tab", Error: stringPtr(err.Error())})
@@ -391,6 +399,95 @@ func (h *OrderHandler) ReassignCounterOrderTable(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Order table reassigned", Data: order})
+}
+
+// UpdateCounterOrderService sets party size and assigned server on an open dine-in order (counter).
+func (h *OrderHandler) UpdateCounterOrderService(c *gin.Context) {
+	_, _, _, ok := middleware.GetUserFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.APIResponse{Success: false, Message: "Authentication required", Error: stringPtr("auth_required")})
+		return
+	}
+
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid order ID", Error: stringPtr("invalid_uuid")})
+		return
+	}
+
+	var req models.UpdateCounterOrderServiceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request body", Error: stringPtr(err.Error())})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to start transaction", Error: stringPtr(err.Error())})
+		return
+	}
+	defer tx.Rollback()
+
+	var st, ot string
+	if err := tx.QueryRow(`SELECT status, order_type FROM orders WHERE id = $1::uuid FOR UPDATE`, orderID).Scan(&st, &ot); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Order not found", Error: stringPtr("order_not_found")})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load order", Error: stringPtr(err.Error())})
+		return
+	}
+	if ot != "dine_in" {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Only dine-in orders support table service fields", Error: stringPtr("invalid_order_type")})
+		return
+	}
+	if st == "completed" || st == "cancelled" {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Order cannot be updated in this status", Error: stringPtr("invalid_order_status")})
+		return
+	}
+
+	var userArg interface{}
+	rawSrv := strings.TrimSpace(req.AssignedServerID)
+	if rawSrv == "" {
+		userArg = nil
+	} else {
+		sid, perr := uuid.Parse(rawSrv)
+		if perr != nil {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid assigned server id", Error: stringPtr("invalid_uuid")})
+			return
+		}
+		var serverRole string
+		if err := tx.QueryRow(`SELECT role FROM users WHERE id = $1 AND is_active = true`, sid).Scan(&serverRole); err != nil {
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid or inactive assigned server", Error: stringPtr("invalid_assigned_server")})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to validate server", Error: stringPtr(err.Error())})
+			return
+		}
+		if serverRole != "server" {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Assigned user must be a server", Error: stringPtr("invalid_assigned_server")})
+			return
+		}
+		userArg = sid
+	}
+
+	if _, err := tx.Exec(`UPDATE orders SET guest_count = $1, user_id = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3::uuid`, req.GuestCount, userArg, orderID); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update order", Error: stringPtr(err.Error())})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to commit", Error: stringPtr(err.Error())})
+		return
+	}
+
+	order, err := h.getOrderByID(orderID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Updated but failed to load order", Error: stringPtr(err.Error())})
+		return
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Table service updated", Data: order})
 }
 
 func nullIfEmptyPtr(p *string) interface{} {

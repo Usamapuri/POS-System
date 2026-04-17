@@ -306,13 +306,19 @@ type CreateOrderRequest struct {
 
 // OpenCounterTableTabRequest opens a dine-in tab from the counter (order number + empty cart).
 type OpenCounterTableTabRequest struct {
-	TableID          uuid.UUID `json:"table_id" binding:"required"`
-	GuestCount       int       `json:"guest_count" binding:"required,min=1"`
-	AssignedServerID uuid.UUID `json:"assigned_server_id" binding:"required"`
-	CustomerName     *string   `json:"customer_name"`
-	CustomerEmail    *string   `json:"customer_email"`
-	CustomerPhone    *string   `json:"customer_phone"`
-	GuestBirthday    *string   `json:"guest_birthday"` // YYYY-MM-DD
+	TableID          uuid.UUID  `json:"table_id" binding:"required"`
+	GuestCount       *int       `json:"guest_count"`            // optional; default 0; editable later on the rail
+	AssignedServerID *uuid.UUID `json:"assigned_server_id"`     // optional; order.user_id NULL until set
+	CustomerName     *string    `json:"customer_name"`
+	CustomerEmail    *string    `json:"customer_email"`
+	CustomerPhone    *string    `json:"customer_phone"`
+	GuestBirthday    *string    `json:"guest_birthday"` // YYYY-MM-DD
+}
+
+// UpdateCounterOrderServiceRequest sets party size and assigned server on an open dine-in order (counter).
+type UpdateCounterOrderServiceRequest struct {
+	GuestCount       int    `json:"guest_count" binding:"gte=0"`
+	AssignedServerID string `json:"assigned_server_id"` // empty string clears assigned server (user_id NULL)
 }
 
 // ReassignCounterTableRequest moves an active dine-in order to a different table.

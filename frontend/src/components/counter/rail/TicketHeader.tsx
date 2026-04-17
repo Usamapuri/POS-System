@@ -39,7 +39,8 @@ export function TicketHeader({
   const showTableIdentity = orderType === 'dine_in' && (selectedTable || existingOrder?.table)
   const tableNumber = selectedTable?.table_number ?? existingOrder?.table?.table_number
   const orderNumber = existingOrder?.order_number
-  const guests = dineInSession?.guestCount ?? existingOrder?.guest_count ?? null
+  const rawGuests = dineInSession?.guestCount ?? existingOrder?.guest_count ?? null
+  const guests = rawGuests != null && rawGuests > 0 ? rawGuests : null
   const serverName =
     dineInSession?.serverDisplayName ??
     (existingOrder?.user

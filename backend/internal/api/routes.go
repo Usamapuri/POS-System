@@ -108,6 +108,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		counter.PATCH("/orders/:id/checkout-intent", orderHandler.UpdateCheckoutIntent)
 		counter.PATCH("/orders/:id/discount", orderHandler.ApplyOrderDiscount)
 		counter.PATCH("/orders/:id/guest", orderHandler.UpdateCounterOrderGuest)
+		counter.PATCH("/orders/:id/service", orderHandler.UpdateCounterOrderService)
 		counter.POST("/orders/:id/payments", paymentHandler.ProcessPayment) // Process payments
 	}
 
