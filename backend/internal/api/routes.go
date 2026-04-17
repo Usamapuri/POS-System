@@ -166,6 +166,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 
 		// P&L Reports
 		admin.GET("/reports/pnl", expenseHandler.GetPnLReport)
+		admin.GET("/reports/expense-intelligence", expenseHandler.GetExpenseIntelligence)
 
 		// Kitchen station management
 		admin.GET("/stations", stationHandler.GetStations)

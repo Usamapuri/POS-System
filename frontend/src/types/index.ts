@@ -550,6 +550,53 @@ export interface ExpenseSummary {
   to: string;
 }
 
+/** GET /admin/reports/expense-intelligence — analytics for Expenses Intelligence tab */
+export interface ExpenseIntelligenceKpis {
+  total_sales: number;
+  total_tax: number;
+  total_orders: number;
+  total_expenses: number;
+  net_profit: number;
+  expense_ratio: number;
+  inventory_spend: number;
+  inventory_to_sales_ratio: number;
+  manual_expense_count: number;
+  auto_linked_expense_count: number;
+  prior_period_sales: number;
+  prior_period_expenses: number;
+  sales_change_pct: number;
+  expenses_change_pct: number;
+}
+
+export interface ExpenseIntelligenceDayPoint {
+  date: string;
+  sales: number;
+  expenses: number;
+  net: number;
+}
+
+export interface ExpenseIntelligenceCategoryMix {
+  category: string;
+  total: number;
+  pct: number;
+}
+
+export interface ExpenseIntelligenceCashStats {
+  days_with_closing: number;
+  avg_cash_difference: number;
+  total_abs_cash_variance: number;
+}
+
+export interface ExpenseIntelligenceReport {
+  period_days: number;
+  from: string;
+  to: string;
+  kpis: ExpenseIntelligenceKpis;
+  daily_trend: ExpenseIntelligenceDayPoint[];
+  category_mix: ExpenseIntelligenceCategoryMix[];
+  cash_closing_stats: ExpenseIntelligenceCashStats;
+}
+
 // Filter and Query Types
 export interface OrderFilters {
   status?: string;

@@ -2,6 +2,9 @@ import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/api/client'
 import type { Supplier, PurchaseOrderSummary, PurchaseOrderDetail, StockItem } from '@/types'
+import { useCurrency } from '@/contexts/CurrencyContext'
+import { PoPrintModal } from '@/components/store/PoPrintModal'
+import { parseReceiptSettings } from '@/lib/printCustomerReceipt'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -27,11 +30,26 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Printer,
+  ChevronDown,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 type ToastFn = (type: 'success' | 'error', message: string) => void
 
 type PoSortKey = 'supplier_name' | 'created_at' | 'expected_date' | 'total_ordered_qty' | 'status'
+
+const PURCHASING_GUIDE_EXPANDED_KEY = 'pos_inventory_purchasing_guide_expanded'
+
+function readPurchasingGuideExpanded(): boolean {
+  try {
+    const raw = localStorage.getItem(PURCHASING_GUIDE_EXPANDED_KEY)
+    if (raw === null) return true
+    return raw === 'true'
+  } catch {
+    return true
+  }
+}
 
 function formatPoStatusLabel(status: string): string {
   const labels: Record<string, string> = {
@@ -63,9 +81,26 @@ function poStatusBadgeVariant(status: string): 'secondary' | 'outline' | 'info' 
 
 export function InventoryPurchasingTab({ stockItems, showToast }: { stockItems: StockItem[]; showToast: ToastFn }) {
   const qc = useQueryClient()
+  const { formatCurrency } = useCurrency()
   const [supplierModal, setSupplierModal] = useState(false)
   const [poModal, setPoModal] = useState(false)
   const [receivePoId, setReceivePoId] = useState<string | null>(null)
+  const [poPrintOpen, setPoPrintOpen] = useState(false)
+  const [poPrintDetail, setPoPrintDetail] = useState<PurchaseOrderDetail | null>(null)
+  const [printingPoId, setPrintingPoId] = useState<string | null>(null)
+  const [purchasingGuideExpanded, setPurchasingGuideExpanded] = useState(readPurchasingGuideExpanded)
+
+  const togglePurchasingGuide = useCallback(() => {
+    setPurchasingGuideExpanded((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem(PURCHASING_GUIDE_EXPANDED_KEY, String(next))
+      } catch {
+        /* ignore quota / private mode */
+      }
+      return next
+    })
+  }, [])
   const [supplierForm, setSupplierForm] = useState({ name: '', contact_name: '', phone: '', email: '' })
   const [poForm, setPoForm] = useState({
     supplier_id: '',
@@ -76,6 +111,17 @@ export function InventoryPurchasingTab({ stockItems, showToast }: { stockItems: 
 
   const { data: supRes } = useQuery({ queryKey: ['suppliers'], queryFn: () => apiClient.listSuppliers() })
   const suppliers: Supplier[] = supRes?.data ?? []
+
+  const { data: settingsRes } = useQuery({
+    queryKey: ['settings', 'all'],
+    queryFn: () => apiClient.getAllSettings(),
+    staleTime: 1000 * 60 * 5,
+    enabled: apiClient.isAuthenticated(),
+    retry: false,
+  })
+  const poPrintBusinessName = parseReceiptSettings(
+    settingsRes?.success && settingsRes.data ? (settingsRes.data as Record<string, unknown>) : undefined,
+  ).businessName
 
   const { data: poRes } = useQuery({
     queryKey: ['purchaseOrders'],
@@ -149,8 +195,8 @@ export function InventoryPurchasingTab({ stockItems, showToast }: { stockItems: 
   })
 
   const createPO = useMutation({
-    mutationFn: () =>
-      apiClient.createPurchaseOrder({
+    mutationFn: async () => {
+      const res = await apiClient.createPurchaseOrder({
         supplier_id: poForm.supplier_id,
         expected_date: poForm.expected_date || undefined,
         notes: poForm.notes || undefined,
@@ -161,8 +207,13 @@ export function InventoryPurchasingTab({ stockItems, showToast }: { stockItems: 
             quantity_ordered: l.quantity_ordered,
             unit_cost: l.unit_cost,
           })),
-      }),
-    onSuccess: () => {
+      })
+      if (!res.success || !res.data?.id) {
+        throw new Error(res.error || res.message || 'Failed to create purchase order')
+      }
+      return res.data.id
+    },
+    onSuccess: async (newId) => {
       qc.invalidateQueries({ queryKey: ['purchaseOrders'] })
       showToast('success', 'Purchase order created')
       setPoModal(false)
@@ -172,6 +223,15 @@ export function InventoryPurchasingTab({ stockItems, showToast }: { stockItems: 
         notes: '',
         lines: [{ stock_item_id: '', quantity_ordered: 1, unit_cost: undefined }],
       })
+      try {
+        const d = await apiClient.getPurchaseOrder(newId)
+        if (d.success && d.data) {
+          setPoPrintDetail(d.data)
+          setPoPrintOpen(true)
+        }
+      } catch {
+        showToast('error', 'Purchase order saved, but it could not be loaded for printing.')
+      }
     },
     onError: (e: Error) => showToast('error', e.message || 'Failed'),
   })
@@ -247,60 +307,85 @@ export function InventoryPurchasingTab({ stockItems, showToast }: { stockItems: 
           <div className="hidden sm:flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <Info className="h-6 w-6" aria-hidden />
           </div>
-          <div className="min-w-0 space-y-3">
-            <div>
-              <h2 id="purchasing-guide-title" className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
-                How purchasing works
-              </h2>
-              <p className="mt-1.5 text-base text-muted-foreground leading-relaxed">
-                Use this tab to work with <strong className="font-medium text-foreground">vendors</strong>, raise{' '}
-                <strong className="font-medium text-foreground">purchase orders</strong>, and{' '}
-                <strong className="font-medium text-foreground">record deliveries</strong>. Receipts update stock on
-                hand (and batch costs where configured), so your inventory totals stay aligned with what you actually
-                received.
-              </p>
-            </div>
-            <ol className="grid gap-3 sm:grid-cols-2 text-base text-muted-foreground">
-              <li className="flex gap-3 rounded-lg border bg-background/80 p-3 shadow-sm">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-foreground">
-                  1
-                </span>
-                <span>
-                  <span className="font-medium text-foreground">Suppliers</span> — Add each vendor you order from
-                  (contact details are optional but useful on POs and receipts).
-                </span>
-              </li>
-              <li className="flex gap-3 rounded-lg border bg-background/80 p-3 shadow-sm">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-foreground">
-                  2
-                </span>
-                <span>
-                  <span className="font-medium text-foreground">New PO</span> — Build a draft with stock lines and
-                  quantities. Save as draft while you confirm; <strong className="font-medium text-foreground">Submit</strong>{' '}
-                  when the order is sent to the supplier.
-                </span>
-              </li>
-              <li className="flex gap-3 rounded-lg border bg-background/80 p-3 shadow-sm">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-foreground">
-                  3
-                </span>
-                <span>
-                  <span className="font-medium text-foreground">Receive</span> — When goods arrive, open{' '}
-                  <strong className="font-medium text-foreground">Receive…</strong> and enter quantities (and expiry /
-                  unit cost if you track them). Partial receipts are supported.
-                </span>
-              </li>
-              <li className="flex gap-3 rounded-lg border bg-background/80 p-3 shadow-sm">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-foreground">
-                  4
-                </span>
-                <span>
-                  <span className="font-medium text-foreground">Inventory tab</span> — Use it for counts, issues, and
-                  one-off purchases; use <strong className="font-medium text-foreground">Purchasing</strong> when the
-                  workflow is supplier → PO → delivery.
-                </span>
-              </li>
-            </ol>
+          <div className="min-w-0 flex-1 space-y-3">
+            <button
+              type="button"
+              id="purchasing-guide-toggle"
+              aria-expanded={purchasingGuideExpanded}
+              aria-controls="purchasing-guide-panel"
+              onClick={togglePurchasingGuide}
+              className="flex w-full items-start justify-between gap-3 rounded-lg text-left outline-none ring-offset-background transition-colors hover:bg-background/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 -m-1 p-1 sm:-m-1.5 sm:p-1.5"
+            >
+              <div className="min-w-0 space-y-1">
+                <h2 id="purchasing-guide-title" className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
+                  How purchasing works
+                </h2>
+                {!purchasingGuideExpanded && (
+                  <p className="text-sm text-muted-foreground">
+                    Collapsed — click to expand the walkthrough (your choice is remembered on this device).
+                  </p>
+                )}
+              </div>
+              <ChevronDown
+                className={cn(
+                  'h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 mt-0.5',
+                  purchasingGuideExpanded && 'rotate-180',
+                )}
+                aria-hidden
+              />
+            </button>
+            {purchasingGuideExpanded && (
+              <div id="purchasing-guide-panel" className="space-y-3 pt-0" role="region" aria-labelledby="purchasing-guide-title">
+                <p className="text-base text-muted-foreground leading-relaxed">
+                  Use this tab to work with <strong className="font-medium text-foreground">vendors</strong>, raise{' '}
+                  <strong className="font-medium text-foreground">purchase orders</strong>, and{' '}
+                  <strong className="font-medium text-foreground">record deliveries</strong>. Receipts update stock on
+                  hand (and batch costs where configured), so your inventory totals stay aligned with what you actually
+                  received.
+                </p>
+                <ol className="grid gap-3 sm:grid-cols-2 text-base text-muted-foreground">
+                  <li className="flex gap-3 rounded-lg border bg-background/80 p-3 shadow-sm">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-foreground">
+                      1
+                    </span>
+                    <span>
+                      <span className="font-medium text-foreground">Suppliers</span> — Add each vendor you order from
+                      (contact details are optional but useful on POs and receipts).
+                    </span>
+                  </li>
+                  <li className="flex gap-3 rounded-lg border bg-background/80 p-3 shadow-sm">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-foreground">
+                      2
+                    </span>
+                    <span>
+                      <span className="font-medium text-foreground">New PO</span> — Build a draft with stock lines and
+                      quantities. Save as draft while you confirm; <strong className="font-medium text-foreground">Submit</strong>{' '}
+                      when the order is sent to the supplier.
+                    </span>
+                  </li>
+                  <li className="flex gap-3 rounded-lg border bg-background/80 p-3 shadow-sm">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-foreground">
+                      3
+                    </span>
+                    <span>
+                      <span className="font-medium text-foreground">Receive</span> — When goods arrive, open{' '}
+                      <strong className="font-medium text-foreground">Receive…</strong> and enter quantities (and expiry /
+                      unit cost if you track them). Partial receipts are supported.
+                    </span>
+                  </li>
+                  <li className="flex gap-3 rounded-lg border bg-background/80 p-3 shadow-sm">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-foreground">
+                      4
+                    </span>
+                    <span>
+                      <span className="font-medium text-foreground">Inventory tab</span> — Use it for counts, issues, and
+                      one-off purchases; use <strong className="font-medium text-foreground">Purchasing</strong> when the
+                      workflow is supplier → PO → delivery.
+                    </span>
+                  </li>
+                </ol>
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -480,15 +565,42 @@ export function InventoryPurchasingTab({ stockItems, showToast }: { stockItems: 
                         <td className="px-4 py-3.5 align-middle">
                           <div className="flex flex-wrap items-center justify-center gap-2">
                             {o.status === 'draft' && (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                className="h-9 text-sm"
-                                disabled={submitPO.isPending}
-                                onClick={() => submitPO.mutate(o.id)}
-                              >
-                                Submit
-                              </Button>
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-9 text-sm gap-1.5"
+                                  disabled={printingPoId === o.id || submitPO.isPending}
+                                  onClick={async () => {
+                                    setPrintingPoId(o.id)
+                                    try {
+                                      const r = await apiClient.getPurchaseOrder(o.id)
+                                      if (r.success && r.data) {
+                                        setPoPrintDetail(r.data)
+                                        setPoPrintOpen(true)
+                                      } else {
+                                        showToast('error', r.message || 'Could not load purchase order')
+                                      }
+                                    } catch (err) {
+                                      showToast('error', err instanceof Error ? err.message : 'Could not load purchase order')
+                                    } finally {
+                                      setPrintingPoId(null)
+                                    }
+                                  }}
+                                >
+                                  <Printer className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                  Print
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  className="h-9 text-sm"
+                                  disabled={submitPO.isPending || printingPoId === o.id}
+                                  onClick={() => submitPO.mutate(o.id)}
+                                >
+                                  Submit
+                                </Button>
+                              </>
                             )}
                             {(o.status === 'ordered' || o.status === 'partially_received') && (
                               <Button size="sm" variant="outline" className="h-9 text-sm" onClick={() => openReceive(o.id)}>
@@ -693,6 +805,17 @@ export function InventoryPurchasingTab({ stockItems, showToast }: { stockItems: 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PoPrintModal
+        open={poPrintOpen}
+        onOpenChange={(o) => {
+          setPoPrintOpen(o)
+          if (!o) setPoPrintDetail(null)
+        }}
+        detail={poPrintDetail}
+        businessName={poPrintBusinessName}
+        formatCurrency={formatCurrency}
+      />
 
       <Dialog open={!!receivePoId} onOpenChange={(o) => !o && setReceivePoId(null)}>
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">

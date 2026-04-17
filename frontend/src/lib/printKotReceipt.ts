@@ -1,5 +1,54 @@
 import type { StationKOT } from '@/types'
 
+/** Opens the browser print dialog for an 80mm-oriented HTML document (thermal / receipt printers). */
+export function printThermalHtmlDocument(html: string): void {
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+
+  const w = window.open(
+    url,
+    '_blank',
+    'width=420,height=720,left=-2400,top=0,menubar=no,toolbar=no'
+  )
+
+  if (!w) {
+    URL.revokeObjectURL(url)
+    printViaLargeOffscreenIframe(html)
+    return
+  }
+
+  const cleanup = () => {
+    try {
+      w.close()
+    } catch {
+      /* ignore */
+    }
+    URL.revokeObjectURL(url)
+  }
+
+  let printed = false
+  const doPrint = () => {
+    if (printed) return
+    printed = true
+    try {
+      w.focus()
+      w.print()
+    } finally {
+      setTimeout(cleanup, 800)
+    }
+  }
+
+  w.onload = () => window.setTimeout(doPrint, 150)
+  window.setTimeout(() => {
+    if (!printed && w.document?.readyState === 'complete') {
+      doPrint()
+    }
+  }, 400)
+  window.setTimeout(() => {
+    if (!printed) doPrint()
+  }, 1200)
+}
+
 function buildPrintHtml(slips: StationKOT[]): string {
   const body = slips
     .map((k, idx) => {
@@ -58,52 +107,7 @@ export function printKotReceipts(kots: StationKOT[] | undefined): void {
   if (slips.length === 0) return
 
   const html = buildPrintHtml(slips)
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-
-  // Tiny iframes clip print layout — only the first KOT appears. Use a full blob document instead.
-  const w = window.open(
-    url,
-    '_blank',
-    'width=420,height=720,left=-2400,top=0,menubar=no,toolbar=no'
-  )
-
-  if (!w) {
-    URL.revokeObjectURL(url)
-    printViaLargeOffscreenIframe(html)
-    return
-  }
-
-  const cleanup = () => {
-    try {
-      w.close()
-    } catch {
-      /* ignore */
-    }
-    URL.revokeObjectURL(url)
-  }
-
-  let printed = false
-  const doPrint = () => {
-    if (printed) return
-    printed = true
-    try {
-      w.focus()
-      w.print()
-    } finally {
-      setTimeout(cleanup, 800)
-    }
-  }
-
-  w.onload = () => window.setTimeout(doPrint, 150)
-  window.setTimeout(() => {
-    if (!printed && w.document?.readyState === 'complete') {
-      doPrint()
-    }
-  }, 400)
-  window.setTimeout(() => {
-    if (!printed) doPrint()
-  }, 1200)
+  printThermalHtmlDocument(html)
 }
 
 /** When popups are blocked: off-screen iframe large enough for full multi-slip layout. */

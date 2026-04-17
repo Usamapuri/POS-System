@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,7 +73,21 @@ func (h *ExpenseHandler) GetExpenses(c *gin.Context) {
 	var total int
 	h.db.QueryRow("SELECT COUNT(*) FROM ("+qb+") q", args...).Scan(&total)
 
-	qb += " ORDER BY e.expense_date DESC, e.created_at DESC"
+	sortBy := c.DefaultQuery("sort_by", "expense_date")
+	sortDir := strings.ToUpper(c.DefaultQuery("sort_dir", "DESC"))
+	if sortDir != "ASC" && sortDir != "DESC" {
+		sortDir = "DESC"
+	}
+	orderCol := "e.expense_date"
+	switch sortBy {
+	case "amount":
+		orderCol = "e.amount"
+	case "category":
+		orderCol = "e.category"
+	case "created_at":
+		orderCol = "e.created_at"
+	}
+	qb += fmt.Sprintf(" ORDER BY %s %s, e.created_at DESC", orderCol, sortDir)
 	n++
 	qb += fmt.Sprintf(" LIMIT $%d", n)
 	args = append(args, perPage)
@@ -300,6 +315,12 @@ func (h *ExpenseHandler) GetExpenseCategories(c *gin.Context) {
 }
 
 // ---------- P&L Report ----------
+//
+// Revenue recognition contract (must match GetCurrentDayStatus / CloseDay / GetExpenseIntelligence):
+//   - Only orders with status = 'completed' and non-null completed_at contribute to revenue.
+//   - Date filter and DATE_TRUNC buckets use completed_at (business “sales day”), not created_at.
+//   - Expenses remain on expense_date (date-only) until optional time-of-day is added.
+// A regression guard lives in expenses_pnl_contract_test.go.
 
 func (h *ExpenseHandler) GetPnLReport(c *gin.Context) {
 	period := c.DefaultQuery("period", "daily")
@@ -450,6 +471,193 @@ func (h *ExpenseHandler) GetPnLReport(c *gin.Context) {
 				"net_profit":     sumProfit,
 			},
 			"expense_breakdown": catBreakdown,
+		},
+	})
+}
+
+// GetExpenseIntelligence aggregates sales, expenses, cash closings, and category mix for analytics UI.
+func (h *ExpenseHandler) GetExpenseIntelligence(c *gin.Context) {
+	periodDays := 30
+	if p := c.Query("period_days"); p != "" {
+		if n, err := strconv.Atoi(p); err == nil && n >= 7 && n <= 120 {
+			periodDays = n
+		}
+	}
+	to := time.Now().Format("2006-01-02")
+	fromTime := time.Now().AddDate(0, 0, -(periodDays - 1))
+	from := fromTime.Format("2006-01-02")
+
+	priorToTime := fromTime.AddDate(0, 0, -1)
+	priorTo := priorToTime.Format("2006-01-02")
+	priorFromTime := priorToTime.AddDate(0, 0, -(periodDays - 1))
+	priorFrom := priorFromTime.Format("2006-01-02")
+
+	var totalSales, totalTax, totalExpenses, inventorySpend float64
+	var orderCount int
+	err := h.db.QueryRow(`
+		SELECT COALESCE(SUM(o.total_amount), 0), COALESCE(SUM(o.tax_amount), 0), COUNT(*)
+		FROM orders o
+		WHERE o.status = 'completed' AND o.completed_at IS NOT NULL
+		  AND o.completed_at::date >= $1::date AND o.completed_at::date <= $2::date
+	`, from, to).Scan(&totalSales, &totalTax, &orderCount)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load sales totals", Error: strPtr(err.Error())})
+		return
+	}
+
+	h.db.QueryRow(`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date >= $1 AND expense_date <= $2`, from, to).Scan(&totalExpenses)
+	h.db.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0) FROM expenses
+		WHERE expense_date >= $1 AND expense_date <= $2 AND category = 'inventory_purchase'
+	`, from, to).Scan(&inventorySpend)
+
+	var priorSales, priorExpenses float64
+	h.db.QueryRow(`
+		SELECT COALESCE(SUM(o.total_amount), 0) FROM orders o
+		WHERE o.status = 'completed' AND o.completed_at IS NOT NULL
+		  AND o.completed_at::date >= $1::date AND o.completed_at::date <= $2::date
+	`, priorFrom, priorTo).Scan(&priorSales)
+	h.db.QueryRow(`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date >= $1 AND expense_date <= $2`, priorFrom, priorTo).Scan(&priorExpenses)
+
+	var manualCount, autoCount int
+	h.db.QueryRow(`
+		SELECT
+			COUNT(*) FILTER (WHERE reference_type IS NULL OR TRIM(reference_type) = ''),
+			COUNT(*) FILTER (WHERE reference_type IS NOT NULL AND TRIM(reference_type) <> '')
+		FROM expenses WHERE expense_date >= $1 AND expense_date <= $2
+	`, from, to).Scan(&manualCount, &autoCount)
+
+	var closingDays int
+	var avgCashDiff, sumAbsCashDiff sql.NullFloat64
+	h.db.QueryRow(`
+		SELECT COUNT(*), AVG(cash_difference), SUM(ABS(COALESCE(cash_difference, 0)))
+		FROM daily_closings
+		WHERE closing_date >= $1::date AND closing_date <= $2::date
+	`, from, to).Scan(&closingDays, &avgCashDiff, &sumAbsCashDiff)
+
+	expenseRatio := 0.0
+	if totalSales > 0 {
+		expenseRatio = totalExpenses / totalSales
+	}
+	invToSales := 0.0
+	if totalSales > 0 {
+		invToSales = inventorySpend / totalSales
+	}
+	salesChangePct := 0.0
+	if priorSales > 0 {
+		salesChangePct = (totalSales - priorSales) / priorSales * 100
+	}
+	expenseChangePct := 0.0
+	if priorExpenses > 0 {
+		expenseChangePct = (totalExpenses - priorExpenses) / priorExpenses * 100
+	}
+
+	seriesRows, err := h.db.Query(`
+		WITH days AS (
+			SELECT generate_series($1::date, $2::date, interval '1 day')::date AS d
+		)
+		SELECT d::text,
+		       COALESCE((
+		         SELECT SUM(o.total_amount) FROM orders o
+		         WHERE o.status = 'completed' AND o.completed_at IS NOT NULL AND o.completed_at::date = d
+		       ), 0),
+		       COALESCE((SELECT SUM(e.amount) FROM expenses e WHERE e.expense_date = d), 0)
+		FROM days
+		ORDER BY d
+	`, from, to)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load trend series", Error: strPtr(err.Error())})
+		return
+	}
+	defer seriesRows.Close()
+
+	type dayPoint struct {
+		Date     string  `json:"date"`
+		Sales    float64 `json:"sales"`
+		Expenses float64 `json:"expenses"`
+		Net      float64 `json:"net"`
+	}
+	var dailyTrend []dayPoint
+	for seriesRows.Next() {
+		var ds string
+		var s, ex float64
+		if err := seriesRows.Scan(&ds, &s, &ex); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to scan trend", Error: strPtr(err.Error())})
+			return
+		}
+		dailyTrend = append(dailyTrend, dayPoint{Date: ds, Sales: s, Expenses: ex, Net: s - ex})
+	}
+
+	catRows, err := h.db.Query(`
+		SELECT category, COALESCE(SUM(amount), 0) AS total
+		FROM expenses
+		WHERE expense_date >= $1 AND expense_date <= $2
+		GROUP BY category
+		ORDER BY total DESC
+	`, from, to)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load category mix", Error: strPtr(err.Error())})
+		return
+	}
+	defer catRows.Close()
+
+	type catMix struct {
+		Category string  `json:"category"`
+		Total    float64 `json:"total"`
+		Pct      float64 `json:"pct"`
+	}
+	var categoryMix []catMix
+	for catRows.Next() {
+		var cm catMix
+		if err := catRows.Scan(&cm.Category, &cm.Total); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to scan category mix", Error: strPtr(err.Error())})
+			return
+		}
+		if totalExpenses > 0 {
+			cm.Pct = cm.Total / totalExpenses * 100
+		}
+		categoryMix = append(categoryMix, cm)
+	}
+
+	avgCash := 0.0
+	if avgCashDiff.Valid {
+		avgCash = avgCashDiff.Float64
+	}
+	sumAbs := 0.0
+	if sumAbsCashDiff.Valid {
+		sumAbs = sumAbsCashDiff.Float64
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Message: "Expense intelligence retrieved",
+		Data: map[string]interface{}{
+			"period_days": periodDays,
+			"from":        from,
+			"to":          to,
+			"kpis": map[string]interface{}{
+				"total_sales":                 totalSales,
+				"total_tax":                   totalTax,
+				"total_orders":                orderCount,
+				"total_expenses":              totalExpenses,
+				"net_profit":                  totalSales - totalExpenses,
+				"expense_ratio":               expenseRatio,
+				"inventory_spend":             inventorySpend,
+				"inventory_to_sales_ratio":    invToSales,
+				"manual_expense_count":        manualCount,
+				"auto_linked_expense_count":   autoCount,
+				"prior_period_sales":          priorSales,
+				"prior_period_expenses":       priorExpenses,
+				"sales_change_pct":            salesChangePct,
+				"expenses_change_pct":         expenseChangePct,
+			},
+			"daily_trend": dailyTrend,
+			"category_mix": categoryMix,
+			"cash_closing_stats": map[string]interface{}{
+				"days_with_closing":       closingDays,
+				"avg_cash_difference":     avgCash,
+				"total_abs_cash_variance": sumAbs,
+			},
 		},
 	})
 }

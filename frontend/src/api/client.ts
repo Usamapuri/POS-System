@@ -40,6 +40,7 @@ import type {
   PnLReport,
   CurrentDayStatus,
   ExpenseSummary,
+  ExpenseIntelligenceReport,
   KitchenStation,
   VoidLogEntry,
   FireKOTResponse,
@@ -746,7 +747,16 @@ class APIClient {
   }
 
   // Expense endpoints
-  async getExpenses(params?: { page?: number; per_page?: number; category?: string; from?: string; to?: string; search?: string }): Promise<PaginatedResponse<Expense[]>> {
+  async getExpenses(params?: {
+    page?: number;
+    per_page?: number;
+    category?: string;
+    from?: string;
+    to?: string;
+    search?: string;
+    sort_by?: 'expense_date' | 'amount' | 'category' | 'created_at';
+    sort_dir?: 'asc' | 'desc';
+  }): Promise<PaginatedResponse<Expense[]>> {
     return this.request({ method: 'GET', url: '/admin/expenses', params });
   }
 
@@ -790,6 +800,10 @@ class APIClient {
   // P&L Report endpoint
   async getPnLReport(params?: { period?: string; from?: string; to?: string }): Promise<APIResponse<PnLReport>> {
     return this.request({ method: 'GET', url: '/admin/reports/pnl', params });
+  }
+
+  async getExpenseIntelligence(params?: { period_days?: number }): Promise<APIResponse<ExpenseIntelligenceReport>> {
+    return this.request({ method: 'GET', url: '/admin/reports/expense-intelligence', params });
   }
 
   // KOT endpoints
