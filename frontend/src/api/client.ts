@@ -409,6 +409,18 @@ class APIClient {
     });
   }
 
+  /** Reassign active dine-in order to another table. */
+  async reassignCounterOrderTable(
+    orderId: string,
+    body: { table_id: string; notes?: string }
+  ): Promise<APIResponse<Order>> {
+    return this.request({
+      method: 'PATCH',
+      url: `/counter/orders/${orderId}/table`,
+      data: body,
+    });
+  }
+
   async getAdminCustomers(params?: { q?: string; page?: number }): Promise<APIResponse<Record<string, unknown>[]>> {
     return this.request({
       method: 'GET',

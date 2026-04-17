@@ -3,7 +3,6 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -47,18 +46,20 @@ func (h *OrderHandler) OpenCounterTableTab(c *gin.Context) {
 		return
 	}
 
-	orderNumber, err := h.allocDailyOrderNumberStandalone(h.db)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to allocate order number", Error: stringPtr(err.Error())})
-		return
-	}
-
 	tx, err := h.db.Begin()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to start transaction", Error: stringPtr(err.Error())})
 		return
 	}
 	defer tx.Rollback()
+
+	// Allocate order number inside the same transaction as INSERT so counter / released-pool
+	// stays consistent if anything below fails.
+	orderNumber, err := h.allocDailyOrderNumber(tx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to allocate order number", Error: stringPtr(err.Error())})
+		return
+	}
 
 	var serverRole string
 	if err := tx.QueryRow(`SELECT role FROM users WHERE id = $1 AND is_active = true`, req.AssignedServerID).Scan(&serverRole); err != nil {
@@ -142,7 +143,8 @@ func (h *OrderHandler) OpenCounterTableTab(c *gin.Context) {
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Message: "Table tab opened", Data: order})
 }
 
-// CancelCounterOpenTab abandons a counter dine-in tab before kitchen fire; releases order number for reuse.
+// CancelCounterOpenTab abandons a counter dine-in tab before kitchen fire. The order row keeps its
+// order_number (unique) for audit; display sequences are not returned to the reuse pool.
 func (h *OrderHandler) CancelCounterOpenTab(c *gin.Context) {
 	_, _, _, ok := middleware.GetUserFromContext(c)
 	if !ok {
@@ -213,12 +215,8 @@ func (h *OrderHandler) CancelCounterOpenTab(c *gin.Context) {
 		return
 	}
 
-	if !kotFirst.Valid {
-		if err := releaseOrderSequenceTx(tx, orderNumber); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to release order number", Error: stringPtr(err.Error())})
-			return
-		}
-	}
+	// Do not return the display sequence to released_order_sequences: the cancelled row still
+	// holds order_number (UNIQUE), so reusing the same number would cause duplicate key on new tabs.
 
 	if err := tx.Commit(); err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to commit", Error: stringPtr(err.Error())})
@@ -241,6 +239,160 @@ func (h *OrderHandler) CancelCounterOpenTab(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Open tab cancelled", Data: nil})
 }
 
+// ReassignCounterOrderTable moves an active dine-in order to a new table with transactional occupancy updates.
+func (h *OrderHandler) ReassignCounterOrderTable(c *gin.Context) {
+	userID, _, _, ok := middleware.GetUserFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.APIResponse{Success: false, Message: "Authentication required", Error: stringPtr("auth_required")})
+		return
+	}
+
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid order ID", Error: stringPtr("invalid_uuid")})
+		return
+	}
+
+	var req models.ReassignCounterTableRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid request body", Error: stringPtr(err.Error())})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to start transaction", Error: stringPtr(err.Error())})
+		return
+	}
+	defer tx.Rollback()
+
+	var (
+		status        string
+		orderType     string
+		currentTable  uuid.UUID
+		currentTableN string
+	)
+	// Lock the order row only. PostgreSQL rejects FOR UPDATE when it would apply to the nullable side of an outer join.
+	if err := tx.QueryRow(`
+		SELECT o.status, o.order_type, o.table_id,
+		       COALESCE((SELECT dt.table_number FROM dining_tables dt WHERE dt.id = o.table_id), '')
+		FROM orders o
+		WHERE o.id = $1::uuid
+		FOR UPDATE
+	`, orderID).Scan(&status, &orderType, &currentTable, &currentTableN); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Order not found", Error: stringPtr("order_not_found")})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load order", Error: stringPtr(err.Error())})
+		return
+	}
+
+	if orderType != "dine_in" {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Only dine-in orders can be reassigned", Error: stringPtr("invalid_order_type")})
+		return
+	}
+	if status == "completed" || status == "cancelled" {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Order cannot be reassigned in current status", Error: stringPtr("invalid_status")})
+		return
+	}
+	if currentTable == req.TableID {
+		c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Order already assigned to this table", Data: nil})
+		return
+	}
+
+	var targetExists bool
+	var targetTableNumber string
+	if err := tx.QueryRow(`
+		SELECT true, COALESCE(table_number, '')
+		FROM dining_tables
+		WHERE id = $1::uuid
+		FOR UPDATE
+	`, req.TableID).Scan(&targetExists, &targetTableNumber); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Destination table not found", Error: stringPtr("table_not_found")})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to validate destination table", Error: stringPtr(err.Error())})
+		return
+	}
+	if !targetExists {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Destination table not found", Error: stringPtr("table_not_found")})
+		return
+	}
+
+	var destinationBusy int
+	if err := tx.QueryRow(`
+		SELECT COUNT(*)
+		FROM orders
+		WHERE table_id = $1::uuid
+		  AND id <> $2::uuid
+		  AND status NOT IN ('completed', 'cancelled')
+	`, req.TableID, orderID).Scan(&destinationBusy); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to check destination table", Error: stringPtr(err.Error())})
+		return
+	}
+	if destinationBusy > 0 {
+		c.JSON(http.StatusConflict, models.APIResponse{Success: false, Message: "Destination table already has an active order", Error: stringPtr("table_has_active_order")})
+		return
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE orders
+		SET table_id = $1::uuid, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2::uuid
+	`, req.TableID, orderID); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to reassign table", Error: stringPtr(err.Error())})
+		return
+	}
+
+	note := strings.TrimSpace("Table moved from " + currentTableN + " to " + targetTableNumber)
+	if req.Notes != nil && strings.TrimSpace(*req.Notes) != "" {
+		note += " — " + strings.TrimSpace(*req.Notes)
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO order_status_history (id, order_id, previous_status, new_status, changed_by, notes)
+		VALUES ($1::uuid, $2::uuid, $3, $4, $5::uuid, $6)
+	`, uuid.New(), orderID, status, status, userID, note); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write order history", Error: stringPtr(err.Error())})
+		return
+	}
+
+	if _, err := tx.Exec(`UPDATE dining_tables SET is_occupied = true WHERE id = $1::uuid`, req.TableID); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to mark destination occupied", Error: stringPtr(err.Error())})
+		return
+	}
+
+	var remaining int
+	if err := tx.QueryRow(`
+		SELECT COUNT(*)
+		FROM orders
+		WHERE table_id = $1::uuid
+		  AND status NOT IN ('completed', 'cancelled')
+	`, currentTable).Scan(&remaining); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to check source table", Error: stringPtr(err.Error())})
+		return
+	}
+	if remaining == 0 {
+		if _, err := tx.Exec(`UPDATE dining_tables SET is_occupied = false WHERE id = $1::uuid`, currentTable); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to release source table", Error: stringPtr(err.Error())})
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to commit reassignment", Error: stringPtr(err.Error())})
+		return
+	}
+
+	order, err := h.getOrderByID(orderID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Table reassigned but failed to load order", Error: stringPtr(err.Error())})
+		return
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Order table reassigned", Data: order})
+}
+
 func nullIfEmptyPtr(p *string) interface{} {
 	if p == nil {
 		return nil
@@ -250,24 +402,6 @@ func nullIfEmptyPtr(p *string) interface{} {
 		return nil
 	}
 	return s
-}
-
-func releaseOrderSequenceTx(tx *sql.Tx, orderNumber string) error {
-	parts := strings.Split(orderNumber, "-")
-	if len(parts) != 2 {
-		return nil
-	}
-	compact := parts[0]
-	seq, aerr := strconv.Atoi(parts[1])
-	if aerr != nil || len(compact) != 8 {
-		return nil
-	}
-	bd := compact[:4] + "-" + compact[4:6] + "-" + compact[6:8]
-	_, err := tx.Exec(`
-		INSERT INTO released_order_sequences (business_date, seq) VALUES ($1::date, $2)
-		ON CONFLICT DO NOTHING
-	`, bd, seq)
-	return err
 }
 
 func resolveCustomerInTx(tx *sql.Tx, displayName, email, phone, guestBirthday *string) (*uuid.UUID, error) {

@@ -315,6 +315,12 @@ type OpenCounterTableTabRequest struct {
 	GuestBirthday    *string   `json:"guest_birthday"` // YYYY-MM-DD
 }
 
+// ReassignCounterTableRequest moves an active dine-in order to a different table.
+type ReassignCounterTableRequest struct {
+	TableID uuid.UUID `json:"table_id" binding:"required"`
+	Notes   *string   `json:"notes"`
+}
+
 // UpdateCheckoutIntentRequest sets displayed totals before payment (cash | card | online).
 type UpdateCheckoutIntentRequest struct {
 	CheckoutPaymentMethod string `json:"checkout_payment_method" binding:"required,oneof=cash card online"`

@@ -8,11 +8,18 @@ import { TableSessionModal, type TableSession } from '@/components/counter/Table
 import { KotPrintModal } from '@/components/counter/KotPrintModal'
 import { CounterPaymentPanel } from '@/components/counter/CounterPaymentPanel'
 import { CounterOrderTypeToggle } from '@/components/counter/CounterOrderTypeToggle'
+import { TicketHeader } from '@/components/counter/rail/TicketHeader'
+import { getTicketLifecycle, orderPayableRemaining } from '@/components/counter/rail/ticketState'
+import { SentItemsSection } from '@/components/counter/rail/SentItemsSection'
+import { UnsentItemsSection } from '@/components/counter/rail/UnsentItemsSection'
+import { CashTenderPad } from '@/components/counter/rail/CashTenderPad'
+import { ActionFooter } from '@/components/counter/rail/ActionFooter'
+import { TablesPicker } from '@/components/counter/TablesPicker'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+  CounterCheckoutSuccessOverlay,
+  type CheckoutCelebrationMode,
+} from '@/components/counter/CounterCheckoutSuccessOverlay'
+import { useCounterHotkeys } from '@/hooks/useCounterHotkeys'
 import { computeCartTotals, mergePricingSettings } from '@/lib/counterPricing'
 import { subscribeOrderReady } from '@/lib/kdsRealtime'
 import { cn } from '@/lib/utils'
@@ -20,17 +27,11 @@ import { useCurrency } from '@/contexts/CurrencyContext'
 import { toastHelpers } from '@/lib/toast-helpers'
 import { getCashierNameFromStorage, parseReceiptSettings, printCustomerReceipt } from '@/lib/printCustomerReceipt'
 import {
-  Plus,
-  Minus,
-  ShoppingCart,
-  CreditCard,
-  Check,
   Search,
   Package,
-  ChevronDown,
-  ChevronUp,
-  Info,
   GripVertical,
+  UtensilsCrossed,
+  ChevronDown,
 } from 'lucide-react'
 import type {
   Product,
@@ -72,74 +73,7 @@ function categorySurfaceStyle(accent: string): { background: string } {
   }
 }
 
-/** ~30% lighter: blend 30% toward white (RGB) or raise HSL lightness by 30% of distance to 100%. */
-const ACCENT_LIGHTEN = 0.3
-
-function lightenAccent(accent: string): string {
-  const t = accent.trim()
-  const hex6 = t.match(/^#([0-9A-Fa-f]{6})$/i)
-  const hex3 = t.match(/^#([0-9A-Fa-f]{3})$/i)
-  const mix = (c: number) => Math.round(c + (255 - c) * ACCENT_LIGHTEN)
-  if (hex6) {
-    const n = parseInt(hex6[1], 16)
-    const r = mix((n >> 16) & 255)
-    const g = mix((n >> 8) & 255)
-    const b = mix(n & 255)
-    return `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`
-  }
-  if (hex3) {
-    const [a, c, d] = hex3[1].split('')
-    const r = mix(parseInt(a + a, 16))
-    const g = mix(parseInt(c + c, 16))
-    const b = mix(parseInt(d + d, 16))
-    return `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`
-  }
-  const hsl = t.match(/hsl\(\s*([\d.]+)\s+([\d.]+)%\s+([\d.]+)%/)
-  if (hsl) {
-    const h = hsl[1]
-    const s = hsl[2]
-    const l = parseFloat(hsl[3])
-    const newL = Math.min(100, l + (100 - l) * ACCENT_LIGHTEN)
-    return `hsl(${h} ${s}% ${Math.round(newL * 10) / 10}%)`
-  }
-  return accent
-}
-
-/** Light text on dark accents, dark text on light accents (hex or hsl from categoryColor). */
-function pickOnAccentText(accent: string): '#ffffff' | '#0a0a0a' {
-  const t = accent.trim()
-  const hex6 = t.match(/^#([0-9A-Fa-f]{6})$/i)
-  const hex3 = t.match(/^#([0-9A-Fa-f]{3})$/i)
-  let r = 90
-  let g = 90
-  let b = 90
-  if (hex6) {
-    const n = parseInt(hex6[1], 16)
-    r = (n >> 16) & 255
-    g = (n >> 8) & 255
-    b = n & 255
-  } else if (hex3) {
-    const [a, c, d] = hex3[1].split('')
-    r = parseInt(a + a, 16)
-    g = parseInt(c + c, 16)
-    b = parseInt(d + d, 16)
-  } else {
-    const hsl = t.match(/hsl\(\s*([\d.]+)\s+([\d.]+)%\s+([\d.]+)%/)
-    if (hsl) {
-      const l = parseFloat(hsl[3])
-      return l > 52 ? '#0a0a0a' : '#ffffff'
-    }
-  }
-  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
-  return luminance > 0.55 ? '#0a0a0a' : '#ffffff'
-}
-
-function orderPayableRemaining(order: Order | null): number {
-  if (!order) return 0
-  const paid =
-    order.payments?.filter((p) => p.status === 'completed').reduce((s, p) => s + p.amount, 0) ?? 0
-  return Math.max(0, order.total_amount - paid)
-}
+// orderPayableRemaining + lifecycle helpers live in rail/ticketState
 
 const COUNTER_CHECKOUT_RAIL_KEY = 'pos-counter-checkout-rail-px'
 const COUNTER_RAIL_DEFAULT = 448
@@ -160,6 +94,9 @@ export function CounterInterface() {
   const [dineInSession, setDineInSession] = useState<TableSession | null>(null)
   const [sessionModalOpen, setSessionModalOpen] = useState(false)
   const [customerName, setCustomerName] = useState('')
+  const [customerEmail, setCustomerEmail] = useState('')
+  const [customerPhone, setCustomerPhone] = useState('')
+  const [guestBirthday, setGuestBirthday] = useState('')
   const [cart, setCart] = useState<CartItem[]>([])
   const [orderNotes, setOrderNotes] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
@@ -174,6 +111,8 @@ export function CounterInterface() {
   const [discountValue, setDiscountValue] = useState('')
   const [kotPrintOpen, setKotPrintOpen] = useState(false)
   const [lastFireKots, setLastFireKots] = useState<StationKOT[] | undefined>(undefined)
+  /** Full-screen thank-you after a completed payment (customer-facing terminal). */
+  const [checkoutCelebration, setCheckoutCelebration] = useState<CheckoutCelebrationMode | null>(null)
   /** When set, cart adds lines to this existing table order (occupied table flow). */
   const [continuingOrderId, setContinuingOrderId] = useState<string | null>(null)
   /** Full order data when continuing an existing order (includes items already sent to kitchen). */
@@ -187,13 +126,21 @@ export function CounterInterface() {
   const cartRowRefs = useRef<Record<string, HTMLTableRowElement | null>>({})
   const [cartLiveAnnouncement, setCartLiveAnnouncement] = useState<{ text: string; id: number }>({ text: '', id: 0 })
   const [existingItemsExpanded, setExistingItemsExpanded] = useState(false)
+  const [tableTransferOpen, setTableTransferOpen] = useState(false)
+  const [tablesPickerOpen, setTablesPickerOpen] = useState(false)
 
   const [checkoutRailPx, setCheckoutRailPx] = useState(readCheckoutRailWidth)
   const counterSplitRef = useRef<HTMLDivElement>(null)
   const railDragRef = useRef<{ startX: number; startW: number; maxW: number } | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const railScrollRef = useRef<HTMLDivElement>(null)
 
   const queryClient = useQueryClient()
   const { formatCurrency } = useCurrency()
+
+  const dismissCheckoutCelebration = useCallback(() => {
+    setCheckoutCelebration(null)
+  }, [])
 
   useEffect(() => {
     return subscribeOrderReady((e) => {
@@ -294,7 +241,10 @@ export function CounterInterface() {
       }
       const orderData: CreateOrderRequest = {
         table_id: orderType === 'dine_in' ? selectedTable?.id : undefined,
-        customer_name: customerName || undefined,
+        customer_name: customerName.trim() || undefined,
+        customer_email: customerEmail.trim() || undefined,
+        customer_phone: customerPhone.trim() || undefined,
+        guest_birthday: guestBirthday.trim() || undefined,
         order_type: orderType,
         guest_count: orderType === 'dine_in' ? dineInSession!.guestCount : 0,
         assigned_server_id: orderType === 'dine_in' ? dineInSession!.serverId : undefined,
@@ -318,6 +268,9 @@ export function CounterInterface() {
         setSelectedTable(null)
         setDineInSession(null)
         setCustomerName('')
+        setCustomerEmail('')
+        setCustomerPhone('')
+        setGuestBirthday('')
         setContinuingOrderId(null)
         setExistingOrder(null)
         setExistingItemsExpanded(false)
@@ -327,6 +280,10 @@ export function CounterInterface() {
         setContinuingOrderId(null)
         setSelectedTable(null)
         setDineInSession(null)
+        setCustomerName('')
+        setCustomerEmail('')
+        setCustomerPhone('')
+        setGuestBirthday('')
       }
 
       try {
@@ -350,18 +307,77 @@ export function CounterInterface() {
   })
 
   const processPaymentMutation = useMutation({
-    mutationFn: ({ orderId, paymentData }: { orderId: string; paymentData: ProcessPaymentRequest }) =>
-      apiClient.processCounterPayment(orderId, paymentData),
+    mutationFn: async ({
+      orderId,
+      paymentData,
+    }: {
+      orderId: string
+      paymentData: ProcessPaymentRequest
+    }) => {
+      const res = await apiClient.processCounterPayment(orderId, paymentData)
+      if (!res.success) {
+        throw new Error(res.message || 'Payment could not be processed')
+      }
+      return res
+    },
+    onError: (err: Error) => {
+      toastHelpers.error('Payment', err.message || 'Payment failed')
+    },
     onSuccess: async (_data, variables) => {
-      setSelectedOrder(null)
-      setCheckoutOpen(false)
-      setCashReceived('')
-      setReferenceNumber('')
+      let orderAfter: Order | null = null
+      try {
+        const orderRes = await apiClient.getOrder(variables.orderId)
+        if (orderRes.success && orderRes.data) orderAfter = orderRes.data
+      } catch {
+        /* order fetch optional for branching */
+      }
+
+      // If we cannot refetch, assume check closed (payment API already succeeded).
+      const fullyPaid = orderAfter == null ? true : orderAfter.status === 'completed'
+
+      if (fullyPaid) {
+        setCheckoutCelebration(orderType)
+        setSelectedOrder(null)
+        setCheckoutOpen(false)
+        setCashModalOpen(false)
+        setCashReceived('')
+        setReferenceNumber('')
+        setDiscountValue('')
+        setExistingOrder(null)
+        setContinuingOrderId(null)
+        setSelectedTable(null)
+        setDineInSession(null)
+        setCustomerName('')
+        setCustomerEmail('')
+        setCustomerPhone('')
+        setGuestBirthday('')
+        setCart([])
+        setExistingItemsExpanded(false)
+        queryClient.removeQueries({ queryKey: ['order', variables.orderId, 'payment-panel'] })
+      } else {
+        toastHelpers.success(
+          'Payment recorded',
+          orderAfter ? 'Remaining balance still due on this check.' : 'Refresh the order if totals look wrong.'
+        )
+        setCashModalOpen(false)
+        setCashReceived('')
+        setReferenceNumber('')
+        if (orderAfter) {
+          setSelectedOrder(orderAfter)
+          setExistingOrder((prev) => (prev?.id === orderAfter.id ? orderAfter : prev))
+          queryClient.setQueryData(['order', variables.orderId, 'payment-panel'], orderAfter)
+        }
+      }
+
       queryClient.invalidateQueries({ queryKey: ['orders'] })
       queryClient.invalidateQueries({ queryKey: ['counterPendingOrders'] })
       queryClient.invalidateQueries({ queryKey: ['tables'] })
+
       try {
-        const orderRes = await apiClient.getOrder(variables.orderId)
+        const orderRes =
+          orderAfter != null
+            ? { success: true as const, data: orderAfter }
+            : await apiClient.getOrder(variables.orderId)
         const settingsRes = await queryClient.fetchQuery({
           queryKey: ['settings', 'all'],
           queryFn: () => apiClient.getAllSettings(),
@@ -388,8 +404,13 @@ export function CounterInterface() {
       orderId: string
       intent: 'cash' | 'card' | 'online'
     }) => apiClient.updateCheckoutIntent(orderId, { checkout_payment_method: intent }),
-    onSuccess: (res) => {
-      if (res.success && res.data) setSelectedOrder(res.data)
+    onSuccess: (res, variables) => {
+      if (res.success && res.data) {
+        const order = res.data
+        setSelectedOrder(order)
+        queryClient.setQueryData(['order', variables.orderId, 'payment-panel'], order)
+        setExistingOrder((prev) => (prev?.id === order.id ? order : prev))
+      }
       queryClient.invalidateQueries({ queryKey: ['counterPendingOrders'] })
     },
   })
@@ -429,6 +450,17 @@ export function CounterInterface() {
     arr.sort((a, b) => String(a.table_number).localeCompare(String(b.table_number), undefined, { numeric: true }))
     return arr
   }, [tables])
+
+  const tableStats = useMemo(() => {
+    let open = 0
+    let free = 0
+    for (const t of sortedTables) {
+      const occ = t.has_active_order ?? t.is_occupied
+      if (occ) open += 1
+      else free += 1
+    }
+    return { total: sortedTables.length, open, free }
+  }, [sortedTables])
 
   const canUseCart =
     orderType !== 'dine_in' || (selectedTable !== null && dineInSession !== null)
@@ -581,6 +613,27 @@ export function CounterInterface() {
     },
   })
 
+  const reassignTableMutation = useMutation({
+    mutationFn: ({ orderId, tableId }: { orderId: string; tableId: string }) =>
+      apiClient.reassignCounterOrderTable(orderId, { table_id: tableId }),
+    onSuccess: (res) => {
+      if (!res.success || !res.data) {
+        toastHelpers.error('Change table', res.message || 'Could not reassign table')
+        return
+      }
+      setExistingOrder(res.data)
+      setSelectedTable(res.data.table ?? null)
+      setTableTransferOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['tables'] })
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      queryClient.invalidateQueries({ queryKey: ['counterPendingOrders'] })
+      toastHelpers.success('Table changed', `Order moved to ${res.data.table?.table_number ?? 'new table'}`)
+    },
+    onError: (e: Error) => {
+      toastHelpers.error('Change table', e.message || 'Request failed')
+    },
+  })
+
   const handleSubmitCart = () => {
     if (cart.length === 0 || !canUseCart) return
     if (orderType === 'dine_in' && (!selectedTable || !dineInSession)) return
@@ -593,6 +646,11 @@ export function CounterInterface() {
     const intent = order.checkout_payment_method ?? 'cash'
     setPaymentCheckoutIntent(intent)
     checkoutIntentMutation.mutate({ orderId: order.id, intent })
+  }
+
+  const openTableTransferDialog = () => {
+    if (!existingOrder?.id) return
+    setTableTransferOpen(true)
   }
 
   const paymentTotals = useMemo(() => {
@@ -617,6 +675,17 @@ export function CounterInterface() {
       (payOrder.payments?.filter((p) => p.status === 'completed').reduce((s, p) => s + p.amount, 0) ?? 0))
 
   const payAmount = remaining ?? 0
+
+  const ticketLifecycle = useMemo(
+    () =>
+      getTicketLifecycle({
+        order: existingOrder ?? payOrder,
+        cartCount: cart.length,
+        checkoutOpen,
+        payableRemaining: payAmount,
+      }),
+    [existingOrder, payOrder, cart.length, checkoutOpen, payAmount]
+  )
 
   const billableItems: OrderItem[] = useMemo(() => {
     const items = payOrder?.items ?? []
@@ -659,9 +728,6 @@ export function CounterInterface() {
     setCashReceived('')
   }
 
-  const changeDue =
-    cashReceived && selectedOrder ? Math.max(0, parseFloat(cashReceived || '0') - payAmount) : 0
-
   const clampCheckoutRail = useCallback((w: number, containerWidth: number) => {
     const max = Math.max(
       COUNTER_RAIL_MIN + 160,
@@ -681,14 +747,18 @@ export function CounterInterface() {
         Math.min(820, Math.floor(cw * 0.56))
       )
       railDragRef.current = { startX: e.clientX, startW: checkoutRailPx, maxW }
+      let lastShift = e.shiftKey
       const onMove = (ev: MouseEvent) => {
         const d = railDragRef.current
         if (!d) return
+        lastShift = ev.shiftKey
         const delta = d.startX - ev.clientX
         const nw = d.startW + delta
         setCheckoutRailPx(Math.min(d.maxW, Math.max(COUNTER_RAIL_MIN, Math.round(nw))))
       }
+      const SNAP_POINTS = [400, 480, 560, 640]
       const onUp = () => {
+        const useSnap = !lastShift
         railDragRef.current = null
         document.body.style.cursor = ''
         document.body.style.userSelect = ''
@@ -697,13 +767,19 @@ export function CounterInterface() {
         window.removeEventListener('mouseup', onUp)
         setCheckoutRailPx((w) => {
           const cw2 = counterSplitRef.current?.getBoundingClientRect().width ?? 1200
-          const clamped = clampCheckoutRail(w, cw2)
+          let next = clampCheckoutRail(w, cw2)
+          if (useSnap) {
+            const snap = SNAP_POINTS.reduce((acc, p) =>
+              Math.abs(p - next) < Math.abs(acc - next) ? p : acc
+            , next)
+            if (Math.abs(snap - next) <= 22) next = clampCheckoutRail(snap, cw2)
+          }
           try {
-            localStorage.setItem(COUNTER_CHECKOUT_RAIL_KEY, String(clamped))
+            localStorage.setItem(COUNTER_CHECKOUT_RAIL_KEY, String(next))
           } catch {
             /* ignore */
           }
-          return clamped
+          return next
         })
       }
       document.body.style.cursor = 'col-resize'
@@ -735,6 +811,62 @@ export function CounterInterface() {
     return () => window.removeEventListener('resize', onResize)
   }, [clampCheckoutRail])
 
+  useEffect(() => {
+    if (!checkoutOpen) return
+    const t = window.setTimeout(() => {
+      const firstTender = document.querySelector<HTMLButtonElement>(
+        '[aria-labelledby="tender-input-heading"] button[aria-pressed]'
+      )
+      firstTender?.focus()
+    }, 40)
+    return () => window.clearTimeout(t)
+  }, [checkoutOpen])
+
+  const handleCounterEscape = useCallback(() => {
+    if (checkoutCelebration != null) {
+      dismissCheckoutCelebration()
+      return
+    }
+    if (cashModalOpen) {
+      setCashModalOpen(false)
+      setCashReceived('')
+      return
+    }
+    if (checkoutOpen) {
+      setCheckoutOpen(false)
+      setSelectedOrder(null)
+    }
+  }, [checkoutCelebration, dismissCheckoutCelebration, cashModalOpen, checkoutOpen])
+
+  useCounterHotkeys({
+    onSend: () => {
+      if (cart.length === 0 || !canUseCart) return
+      if (orderType === 'dine_in' && (!selectedTable || !dineInSession)) return
+      submitCartMutation.mutate()
+    },
+    onPay: () => {
+      if (existingOrder && continuingOrderId && !checkoutOpen && orderPayableRemaining(existingOrder) > 0) {
+        selectPaymentOrder(existingOrder)
+      }
+    },
+    onFocusDiscount: () => {
+      if (!checkoutOpen) return
+      const el = document.querySelector<HTMLInputElement>(
+        'input[placeholder^="e.g. 10"], input[placeholder="0.00"]'
+      )
+      el?.focus()
+    },
+    onEscape: handleCounterEscape,
+    onFocusSearch: () => searchInputRef.current?.focus(),
+    onOpenTables: () => {
+      if (orderType !== 'dine_in') return
+      setTablesPickerOpen(true)
+    },
+    onFocusCart: () => {
+      railScrollRef.current?.scrollTo({ top: railScrollRef.current.scrollHeight, behavior: 'smooth' })
+    },
+  })
+
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-row bg-background">
       <TableSessionModal
@@ -744,44 +876,49 @@ export function CounterInterface() {
         onConfirm={handleTableSessionConfirm}
       />
 
+      <TablesPicker
+        open={tablesPickerOpen}
+        onOpenChange={setTablesPickerOpen}
+        mode="select"
+        tables={sortedTables}
+        currentTableId={selectedTable?.id ?? null}
+        onSelectFreeTable={handleFreeTable}
+        onSelectOccupiedTable={(table) => {
+          void handleOccupiedTable(table)
+        }}
+      />
+
+      <TablesPicker
+        open={tableTransferOpen}
+        onOpenChange={setTableTransferOpen}
+        mode="transfer"
+        tables={sortedTables}
+        currentTableId={selectedTable?.id ?? null}
+        onSelectFreeTable={handleFreeTable}
+        onSelectOccupiedTable={(table) => {
+          void handleOccupiedTable(table)
+        }}
+        onConfirmTransfer={(table) => {
+          if (!existingOrder?.id) return
+          reassignTableMutation.mutate({ orderId: existingOrder.id, tableId: table.id })
+        }}
+        isTransferring={reassignTableMutation.isPending}
+      />
+
       <KotPrintModal open={kotPrintOpen} onOpenChange={setKotPrintOpen} kots={lastFireKots} />
 
-      {cashModalOpen && selectedOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-card border border-border rounded-xl shadow-lg max-w-md w-full p-6 space-y-4">
-            <h3 className="text-xl font-semibold">Cash payment</h3>
-            <p className="text-muted-foreground text-sm">Amount due: {formatCurrency(payAmount)}</p>
-            <div>
-              <Label>Amount received</Label>
-              <Input
-                className="h-12 text-2xl font-bold mt-1"
-                inputMode="decimal"
-                value={cashReceived}
-                onChange={(e) => setCashReceived(e.target.value)}
-                placeholder="0.00"
-              />
-            </div>
-            <div className="text-3xl font-bold text-center py-2">
-              Change due: {formatCurrency(changeDue)}
-            </div>
-            <div className="flex gap-2 justify-end">
-              <Button type="button" variant="outline" onClick={() => setCashModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                disabled={parseFloat(cashReceived || '0') < payAmount || processPaymentMutation.isPending}
-                onClick={runCashPayment}
-              >
-                Complete
-              </Button>
-            </div>
-          </div>
-        </div>
+      {checkoutCelebration != null && (
+        <CounterCheckoutSuccessOverlay
+          mode={checkoutCelebration}
+          onDismiss={dismissCheckoutCelebration}
+        />
       )}
 
       <div ref={counterSplitRef} className="flex h-full min-h-0 min-w-0 flex-1 flex-row self-stretch">
-        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-border bg-background">
+        <main
+          aria-label="Counter workspace"
+          className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-border bg-background"
+        >
         <div className="shrink-0 border-b border-border bg-card/95 px-4 py-3 backdrop-blur-sm sm:px-5 sm:py-4">
           <div className="mb-3">
             <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Counter / Checkout</h1>
@@ -800,6 +937,10 @@ export function CounterInterface() {
                 setSelectedTable(null)
                 setCheckoutOpen(false)
                 setSelectedOrder(null)
+                setCustomerName('')
+                setCustomerEmail('')
+                setCustomerPhone('')
+                setGuestBirthday('')
               }}
             />
           </div>
@@ -831,7 +972,8 @@ export function CounterInterface() {
           <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
             <Input
-              placeholder="Search products..."
+              ref={searchInputRef}
+              placeholder="Search products... (press /)"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 h-11"
@@ -862,6 +1004,23 @@ export function CounterInterface() {
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
+          {filteredProducts.length === 0 && searchTerm.trim().length > 0 ? (
+            <div className="flex h-full min-h-[12rem] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center">
+              <p className="text-sm font-medium">No products match &ldquo;{searchTerm}&rdquo;.</p>
+              <p className="text-xs text-muted-foreground">
+                Try a different keyword or clear the search box.
+              </p>
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2" aria-hidden>
+              {Array.from({ length: 10 }).map((_, idx) => (
+                <div
+                  key={`skeleton-${idx}`}
+                  className="h-[108px] rounded-lg border border-border bg-muted/40 animate-pulse"
+                />
+              ))}
+            </div>
+          ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
             {filteredProducts.map((product) => {
                 const cat = product.category_id ? categoryById.get(product.category_id) : undefined
@@ -920,8 +1079,9 @@ export function CounterInterface() {
                 )
               })}
           </div>
+          )}
         </div>
-        </div>
+        </main>
 
         <div
           role="separator"
@@ -945,143 +1105,65 @@ export function CounterInterface() {
           />
         </div>
 
-        <div
+        <aside
+          aria-label="Ticket"
           style={{ width: checkoutRailPx, maxWidth: '100%' }}
-          className="flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-l border-border bg-gradient-to-b from-card via-card to-muted/[0.35] shadow-[inset_1px_0_0_0_hsl(var(--border))]"
+          className="grid h-full min-h-0 min-w-0 shrink-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-l border-border bg-gradient-to-b from-card via-card to-muted/[0.35] shadow-[inset_1px_0_0_0_hsl(var(--border))]"
         >
-          <div className="shrink-0 space-y-3 border-b border-border/80 bg-card/90 px-4 py-3 backdrop-blur-sm sm:px-5 sm:py-4">
+          <div className="shrink-0 space-y-3 bg-card/90 backdrop-blur-sm">
+            <TicketHeader
+              orderType={orderType}
+              selectedTable={selectedTable}
+              existingOrder={existingOrder}
+              dineInSession={dineInSession}
+              customerName={customerName}
+              checkoutOpen={checkoutOpen}
+              lifecycle={ticketLifecycle}
+              continuingOrderId={continuingOrderId}
+              onChangeTable={existingOrder && continuingOrderId ? openTableTransferDialog : undefined}
+              onCloseCheckout={checkoutOpen ? () => {
+                setCheckoutOpen(false)
+                setSelectedOrder(null)
+              } : undefined}
+            />
+            <div className="space-y-3 border-b border-border/80 px-4 pb-3 sm:px-5 sm:pb-4">
             {orderType === 'dine_in' ? (
               <>
-                <div className="grid max-h-[240px] grid-cols-2 gap-2.5 overflow-y-auto overscroll-contain pr-0.5 sm:grid-cols-3">
-                  {sortedTables.map((table) => {
-                    const occ = table.has_active_order ?? table.is_occupied
-                    const previewLines =
-                      selectedTable?.id === table.id && existingOrder?.items
-                        ? existingOrder.items.filter((i) => i.status !== 'voided')
-                        : null
-                    return (
-                      <div key={table.id} className="relative">
-                        <Button
-                          type="button"
-                          variant={selectedTable?.id === table.id ? 'default' : 'outline'}
-                          className={cn(
-                            'min-h-[3.75rem] flex-col gap-0.5 px-1.5 py-2 text-sm font-semibold leading-tight w-full sm:min-h-[4rem]',
-                            occ && 'pr-9',
-                            occ &&
-                              'opacity-95 border-emerald-400/70 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/35 dark:border-emerald-700/80 dark:text-emerald-100'
-                          )}
-                          onClick={() => {
-                            if (occ) void handleOccupiedTable(table)
-                            else handleFreeTable(table)
-                          }}
-                        >
-                          {table.table_number}
-                          <span className="text-[11px] font-medium opacity-80 sm:text-xs">
-                            {occ ? 'Open · add items' : `${table.seating_capacity} seats`}
-                          </span>
-                        </Button>
-                        {occ && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="secondary"
-                                size="icon"
-                                className="absolute right-0.5 top-1/2 h-7 w-7 -translate-y-1/2 z-10 shadow-sm"
-                                aria-label="Quick bill preview"
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <Info className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                              align="end"
-                              className="w-[min(100vw-2rem,22rem)] p-0"
-                              onCloseAutoFocus={(e) => e.preventDefault()}
-                            >
-                              <div className="p-3 max-h-64 overflow-y-auto space-y-2">
-                                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                                  Table {table.table_number}
-                                </div>
-                                {previewLines && previewLines.length > 0 ? (
-                                  <table className="w-full text-xs border border-border border-collapse">
-                                    <thead>
-                                      <tr className="bg-muted/60 border-b border-border">
-                                        <th className="text-left font-medium py-1 px-1.5">Item</th>
-                                        <th className="text-right font-medium py-1 px-1.5 w-10">Qty</th>
-                                        <th className="text-center font-medium py-1 px-1.5 w-16">Status</th>
-                                        <th className="text-right font-medium py-1 px-1.5 w-16">Amt</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {previewLines.map((item) => (
-                                        <tr key={item.id} className="border-b border-border last:border-b-0">
-                                          <td className="py-1 px-1.5 max-w-[100px] truncate">
-                                            {item.product?.name ?? 'Item'}
-                                          </td>
-                                          <td className="py-1 px-1.5 text-right tabular-nums">{item.quantity}</td>
-                                          <td className="py-1 px-1.5 text-center text-[10px] capitalize">
-                                            {item.status}
-                                          </td>
-                                          <td className="py-1 px-1.5 text-right tabular-nums">
-                                            {formatCurrency(item.total_price)}
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                ) : (
-                                  <p className="text-xs text-muted-foreground">
-                                    Select this table to load the open tab, then open preview again for line items.
-                                  </p>
-                                )}
-                              </div>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
-                      </div>
-                    )
-                  })}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Tables
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
+                    <span>{tableStats.open} open · {tableStats.free} free</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={selectedTable ? 'outline' : 'default'}
+                      className="h-8 gap-1.5"
+                      onClick={() => setTablesPickerOpen(true)}
+                    >
+                      <UtensilsCrossed className="h-3.5 w-3.5" aria-hidden />
+                      {selectedTable ? 'Change' : 'Pick a table'}
+                    </Button>
+                  </div>
                 </div>
+                {!selectedTable && (
+                  <div className="rounded-lg border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+                    Tap <span className="font-semibold">Pick a table</span> to open the floor picker.
+                    Free tables start a new session; open tables load the active tab.
+                  </div>
+                )}
                   {selectedTable && dineInSession && (
-                    <div className="space-y-2.5 rounded-xl border border-border/70 bg-muted/30 p-3.5 text-[15px] leading-relaxed shadow-sm ring-1 ring-black/[0.04] dark:bg-muted/20 dark:ring-white/[0.06] sm:p-4">
-                      <div>
-                        <span className="text-sm text-muted-foreground">Table </span>
-                        <span className="text-lg font-semibold tracking-tight">{selectedTable.table_number}</span>
-                      </div>
-                      {existingOrder && (
-                        <div>
-                          <span className="text-sm text-muted-foreground">Order </span>
-                          <span className="text-lg font-semibold tracking-tight">#{existingOrder.order_number}</span>
-                          {existingOrder.table_opened_at && (
-                            <span className="mt-1 block text-sm text-muted-foreground">
-                              Opened{' '}
-                              {new Date(existingOrder.table_opened_at).toLocaleString(undefined, {
-                                dateStyle: 'medium',
-                                timeStyle: 'short',
-                              })}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      <div>
-                        <span className="text-sm text-muted-foreground">Guests </span>
-                        <span className="font-semibold">{dineInSession.guestCount}</span>
-                      </div>
-                      <div>
-                        <span className="text-sm text-muted-foreground">Server </span>
-                        <span className="font-semibold">{dineInSession.serverDisplayName}</span>
-                      </div>
+                    <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3 text-sm">
                       {(dineInSession.customerName ||
                         dineInSession.customerEmail ||
                         dineInSession.customerPhone ||
                         dineInSession.guestBirthday) && (
-                        <div className="space-y-1 border-t border-border/60 pt-2 text-sm">
+                        <div className="space-y-0.5 text-xs text-muted-foreground">
                           {dineInSession.customerName && (
                             <div>
-                              <span className="text-muted-foreground">Guest </span>
-                              {dineInSession.customerName}
+                              <span>Guest: </span>
+                              <span className="font-medium text-foreground">{dineInSession.customerName}</span>
                             </div>
                           )}
                           {dineInSession.customerEmail && (
@@ -1098,11 +1180,11 @@ export function CounterInterface() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="w-full mt-1"
+                          className="w-full"
                           disabled={cancelOpenTabMutation.isPending}
                           onClick={() => cancelOpenTabMutation.mutate(continuingOrderId)}
                         >
-                          Cancel table session
+                          Cancel session
                         </Button>
                       )}
                       {existingOrder &&
@@ -1111,7 +1193,7 @@ export function CounterInterface() {
                         orderPayableRemaining(existingOrder) > 0 && (
                           <Button
                             type="button"
-                            className="w-full mt-2 h-11 text-sm font-semibold"
+                            className="w-full h-10 text-sm font-semibold"
                             onClick={() => selectPaymentOrder(existingOrder)}
                           >
                             Checkout / Pay
@@ -1121,42 +1203,89 @@ export function CounterInterface() {
                   )}
                 </>
               ) : (
-                <div>
-                  <Label className="text-sm font-medium">Customer (optional)</Label>
-                  <Input
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    className="mt-1.5 h-11 text-base"
-                  />
-                </div>
+                <details className="group rounded-lg border border-border/70 bg-muted/20 [&_summary::-webkit-details-marker]:hidden">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-medium text-foreground outline-none ring-offset-background hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring rounded-lg">
+                    <span>
+                      Guest <span className="font-normal text-muted-foreground">(optional)</span>
+                      {(customerName.trim() ||
+                        customerEmail.trim() ||
+                        customerPhone.trim() ||
+                        guestBirthday.trim()) && (
+                        <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                          —{' '}
+                          {customerName.trim() ||
+                            customerEmail.trim() ||
+                            customerPhone.trim() ||
+                            (guestBirthday.trim() ? 'Birthday set' : '')}
+                        </span>
+                      )}
+                    </span>
+                    <ChevronDown
+                      className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180"
+                      aria-hidden
+                    />
+                  </summary>
+                  <div className="space-y-3 border-t border-border/60 px-3 pb-3 pt-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Same fields as table session — saved with the order for CRM
+                    </p>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Name on ticket</Label>
+                      <Input
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)}
+                        className="h-10 text-base"
+                        placeholder="Display name"
+                        autoComplete="name"
+                      />
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Email</Label>
+                        <Input
+                          type="email"
+                          className="h-10"
+                          value={customerEmail}
+                          onChange={(e) => setCustomerEmail(e.target.value)}
+                          placeholder="email@example.com"
+                          autoComplete="email"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Phone</Label>
+                        <Input
+                          className="h-10"
+                          inputMode="tel"
+                          value={customerPhone}
+                          onChange={(e) => setCustomerPhone(e.target.value)}
+                          placeholder="Phone number"
+                          autoComplete="tel"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Birthday (hospitality)</Label>
+                      <Input
+                        type="date"
+                        className="h-10"
+                        value={guestBirthday}
+                        onChange={(e) => setGuestBirthday(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </details>
               )}
 
             </div>
+            </div>
 
             <div
-              className="counter-checkout-rail-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 sm:py-5"
+              ref={railScrollRef}
+              className="counter-checkout-rail-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 sm:py-5"
               aria-label="Order and checkout"
             >
               {checkoutOpen && selectedOrder && payOrder && (
                 <section className="space-y-3">
-                  <div className="sticky top-0 z-20 -mx-2 flex items-center justify-between gap-3 border-b border-border/70 bg-gradient-to-b from-card/95 to-card/80 px-2 pb-3 backdrop-blur-md supports-[backdrop-filter]:bg-card/75">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Payment</p>
-                      <h3 className="text-base font-semibold tracking-tight sm:text-lg">Checkout</h3>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="shrink-0 font-medium"
-                      onClick={() => {
-                        setCheckoutOpen(false)
-                        setSelectedOrder(null)
-                      }}
-                    >
-                      Close
-                    </Button>
-                  </div>
                   <CounterPaymentPanel
                     payOrder={payOrder}
                     paymentCheckoutIntent={paymentCheckoutIntent}
@@ -1192,289 +1321,121 @@ export function CounterInterface() {
                     }}
                     processPaymentPending={processPaymentMutation.isPending}
                     onPrimaryPay={() => {
-                      if (paymentCheckoutIntent === 'cash') setCashModalOpen(true)
-                      else if (paymentCheckoutIntent === 'card') runCardPayment()
+                      if (paymentCheckoutIntent === 'cash') {
+                        setCashModalOpen(true)
+                        if (!cashReceived) setCashReceived(payAmount.toFixed(2))
+                      } else if (paymentCheckoutIntent === 'card') runCardPayment()
                       else runOnlinePayment()
                     }}
                   />
+
+                  {cashModalOpen && (
+                    <CashTenderPad
+                      amountDue={payAmount}
+                      received={cashReceived}
+                      onReceivedChange={setCashReceived}
+                      onCancel={() => {
+                        setCashModalOpen(false)
+                        setCashReceived('')
+                      }}
+                      onComplete={runCashPayment}
+                      formatCurrency={formatCurrency}
+                      processing={processPaymentMutation.isPending}
+                    />
+                  )}
                 </section>
               )}
 
-              {existingOrder?.items && existingOrder.items.filter((i) => i.status !== 'voided').length > 0 && (
-                <div className="rounded-md border border-border bg-muted/20">
-                  <button
-                    type="button"
-                    onClick={() => setExistingItemsExpanded((prev) => !prev)}
-                    className="w-full flex items-center justify-between p-3 text-left hover:bg-muted/40 transition-colors rounded-md"
-                  >
-                    <span className="text-sm font-medium">
-                      Order #{existingOrder.order_number} items ({existingOrder.items.filter((i) => i.status !== 'voided').length})
-                    </span>
-                    {existingItemsExpanded ? (
-                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </button>
-                  {existingItemsExpanded && (
-                    <div className="overflow-x-auto px-2 pb-3">
-                      <table className="w-full min-w-[300px] table-fixed border-collapse border border-border text-sm">
-                        <colgroup>
-                          <col style={{ width: '40%' }} />
-                          <col style={{ width: '12%' }} />
-                          <col style={{ width: '24%' }} />
-                          <col style={{ width: '24%' }} />
-                        </colgroup>
-                        <thead>
-                          <tr className="border-b border-border bg-muted/60">
-                            <th className="px-2 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                              Item
-                            </th>
-                            <th className="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                              Qty
-                            </th>
-                            <th className="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                              Amount
-                            </th>
-                            <th className="px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                              Status
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {existingOrder.items
-                            .filter((i) => i.status !== 'voided')
-                            .map((item) => {
-                              const exCat = item.product?.category_id
-                                ? categoryById.get(item.product.category_id)
-                                : undefined
-                              const exAccent = categoryColor(exCat, item.product?.name ?? 'Item')
-                              return (
-                              <tr
-                                key={item.id}
-                                className="border-b border-border last:border-b-0 border-l-[3px]"
-                                style={{
-                                  borderLeftColor: exAccent,
-                                  backgroundColor: `color-mix(in srgb, ${exAccent} 10%, var(--card))`,
-                                }}
-                              >
-                                <td className="min-w-0 px-2 py-2">
-                                  <span className="line-clamp-2 font-medium leading-snug">
-                                    {item.product?.name ?? 'Item'}
-                                  </span>
-                                </td>
-                                <td className="px-2 py-2 text-right text-sm tabular-nums">{item.quantity}</td>
-                                <td className="px-2 py-2 text-right text-sm font-medium tabular-nums">
-                                  {formatCurrency(item.total_price)}
-                                </td>
-                                <td className="px-2 py-2 text-center">
-                                  <span
-                                    className={cn(
-                                      'inline-block rounded px-1.5 py-0.5 text-[11px] font-medium capitalize sm:text-xs',
-                                      item.status === 'sent' && 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-                                      item.status === 'preparing' &&
-                                        'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
-                                      item.status === 'ready' &&
-                                        'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
-                                      item.status === 'served' &&
-                                        'bg-muted text-muted-foreground dark:bg-muted/80'
-                                    )}
-                                  >
-                                    {item.status}
-                                  </span>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
+              <SentItemsSection
+                order={existingOrder}
+                categoryById={categoryById}
+                categoryColor={categoryColor}
+                formatCurrency={formatCurrency}
+                defaultExpanded={existingItemsExpanded}
+              />
 
-              <span key={cartLiveAnnouncement.id} className="sr-only" aria-live="polite" aria-atomic="true">
-                {cartLiveAnnouncement.text}
-              </span>
-              <h3 className="flex items-center gap-2 text-base font-semibold tracking-tight">
-                <ShoppingCart className="h-5 w-5 shrink-0 text-muted-foreground" />
-                {continuingOrderId ? 'New items' : 'Cart'} ({cart.length})
-              </h3>
-              {cart.length === 0 ? (
-                <p className="text-muted-foreground text-sm">Cart is empty</p>
-              ) : (
-                <div className="overflow-x-auto rounded-lg border border-border">
-                  <table className="w-full min-w-[340px] table-fixed border-collapse text-sm">
-                    <colgroup>
-                      <col style={{ width: '38%' }} />
-                      <col style={{ width: '22%' }} />
-                      <col style={{ width: '24%' }} />
-                      <col style={{ width: '16%' }} />
-                    </colgroup>
-                    <thead>
-                      <tr className="border-b border-border bg-muted/70">
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Item
-                        </th>
-                        <th className="px-2 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Rate
-                        </th>
-                        <th className="px-1 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Qty
-                        </th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Amount
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cart.map((item) => {
-                        const lineTotal = item.product.price * item.quantity
-                        const showCartFlash = lastCartFlashProductId === item.product.id
-                        const lineCat = item.product.category_id
-                          ? categoryById.get(item.product.category_id)
-                          : undefined
-                        const categoryAccent = categoryColor(lineCat, item.product.name)
-                        return (
-                          <tr
-                            key={item.product.id}
-                            ref={(el) => {
-                              cartRowRefs.current[item.product.id] = el
-                            }}
-                            className={cn(
-                              'border-b border-border last:border-b-0 border-l-[3px] transition-[box-shadow,filter]',
-                              'hover:brightness-[0.985] dark:hover:brightness-[1.04]',
-                              showCartFlash &&
-                                'ring-1 ring-inset ring-primary/30 animate-pulse [@media(prefers-reduced-motion:reduce)]:animate-none'
-                            )}
-                            style={{
-                              borderLeftColor: categoryAccent,
-                              backgroundColor: `color-mix(in srgb, ${categoryAccent} 13%, var(--card))`,
-                            }}
-                          >
-                            <td className="min-w-0 px-3 py-2.5 align-middle">
-                              <span className="line-clamp-2 font-medium leading-snug text-foreground">
-                                {item.product.name}
-                              </span>
-                            </td>
-                            <td className="px-2 py-2.5 align-middle text-right text-sm tabular-nums text-muted-foreground">
-                              {formatCurrency(item.product.price)}
-                            </td>
-                            <td className="px-1 py-2 align-middle">
-                              <div className="flex items-center justify-center gap-1">
-                                <Button
-                                  type="button"
-                                  size="icon"
-                                  variant="outline"
-                                  className="h-9 w-9 shrink-0 touch-manipulation"
-                                  onClick={() => removeFromCart(item.product.id)}
-                                  aria-label={`Decrease ${item.product.name}`}
-                                >
-                                  <Minus className="h-4 w-4" />
-                                </Button>
-                                <span className="min-w-[1.5rem] text-center text-sm font-semibold tabular-nums">
-                                  {item.quantity}
-                                </span>
-                                <Button
-                                  type="button"
-                                  size="icon"
-                                  variant="outline"
-                                  className="h-9 w-9 shrink-0 touch-manipulation"
-                                  onClick={() => addToCart(item.product)}
-                                  aria-label={`Increase ${item.product.name}`}
-                                >
-                                  <Plus className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </td>
-                            <td className="px-3 py-2.5 align-middle text-right text-sm font-semibold tabular-nums">
-                              {formatCurrency(lineTotal)}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {cart.length > 0 && (
-                <div className="mt-4">
-                  <Label className="text-sm">Notes</Label>
-                  <Input
-                    value={orderNotes}
-                    onChange={(e) => setOrderNotes(e.target.value)}
-                    className="mt-1"
-                    placeholder="Optional"
-                  />
-                </div>
-              )}
+              <UnsentItemsSection
+                cart={cart}
+                categoryById={categoryById}
+                categoryColor={categoryColor}
+                formatCurrency={formatCurrency}
+                continuing={Boolean(continuingOrderId)}
+                onIncrement={addToCart}
+                onDecrement={removeFromCart}
+                flashProductId={lastCartFlashProductId}
+                cartRowRefs={cartRowRefs}
+                notes={orderNotes}
+                onNotesChange={setOrderNotes}
+                liveAnnouncementId={cartLiveAnnouncement.id}
+                liveAnnouncementText={cartLiveAnnouncement.text}
+              />
             </div>
 
-            {cart.length > 0 && (
-              <div className="shrink-0 space-y-3 border-t border-border/90 bg-card/95 px-4 py-4 shadow-[0_-8px_30px_-12px_rgba(0,0,0,0.12)] backdrop-blur-md supports-[backdrop-filter]:bg-card/85 dark:shadow-[0_-8px_30px_-12px_rgba(0,0,0,0.45)] sm:px-5">
-                <div className="text-sm font-semibold text-muted-foreground">Payment type (tax preview)</div>
-                <div className="grid grid-cols-3 gap-2.5">
-                  {(
-                    [
-                      ['cash', 'Cash'],
-                      ['card', 'Card'],
-                      ['online', 'Online'],
-                    ] as const
-                  ).map(([k, label]) => (
-                    <Button
-                      key={k}
-                      type="button"
-                      size="sm"
-                      variant={createCheckoutIntent === k ? 'default' : 'outline'}
-                      className="h-11 min-w-0 px-2 text-sm font-semibold sm:h-12"
-                      onClick={() => setCreateCheckoutIntent(k)}
-                    >
-                      {label}
-                    </Button>
-                  ))}
-                </div>
-                <div className="space-y-1.5 text-sm leading-relaxed">
-                  <div className="flex justify-between gap-4">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <span className="font-medium tabular-nums">{formatCurrency(cartSubtotal)}</span>
+            <div className="border-t border-border/90 bg-card/95 backdrop-blur-md">
+              {cart.length > 0 && !checkoutOpen && (
+                <div className="px-4 pt-3 sm:px-5">
+                  <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Payment type (tax preview)
                   </div>
-                  <div className="flex justify-between gap-4">
-                    <span className="text-muted-foreground">Service charge</span>
-                    <span className="font-medium tabular-nums">{formatCurrency(cartTotals.service)}</span>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span className="text-muted-foreground">Tax ({(cartTotals.taxRate * 100).toFixed(0)}%)</span>
-                    <span className="font-medium tabular-nums">{formatCurrency(cartTotals.tax)}</span>
-                  </div>
-                  <div className="flex justify-between border-t border-border pt-2 text-base font-bold tracking-tight sm:text-lg">
-                    <span>Total</span>
-                    <span className="tabular-nums">{formatCurrency(cartTotals.total)}</span>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(
+                      [
+                        ['cash', 'Cash'],
+                        ['card', 'Card'],
+                        ['online', 'Online'],
+                      ] as const
+                    ).map(([k, label]) => (
+                      <Button
+                        key={k}
+                        type="button"
+                        size="sm"
+                        variant={createCheckoutIntent === k ? 'default' : 'outline'}
+                        className="h-10 min-w-0 px-2 text-sm font-semibold"
+                        onClick={() => setCreateCheckoutIntent(k)}
+                      >
+                        {label}
+                      </Button>
+                    ))}
                   </div>
                 </div>
-
-                <Button
-                  className="h-12 w-full text-base font-semibold sm:h-14 sm:text-lg"
-                  disabled={
-                    !canUseCart ||
-                    cart.length === 0 ||
-                    submitCartMutation.isPending ||
-                    (orderType === 'dine_in' && (!selectedTable || !dineInSession))
-                  }
-                  onClick={handleSubmitCart}
-                >
-                  {submitCartMutation.isPending ? (
-                    'Sending…'
-                  ) : (
-                    <>
-                      <Check className="w-5 h-5 mr-2" />
-                      {continuingOrderId ? 'Add items & fire KOT' : 'Place order'}
-                    </>
-                  )}
-                </Button>
-              </div>
-            )}
-        </div>
+              )}
+              <ActionFooter
+                mode={checkoutOpen ? 'checkout' : cart.length > 0 ? 'compose' : 'idle'}
+                totals={
+                  checkoutOpen || cart.length === 0
+                    ? null
+                    : {
+                        subtotal: cartSubtotal,
+                        service: cartTotals.service,
+                        tax: cartTotals.tax,
+                        taxRate: cartTotals.taxRate,
+                        total: cartTotals.total,
+                      }
+                }
+                formatCurrency={formatCurrency}
+                primaryLabel={continuingOrderId ? 'Add items & fire KOT' : 'Place order & Fire'}
+                onPrimary={handleSubmitCart}
+                primaryDisabled={
+                  !canUseCart ||
+                  cart.length === 0 ||
+                  submitCartMutation.isPending ||
+                  (orderType === 'dine_in' && (!selectedTable || !dineInSession))
+                }
+                primaryPending={submitCartMutation.isPending}
+                disabledHint={
+                  cart.length === 0 && !checkoutOpen
+                    ? orderType === 'dine_in' && !selectedTable
+                      ? 'Pick a table to start a session.'
+                      : 'Add items to enable the primary action.'
+                    : undefined
+                }
+                onCloseCheckout={() => {
+                  setCheckoutOpen(false)
+                  setSelectedOrder(null)
+                }}
+              />
+            </div>
+        </aside>
       </div>
     </div>
   )

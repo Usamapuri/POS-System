@@ -103,6 +103,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		counter.GET("/tables/:table_id/active-order", orderHandler.GetActiveOrderByTable)
 		counter.POST("/table-tabs", orderHandler.OpenCounterTableTab)
 		counter.POST("/orders/:id/cancel-open-tab", orderHandler.CancelCounterOpenTab)
+		counter.PATCH("/orders/:id/table", orderHandler.ReassignCounterOrderTable)
 		counter.POST("/orders", orderHandler.CreateOrder)                   // All order types
 		counter.PATCH("/orders/:id/checkout-intent", orderHandler.UpdateCheckoutIntent)
 		counter.PATCH("/orders/:id/discount", orderHandler.ApplyOrderDiscount)

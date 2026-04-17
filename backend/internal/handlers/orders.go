@@ -1093,7 +1093,15 @@ func (h *OrderHandler) allocDailyOrderNumber(tx *sql.Tx) (string, error) {
 	}
 	if err == nil && claimed.Valid {
 		compact := strings.ReplaceAll(day, "-", "")
-		return fmt.Sprintf("%s-%03d", compact, int(claimed.Int64)), nil
+		candidate := fmt.Sprintf("%s-%03d", compact, int(claimed.Int64))
+		var taken int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM orders WHERE order_number = $1`, candidate).Scan(&taken); err != nil {
+			return "", err
+		}
+		if taken == 0 {
+			return candidate, nil
+		}
+		// A row still holds this number (e.g. cancelled tab kept the same order_number); skip reuse and bump counter.
 	}
 
 	var n int
