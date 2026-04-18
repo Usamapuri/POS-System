@@ -260,8 +260,10 @@ export function buildPraInvoiceHtml(
   const praBlock = `
   <section class="pra-block" aria-label="PRA Tax Invoice">
     ${footerNoteMarkup}
-    ${logoMarkup}
-    <div class="pra-qr-wrap">${qrMarkup}</div>
+    <div class="pra-grid">
+      <div class="pra-grid-logo">${logoMarkup}</div>
+      <div class="pra-grid-qr">${qrMarkup}</div>
+    </div>
     ${invoiceNumberMarkup}
     <div class="pra-label">Punjab Revenue Authority — Tax Invoice</div>
   </section>`
@@ -304,38 +306,47 @@ function praTaxStyles(): string {
     margin-bottom: 3mm;
     line-height: 1.35;
   }
+  .pra-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2mm;
+    align-items: center;
+    margin-bottom: 3mm;
+  }
+  .pra-grid-logo {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .pra-grid-qr {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
   .pra-logo-wrap {
     display: flex;
     justify-content: center;
     align-items: center;
-    margin-bottom: 3mm;
   }
   .pra-logo {
-    max-width: 60%;
-    max-height: 18mm;
+    max-width: 100%;
+    max-height: 22mm;
     object-fit: contain;
   }
   .pra-logo-fallback {
-    font-size: 18px;
+    font-size: 22px;
     font-weight: 900;
     letter-spacing: 0.1em;
-    margin-bottom: 3mm;
     color: #000;
   }
-  .pra-qr-wrap {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    margin-bottom: 3mm;
-  }
   .pra-qr {
-    width: 30mm;
-    height: 30mm;
+    width: 26mm;
+    height: 26mm;
     image-rendering: pixelated;
   }
   .pra-qr-placeholder {
-    width: 30mm;
-    height: 30mm;
+    width: 26mm;
+    height: 26mm;
     border: 1px dashed #666;
   }
   .pra-invoice-no {

@@ -40,13 +40,6 @@ const adminSections = [
     href: '/admin/dashboard'
   },
   {
-    id: 'server',
-    label: 'Server Interface',
-    icon: <Users className="w-5 h-5" />,
-    description: 'Server order interface',
-    href: '/admin/server'
-  },
-  {
     id: 'counter',
     label: 'Checkout Counter',
     icon: <CreditCard className="w-5 h-5" />,
@@ -54,25 +47,18 @@ const adminSections = [
     href: '/admin/counter'
   },
   {
-    id: 'kitchen',
-    label: 'Kitchen Display',
-    icon: <ChefHat className="w-5 h-5" />,
-    description: 'Kitchen order display',
-    href: '/admin/kitchen'
+    id: 'server',
+    label: 'Server Interface',
+    icon: <Users className="w-5 h-5" />,
+    description: 'Server order interface',
+    href: '/admin/server'
   },
   {
-    id: 'settings',
-    label: 'Settings',
-    icon: <Settings className="w-5 h-5" />,
-    description: 'System configuration',
-    href: '/admin/settings'
-  },
-  {
-    id: 'staff',
-    label: 'Manage Staff',
-    icon: <UserCog className="w-5 h-5" />,
-    description: 'User and role management',
-    href: '/admin/staff'
+    id: 'inventory',
+    label: 'Store Inventory',
+    icon: <Warehouse className="w-5 h-5" />,
+    description: 'Supplies & stock management',
+    href: '/admin/inventory'
   },
   {
     id: 'menu',
@@ -89,11 +75,18 @@ const adminSections = [
     href: '/admin/tables'
   },
   {
-    id: 'inventory',
-    label: 'Store Inventory',
-    icon: <Warehouse className="w-5 h-5" />,
-    description: 'Supplies & stock management',
-    href: '/admin/inventory'
+    id: 'staff',
+    label: 'Manage Staff',
+    icon: <UserCog className="w-5 h-5" />,
+    description: 'User and role management',
+    href: '/admin/staff'
+  },
+  {
+    id: 'reports',
+    label: 'View Reports',
+    icon: <BarChart3 className="w-5 h-5" />,
+    description: 'Analytics and reports',
+    href: '/admin/reports'
   },
   {
     id: 'expenses',
@@ -103,13 +96,6 @@ const adminSections = [
     href: '/admin/expenses'
   },
   {
-    id: 'stations',
-    label: 'Kitchen Stations',
-    icon: <Radio className="w-5 h-5" />,
-    description: 'KOT routing configuration',
-    href: '/admin/stations'
-  },
-  {
     id: 'void-log',
     label: 'Void Log',
     icon: <FileWarning className="w-5 h-5" />,
@@ -117,11 +103,25 @@ const adminSections = [
     href: '/admin/void-log'
   },
   {
-    id: 'reports',
-    label: 'View Reports',
-    icon: <BarChart3 className="w-5 h-5" />,
-    description: 'Analytics and reports',
-    href: '/admin/reports'
+    id: 'kitchen',
+    label: 'Kitchen Display',
+    icon: <ChefHat className="w-5 h-5" />,
+    description: 'Kitchen order display',
+    href: '/admin/kitchen'
+  },
+  {
+    id: 'stations',
+    label: 'Kitchen Stations',
+    icon: <Radio className="w-5 h-5" />,
+    description: 'KOT routing configuration',
+    href: '/admin/stations'
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    icon: <Settings className="w-5 h-5" />,
+    description: 'System configuration',
+    href: '/admin/settings'
   }
 ]
 

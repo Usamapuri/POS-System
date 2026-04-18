@@ -130,7 +130,7 @@ export function ActionFooter({
         <Button
           type="button"
           variant="outline"
-          className="h-10 w-full"
+          className="h-10 w-full border-red-200 bg-red-50 text-red-700 hover:bg-red-100 hover:text-red-800 dark:border-red-800/40 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-950/50"
           onClick={onCloseCheckout}
         >
           <X className="mr-2 h-4 w-4" />
