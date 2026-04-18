@@ -1,25 +1,61 @@
 import { createFileRoute, Navigate, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 import apiClient from '@/api/client'
 import type { LoginRequest, LoginResponse, APIResponse } from '@/types'
-import { Eye, EyeOff, Store, Users, CreditCard, BarChart3, ChefHat, UserCheck, Settings, Warehouse } from 'lucide-react'
+import {
+  Eye,
+  EyeOff,
+  ArrowRight,
+  Lock,
+  User as UserIcon,
+  Sparkles,
+  ShieldCheck,
+  ChefHat,
+  CreditCard,
+  UserCheck,
+  Settings,
+  BarChart3,
+  Warehouse,
+  Loader2,
+} from 'lucide-react'
 
 export const Route = createFileRoute('/login')({
   component: LoginPage,
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Demo accounts — same credentials as before, but presented as compact chips
+// instead of two competing card grids. One source of truth.
+// ─────────────────────────────────────────────────────────────────────────────
+type DemoAccount = {
+  username: string
+  password: string
+  role: string
+  blurb: string
+  icon: typeof ChefHat
+}
+
+const DEMO_ACCOUNTS: DemoAccount[] = [
+  { username: 'server1',  password: 'admin123', role: 'Server',  blurb: 'Floor & dine-in',     icon: UserCheck },
+  { username: 'counter1', password: 'admin123', role: 'Counter', blurb: 'Checkout & payments', icon: CreditCard },
+  { username: 'kitchen1', password: 'admin123', role: 'Kitchen', blurb: 'Tickets & prep',      icon: ChefHat },
+  { username: 'admin',    password: 'admin123', role: 'Admin',   blurb: 'Full access',         icon: Settings },
+  { username: 'manager1', password: 'admin123', role: 'Manager', blurb: 'Reports & ops',       icon: BarChart3 },
+  { username: 'store1',   password: 'admin123', role: 'Store',   blurb: 'Inventory',           icon: Warehouse },
+]
 
 function LoginPage() {
   const router = useRouter()
   const [formData, setFormData] = useState<LoginRequest>({ username: '', password: '' })
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
+  const [activeDemo, setActiveDemo] = useState<string | null>(null)
 
-  // Check if already authenticated
+  // Already authenticated → home
   if (apiClient.isAuthenticated()) {
     return <Navigate to="/" />
   }
@@ -30,266 +66,439 @@ function LoginPage() {
       return response
     },
     onSuccess: (data) => {
-      console.log('Login success:', data)
-      console.log('Current API URL:', import.meta.env.VITE_API_URL)
       if (data.success && data.data) {
         apiClient.setAuthToken(data.data.token)
         localStorage.setItem('pos_user', JSON.stringify(data.data.user))
-        console.log('Auth token set, redirecting to home...')
         setTimeout(() => {
           router.navigate({ to: '/' })
         }, 100)
       } else {
-        console.error('Login failed:', data)
         setError(data.message || 'Login failed')
       }
     },
-    onError: (error: any) => {
-      setError(error.message || 'Login failed')
+    onError: (err: any) => {
+      setError(err.message || 'Login failed')
     },
   })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    
     if (!formData.username || !formData.password) {
       setError('Username and password are required')
       return
     }
-
     loginMutation.mutate(formData)
   }
 
-  const fillDemoCredentials = (username: string, password: string) => {
-    setFormData({ username, password })
+  // One-click demo: fill credentials AND sign in immediately. The previous
+  // page only filled the form — this is faster and matches what the chip
+  // visually promises.
+  const useDemo = (account: DemoAccount) => {
+    setError('')
+    setActiveDemo(account.username)
+    setFormData({ username: account.username, password: account.password })
+    loginMutation.mutate({ username: account.username, password: account.password })
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex">
-      {/* Left Panel - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 to-indigo-700 p-12 text-white relative overflow-hidden">
-        <div className="relative z-10 flex flex-col justify-center max-w-lg">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
-              <Store className="w-7 h-7" />
-            </div>
-            <h1 className="text-3xl font-bold">POS System</h1>
-          </div>
-          
-          <h2 className="text-4xl font-bold mb-6 leading-tight">
-            Modern Point of Sale
-            <br />
-            <span className="text-blue-200">for Your Business</span>
-          </h2>
-          
-          <p className="text-xl text-blue-100 mb-12 leading-relaxed">
-            Streamline your operations with our complete POS solution. Manage orders, 
-            track inventory, and grow your business with powerful analytics.
-          </p>
+    <div className="bhookly-login min-h-screen w-full bg-[#fdf8f1] text-[#1a1410] lg:grid lg:grid-cols-[1.05fr_1fr]">
+      <BrandPanel />
+      <FormPanel
+        formData={formData}
+        setFormData={setFormData}
+        showPassword={showPassword}
+        setShowPassword={setShowPassword}
+        error={error}
+        isPending={loginMutation.isPending}
+        activeDemo={activeDemo}
+        onSubmit={handleSubmit}
+        onUseDemo={useDemo}
+      />
+    </div>
+  )
+}
 
-          <div className="grid grid-cols-2 gap-6">
-            {[
-              { icon: Users, title: 'Staff Management', desc: 'Role-based access control' },
-              { icon: CreditCard, title: 'Payment Processing', desc: 'Multiple payment methods' },
-              { icon: BarChart3, title: 'Real-time Analytics', desc: 'Business insights' },
-              { icon: Store, title: 'Order Management', desc: 'Kitchen workflow' },
-            ].map((feature, idx) => (
-              <div key={idx} className="flex items-start gap-3">
-                <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <feature.icon className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-sm">{feature.title}</h3>
-                  <p className="text-blue-200 text-xs">{feature.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+// ─────────────────────────────────────────────────────────────────────────────
+// Brand wordmark — custom "B" glyph that doubles as a stylized fork, paired
+// with the Bhookly wordmark in our serif display face.
+// ─────────────────────────────────────────────────────────────────────────────
+function Wordmark({ tone = 'light' as 'light' | 'dark' }) {
+  const fg = tone === 'light' ? 'text-white' : 'text-[#1a1410]'
+  const ring = tone === 'light' ? 'bg-white/10 ring-white/20' : 'bg-[#1a1410]/5 ring-[#1a1410]/10'
+  return (
+    <div className="flex items-center gap-3">
+      <div className={`relative grid h-10 w-10 place-items-center rounded-xl ring-1 ${ring}`}>
+        <svg viewBox="0 0 24 24" className={`h-6 w-6 ${fg}`} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          {/* stylized B + spoon */}
+          <path d="M6 4v16" />
+          <path d="M6 4h6.5a3.5 3.5 0 0 1 0 7H6" />
+          <path d="M6 11h7.5a3.5 3.5 0 0 1 0 9H6" />
+          <circle cx="19" cy="6.5" r="1.6" fill="currentColor" stroke="none" />
+        </svg>
+      </div>
+      <div className={`bhk-serif text-3xl leading-none ${fg}`}>
+        Bhookly
+        <span className="ml-0.5 text-amber-300">.</span>
+      </div>
+    </div>
+  )
+}
 
-        {/* Background Pattern */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-0 left-0 w-full h-full"
-               style={{
-                 backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
-                 backgroundSize: '50px 50px'
-               }} />
+// ─────────────────────────────────────────────────────────────────────────────
+// LEFT PANEL — editorial brand hero with floating product mock
+// ─────────────────────────────────────────────────────────────────────────────
+function BrandPanel() {
+  return (
+    <aside className="relative hidden overflow-hidden lg:flex lg:flex-col bhk-gradient-brand text-white">
+      {/* grain + subtle dotted noise */}
+      <div className="pointer-events-none absolute inset-0 opacity-[0.18] mix-blend-overlay bhk-grain" />
+
+      {/* top-right meta */}
+      <div className="relative z-10 flex items-start justify-between p-10">
+        <Wordmark tone="light" />
+        <div className="hidden items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white/80 ring-1 ring-white/15 backdrop-blur xl:inline-flex">
+          <span className="bhk-pulse h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          All systems operational
         </div>
       </div>
 
-      {/* Right Panel - Login Form */}
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-md">
-          <Card className="shadow-xl border-0">
-            <CardHeader className="text-center pb-8">
-              <div className="mx-auto w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg">
-                <Store className="w-8 h-8 text-white" />
-              </div>
-              <CardTitle className="text-2xl font-bold">Restaurant POS Login</CardTitle>
-              <CardDescription className="text-base">
-                🍽️ Choose your role below or sign in manually
-              </CardDescription>
-            </CardHeader>
+      {/* hero copy */}
+      <div className="relative z-10 flex flex-1 flex-col justify-center px-10 xl:px-16">
+        <div className="max-w-xl">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-amber-200 ring-1 ring-white/15">
+            <Sparkles className="h-3 w-3" />
+            Restaurant POS, reimagined
+          </div>
 
-            <CardContent className="space-y-6">
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Username</label>
-                  <Input
-                    type="text"
-                    value={formData.username}
-                    onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
-                    className="h-11"
-                    autoComplete="username"
-                    disabled={loginMutation.isPending}
-                  />
-                </div>
+          <h1 className="bhk-serif text-[56px] leading-[1.02] tracking-tight xl:text-[68px]">
+            Run your kitchen.
+            <br />
+            <span className="italic text-amber-200">Not your software.</span>
+          </h1>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Password</label>
-                  <div className="relative">
-                    <Input
-                      type={showPassword ? 'text' : 'password'}
-                      value={formData.password}
-                      onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-                      className="h-11 pr-10"
-                      autoComplete="current-password"
-                      disabled={loginMutation.isPending}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
+          <p className="mt-6 max-w-md text-[15px] leading-relaxed text-white/75">
+            Bhookly is the front-of-house, kitchen and back-office workspace your team
+            actually wants to open every shift. Tickets in seconds, payments in one tap,
+            inventory that adds itself up.
+          </p>
 
-                {error && (
-                  <div className="bg-gradient-to-r from-red-50 to-red-25 border border-red-200 text-red-700 p-4 rounded-lg text-sm shadow-sm">
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 bg-red-500 rounded-full flex items-center justify-center flex-shrink-0">
-                        <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
-                      </div>
-                      <span className="font-medium">Login Failed</span>
-                    </div>
-                    <div className="mt-1 text-xs text-red-600">{error}</div>
-                  </div>
-                )}
+          {/* stat strip */}
+          <dl className="mt-10 grid max-w-md grid-cols-3 gap-6">
+            <Stat value="14k+" label="orders / day" />
+            <Stat value="98.4%" label="on-time tickets" />
+            <Stat value="6 sec" label="avg checkout" />
+          </dl>
+        </div>
 
-                <Button 
-                  type="submit" 
-                  className="w-full h-11 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-base font-medium transition-all duration-200 shadow-md hover:shadow-lg"
-                  disabled={loginMutation.isPending}
-                >
-                  {loginMutation.isPending ? (
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                      Signing In...
-                    </div>
-                  ) : (
-                    'Sign In to POS System'
-                  )}
-                </Button>
-              </form>
+        {/* floating product mocks */}
+        <div className="pointer-events-none absolute right-[-40px] top-1/2 hidden -translate-y-1/2 xl:block">
+          <FloatingTickets />
+        </div>
+      </div>
 
-              <div className="border-t pt-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Quick Access Demo Accounts</h3>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">Click to login instantly</div>
-                </div>
-                
-                {/* Featured Roles - Server & Cashier */}
-                <div className="mb-4">
-                  <div className="text-xs text-gray-600 dark:text-gray-400 mb-2 font-medium">🌟 Featured Roles</div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { 
-                        username: 'server1', 
-                        role: 'Server', 
-                        icon: UserCheck,
-                        bg: 'bg-gradient-to-r from-purple-100 to-purple-50 text-purple-800 border-purple-200', 
-                        desc: '🍽️ Table service & dine-in orders', 
-                        password: 'admin123',
-                        features: ['Table management', 'Order taking', 'Guest service']
-                      },
-                      { 
-                        username: 'counter1', 
-                        role: 'Counter', 
-                        icon: CreditCard,
-                        bg: 'bg-gradient-to-r from-green-100 to-green-50 text-green-800 border-green-200', 
-                        desc: '💰 Payment processing & all orders', 
-                        password: 'admin123',
-                        features: ['All order types', 'Payment processing', 'Receipt printing']
-                      },
-                    ].map((account) => (
-                      <button
-                        key={account.username}
-                        onClick={() => fillDemoCredentials(account.username, account.password)}
-                        className={`p-4 rounded-xl border-2 ${account.bg} hover:scale-105 text-left transition-all duration-200 shadow-sm hover:shadow-md`}
-                        disabled={loginMutation.isPending}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="w-8 h-8 bg-white/70 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <account.icon className="w-4 h-4" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="font-semibold text-sm">{account.role}</div>
-                              <div className="text-xs opacity-60 font-mono">{account.password}</div>
-                            </div>
-                            <div className="text-xs mb-2 opacity-80">{account.desc}</div>
-                            <div className="flex flex-wrap gap-1">
-                              {account.features.map((feature, idx) => (
-                                <span key={idx} className="text-[10px] bg-white/50 px-2 py-0.5 rounded-full">
-                                  {feature}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+      {/* footer */}
+      <div className="relative z-10 flex items-center justify-between px-10 pb-8 text-xs text-white/55 xl:px-16">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-3.5 w-3.5" />
+          PCI-aware · End-to-end encrypted
+        </div>
+        <div>© {new Date().getFullYear()} Bhookly Labs · v2.4</div>
+      </div>
+    </aside>
+  )
+}
 
-                {/* Other Roles */}
-                <div>
-                  <div className="text-xs text-gray-600 dark:text-gray-400 mb-2 font-medium">Other Demo Accounts</div>
-                  <div className="grid gap-2">
-                    {[
-                      { username: 'admin', role: 'Admin', icon: Settings, bg: 'bg-red-50 text-red-700 border-red-100', desc: '👑 Full system access', password: 'admin123' },
-                      { username: 'manager1', role: 'Manager', icon: BarChart3, bg: 'bg-blue-50 text-blue-700 border-blue-100', desc: '📊 Management & reports', password: 'admin123' },
-                      { username: 'kitchen1', role: 'Kitchen', icon: ChefHat, bg: 'bg-orange-50 text-orange-700 border-orange-100', desc: '👨‍🍳 Order preparation', password: 'admin123' },
-                      { username: 'store1', role: 'Store Manager', icon: Warehouse, bg: 'bg-teal-50 text-teal-700 border-teal-100', desc: '📦 Inventory & supplies', password: 'admin123' },
-                    ].map((account) => (
-                      <button
-                        key={account.username}
-                        onClick={() => fillDemoCredentials(account.username, account.password)}
-                        className={`flex items-center justify-between p-3 border rounded-lg ${account.bg} hover:bg-opacity-80 text-left transition-all duration-200`}
-                        disabled={loginMutation.isPending}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-6 h-6 bg-white/70 rounded flex items-center justify-center">
-                            <account.icon className="w-3 h-3" />
-                          </div>
-                          <div>
-                            <div className="font-medium text-sm">{account.role}</div>
-                            <div className="text-xs opacity-70">{account.desc}</div>
-                          </div>
-                        </div>
-                        <div className="text-xs opacity-60 font-mono">{account.password}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+function Stat({ value, label }: { value: string; label: string }) {
+  return (
+    <div>
+      <dt className="bhk-serif text-3xl text-white">{value}</dt>
+      <dd className="mt-1 text-[11px] uppercase tracking-wider text-white/55">{label}</dd>
+    </div>
+  )
+}
+
+// Two stacked, slightly tilted mock "tickets" that visually anchor the brand
+// panel as a real product — not just marketing prose.
+function FloatingTickets() {
+  return (
+    <div className="relative h-[440px] w-[360px]">
+      {/* back ticket */}
+      <div className="bhk-ticket-2 absolute right-12 top-4 w-[280px] rounded-2xl bg-white/95 p-4 text-[#1a1410] shadow-2xl ring-1 ring-black/5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="grid h-7 w-7 place-items-center rounded-md bg-amber-100 text-amber-700">
+              <ChefHat className="h-3.5 w-3.5" />
+            </span>
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Kitchen · #A-218</div>
+              <div className="text-sm font-semibold">Table 12 · 4 guests</div>
+            </div>
+          </div>
+          <span className="text-[11px] font-medium text-amber-600">02:14</span>
+        </div>
+        <div className="mt-3 space-y-1.5 text-sm">
+          <Row qty={2} name="Butter Chicken" tag="Spicy" />
+          <Row qty={1} name="Garlic Naan" />
+          <Row qty={2} name="Mango Lassi" tag="No sugar" />
+        </div>
+      </div>
+
+      {/* front ticket */}
+      <div className="bhk-ticket-1 absolute bottom-0 left-0 w-[300px] rounded-2xl bg-white p-5 text-[#1a1410] shadow-2xl ring-1 ring-black/5">
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Order · #B-491</div>
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            Paid
+          </span>
+        </div>
+        <div className="mt-2 bhk-serif text-3xl">$ 48.20</div>
+        <div className="mt-1 text-xs text-zinc-500">Visa · 4242 · 1 tap</div>
+
+        <div className="mt-4 flex items-center justify-between border-t border-dashed border-zinc-200 pt-3">
+          <div className="text-[11px] uppercase tracking-wider text-zinc-500">Server</div>
+          <div className="text-xs font-medium">Sarah K.</div>
         </div>
       </div>
     </div>
+  )
+}
+
+function Row({ qty, name, tag }: { qty: number; name: string; tag?: string }) {
+  return (
+    <div className="flex items-center justify-between text-zinc-700">
+      <div className="flex items-center gap-2">
+        <span className="inline-grid h-5 w-5 place-items-center rounded bg-zinc-100 text-[10px] font-semibold text-zinc-600">
+          {qty}
+        </span>
+        <span>{name}</span>
+      </div>
+      {tag && (
+        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-600">
+          {tag}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RIGHT PANEL — focused, "native" form. No heavy card border, soft inputs,
+// single saffron CTA, role chips beneath instead of two stacked tables.
+// ─────────────────────────────────────────────────────────────────────────────
+type FormPanelProps = {
+  formData: LoginRequest
+  setFormData: React.Dispatch<React.SetStateAction<LoginRequest>>
+  showPassword: boolean
+  setShowPassword: React.Dispatch<React.SetStateAction<boolean>>
+  error: string
+  isPending: boolean
+  activeDemo: string | null
+  onSubmit: (e: React.FormEvent) => void
+  onUseDemo: (account: DemoAccount) => void
+}
+
+function FormPanel({
+  formData,
+  setFormData,
+  showPassword,
+  setShowPassword,
+  error,
+  isPending,
+  activeDemo,
+  onSubmit,
+  onUseDemo,
+}: FormPanelProps) {
+  return (
+    <section className="relative flex min-h-screen flex-col bg-[#fdf8f1] px-6 py-8 sm:px-10 lg:px-14 lg:py-10">
+      {/* subtle warm wash */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(700px 400px at 100% 0%, rgba(251, 191, 36, 0.10), transparent 60%), radial-gradient(500px 300px at 0% 100%, rgba(244, 63, 94, 0.06), transparent 60%)',
+        }}
+      />
+
+      {/* mobile wordmark (left panel hidden on small screens) */}
+      <div className="relative z-10 mb-10 flex items-center justify-between lg:hidden">
+        <Wordmark tone="dark" />
+      </div>
+
+      {/* top-right meta on large screens */}
+      <div className="relative z-10 hidden items-center justify-end gap-3 text-xs text-zinc-500 lg:flex">
+        <span>New restaurant?</span>
+        <a
+          href="mailto:hello@bhookly.com"
+          className="font-semibold text-orange-600 hover:text-orange-700"
+        >
+          Talk to our team →
+        </a>
+      </div>
+
+      <div className="relative z-10 flex flex-1 items-center justify-center">
+        <div className="w-full max-w-[420px]">
+          {/* heading */}
+          <div className="mb-8">
+            <h2 className="bhk-serif text-[44px] leading-[1.05] text-[#1a1410]">
+              Welcome back.
+            </h2>
+            <p className="mt-2 text-sm text-zinc-600">
+              Sign in to your station — or jump in with a demo role below.
+            </p>
+          </div>
+
+          {/* form */}
+          <form onSubmit={onSubmit} className="space-y-4">
+            <Field label="Username">
+              <div className="bhk-input flex h-12 items-center rounded-xl px-3.5">
+                <UserIcon className="mr-2.5 h-4 w-4 text-zinc-400" />
+                <Input
+                  type="text"
+                  value={formData.username}
+                  onChange={(e) => setFormData((p) => ({ ...p, username: e.target.value }))}
+                  className="h-full border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                  autoComplete="username"
+                  placeholder="e.g. server1"
+                  disabled={isPending}
+                />
+              </div>
+            </Field>
+
+            <Field
+              label="Password"
+              right={
+                <button
+                  type="button"
+                  className="text-xs font-medium text-zinc-400 hover:text-orange-600"
+                  tabIndex={-1}
+                >
+                  Forgot?
+                </button>
+              }
+            >
+              <div className="bhk-input flex h-12 items-center rounded-xl px-3.5">
+                <Lock className="mr-2.5 h-4 w-4 text-zinc-400" />
+                <Input
+                  type={showPassword ? 'text' : 'password'}
+                  value={formData.password}
+                  onChange={(e) => setFormData((p) => ({ ...p, password: e.target.value }))}
+                  className="h-full border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  disabled={isPending}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  className="ml-1 grid h-7 w-7 place-items-center rounded-md text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </Field>
+
+            {error && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-rose-200 bg-rose-50/70 px-3.5 py-2.5 text-[13px] text-rose-800">
+                <span className="mt-0.5 grid h-4 w-4 flex-shrink-0 place-items-center rounded-full bg-rose-500 text-white text-[10px] font-bold">
+                  !
+                </span>
+                <div>
+                  <div className="font-semibold">Couldn't sign you in</div>
+                  <div className="text-rose-700/80">{error}</div>
+                </div>
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              className="bhk-cta group h-12 w-full rounded-xl border-0 text-[15px] font-semibold tracking-tight text-white"
+              disabled={isPending}
+            >
+              {isPending ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Signing you in…
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-2">
+                  Sign in to Bhookly
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </span>
+              )}
+            </Button>
+          </form>
+
+          {/* divider */}
+          <div className="my-7 flex items-center gap-3 text-[11px] uppercase tracking-[0.18em] text-zinc-400">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-300 to-transparent" />
+            One-click demo
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-300 to-transparent" />
+          </div>
+
+          {/* demo chips — single grid, no nested headings */}
+          <div className="grid grid-cols-3 gap-2.5">
+            {DEMO_ACCOUNTS.map((account) => {
+              const Icon = account.icon
+              const isActive = activeDemo === account.username && isPending
+              return (
+                <button
+                  key={account.username}
+                  type="button"
+                  onClick={() => onUseDemo(account)}
+                  disabled={isPending}
+                  data-active={isActive}
+                  className="bhk-chip group relative flex flex-col items-start gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-3 text-left disabled:cursor-wait disabled:opacity-70"
+                >
+                  <div className="flex w-full items-center justify-between">
+                    <span className="grid h-7 w-7 place-items-center rounded-lg bg-amber-50 text-amber-700 ring-1 ring-amber-100 transition-colors group-hover:bg-orange-100 group-hover:text-orange-700">
+                      {isActive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Icon className="h-3.5 w-3.5" />}
+                    </span>
+                    <span className="text-[10px] font-mono text-zinc-400">{account.username}</span>
+                  </div>
+                  <div className="text-[13px] font-semibold text-[#1a1410]">{account.role}</div>
+                  <div className="text-[11px] text-zinc-500">{account.blurb}</div>
+                </button>
+              )
+            })}
+          </div>
+
+          <p className="mt-5 text-center text-[11px] text-zinc-400">
+            Demo accounts use password <span className="font-mono text-zinc-500">admin123</span>.
+            One click signs you straight in.
+          </p>
+        </div>
+      </div>
+
+      {/* footer (mobile) */}
+      <div className="relative z-10 mt-8 flex items-center justify-between text-[11px] text-zinc-400 lg:hidden">
+        <span>© {new Date().getFullYear()} Bhookly</span>
+        <span>v2.4</span>
+      </div>
+    </section>
+  )
+}
+
+function Field({
+  label,
+  right,
+  children,
+}: {
+  label: string
+  right?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <label className="block">
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-zinc-500">
+          {label}
+        </span>
+        {right}
+      </div>
+      {children}
+    </label>
   )
 }

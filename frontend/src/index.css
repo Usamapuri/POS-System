@@ -74,6 +74,105 @@
   }
 }
 
+/* ──────────────────────────────────────────────────────────────────────
+ * Bhookly login — branded styling (warm saffron/ember palette).
+ * Scoped to .bhookly-login so it never bleeds into the rest of the app.
+ * ────────────────────────────────────────────────────────────────────── */
+.bhookly-login {
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --bhk-ink: #1a1410;
+  --bhk-cream: #fdf8f1;
+  --bhk-saffron: #f59e0b;
+  --bhk-ember: #ea580c;
+  --bhk-rose: #e11d48;
+}
+.bhookly-login .bhk-serif {
+  font-family: 'Instrument Serif', 'Iowan Old Style', 'Apple Garamond', Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+.bhookly-login .bhk-grain {
+  background-image:
+    radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    radial-gradient(rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+  background-size: 3px 3px, 5px 5px;
+  background-position: 0 0, 1px 2px;
+}
+.bhookly-login .bhk-gradient-brand {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255, 200, 120, 0.55) 0%, transparent 42%),
+    radial-gradient(circle at 88% 6%, rgba(244, 63, 94, 0.45) 0%, transparent 38%),
+    radial-gradient(circle at 50% 110%, rgba(180, 83, 9, 0.5) 0%, transparent 55%),
+    linear-gradient(140deg, #2a1407 0%, #4a1d05 45%, #7c2d12 100%);
+}
+.bhookly-login .bhk-glow {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 30px 60px -25px rgba(217, 70, 12, 0.45),
+    0 14px 30px -18px rgba(0, 0, 0, 0.45);
+}
+.bhookly-login .bhk-cta {
+  background: linear-gradient(180deg, #f97316 0%, #ea580c 60%, #c2410c 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 0 0 1px rgba(124, 45, 18, 0.4),
+    0 12px 24px -8px rgba(234, 88, 12, 0.55);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+.bhookly-login .bhk-cta:hover:not(:disabled) {
+  filter: brightness(1.04);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 0 0 1px rgba(124, 45, 18, 0.5),
+    0 18px 32px -10px rgba(234, 88, 12, 0.65);
+}
+.bhookly-login .bhk-cta:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.bhookly-login .bhk-input {
+  background: #ffffff;
+  border: 1px solid rgba(120, 53, 15, 0.18);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 1px 2px rgba(120, 53, 15, 0.04);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.bhookly-login .bhk-input:focus-within {
+  border-color: rgba(234, 88, 12, 0.5);
+  box-shadow:
+    0 0 0 4px rgba(249, 115, 22, 0.15),
+    0 1px 0 rgba(255, 255, 255, 0.6) inset;
+}
+.bhookly-login .bhk-chip {
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease,
+    background-color 0.18s ease;
+}
+.bhookly-login .bhk-chip:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(234, 88, 12, 0.5);
+  box-shadow: 0 8px 16px -8px rgba(234, 88, 12, 0.35);
+}
+.bhookly-login .bhk-chip[data-active='true'] {
+  border-color: rgba(234, 88, 12, 0.7);
+  background: linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%);
+  box-shadow: 0 0 0 1px rgba(234, 88, 12, 0.35), 0 8px 16px -8px rgba(234, 88, 12, 0.4);
+}
+@keyframes bhk-ticket-float {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50%      { transform: translateY(-6px) rotate(-3deg); }
+}
+@keyframes bhk-ticket-float-2 {
+  0%, 100% { transform: translateY(0) rotate(4deg); }
+  50%      { transform: translateY(-8px) rotate(4deg); }
+}
+@keyframes bhk-pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(1.4); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .bhookly-login .bhk-ticket-1 { animation: bhk-ticket-float 6s ease-in-out infinite; }
+  .bhookly-login .bhk-ticket-2 { animation: bhk-ticket-float-2 7.5s ease-in-out infinite; }
+  .bhookly-login .bhk-pulse    { animation: bhk-pulse-dot 1.6s ease-in-out infinite; }
+}
+
 @layer utilities {
   .pos-grid {
     display: grid;
