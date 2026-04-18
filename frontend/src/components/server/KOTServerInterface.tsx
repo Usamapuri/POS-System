@@ -454,8 +454,8 @@ export function KOTServerInterface() {
     return (
       <div className="min-h-[calc(100vh-4rem)] flex flex-col p-6 bg-gray-50 dark:bg-gray-900">
         <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Select a Table</h2>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Choose an available table to start a new order, or tap an occupied table to continue</p>
+          <h2 className="text-3xl font-bold tracking-tight">Select a Table</h2>
+          <p className="text-muted-foreground mt-1">Choose an available table to start a new order, or tap an occupied table to continue</p>
         </div>
 
         <div className="mb-3 flex flex-wrap gap-2 items-center">
