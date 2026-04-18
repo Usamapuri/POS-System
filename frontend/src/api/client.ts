@@ -1219,7 +1219,19 @@ class APIClient {
   }
 
   // Void log (admin)
-  async getVoidLog(params?: { page?: number; per_page?: number; from?: string; to?: string; user_id?: string }): Promise<PaginatedResponse<VoidLogEntry[]>> {
+  async getVoidLog(params?: {
+    page?: number
+    per_page?: number
+    from?: string
+    to?: string
+    /** Legacy combined filter — matches voider OR authorizer. Prefer voided_by/authorized_by. */
+    user_id?: string
+    voided_by?: string
+    authorized_by?: string
+    reason?: string
+    order_number?: string
+    min_value?: number
+  }): Promise<PaginatedResponse<VoidLogEntry[]>> {
     return this.request({ method: 'GET', url: '/admin/void-log', params });
   }
 

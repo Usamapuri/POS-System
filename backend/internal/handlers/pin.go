@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"pos-backend/internal/models"
 
@@ -99,6 +100,11 @@ func (h *PinHandler) GetVoidLog(c *gin.Context) {
 	fromDate := c.Query("from")
 	toDate := c.Query("to")
 	userFilter := c.Query("user_id")
+	voidedByFilter := c.Query("voided_by")
+	authorizedByFilter := c.Query("authorized_by")
+	reasonFilter := c.Query("reason")
+	orderNumberFilter := strings.TrimSpace(c.Query("order_number"))
+	minValueStr := c.Query("min_value")
 
 	where := "WHERE 1=1"
 	args := []interface{}{}
@@ -106,23 +112,62 @@ func (h *PinHandler) GetVoidLog(c *gin.Context) {
 
 	if fromDate != "" {
 		argN++
-		where += fmt.Sprintf(" AND vl.created_at >= $%d", argN)
+		where += fmt.Sprintf(" AND vl.created_at >= $%d::date", argN)
 		args = append(args, fromDate)
 	}
 	if toDate != "" {
 		argN++
-		where += fmt.Sprintf(" AND vl.created_at <= $%d::date + INTERVAL '1 day'", argN)
+		// Use exclusive upper bound on the next day to avoid including
+		// rows timestamped exactly at midnight of the day after `to`.
+		where += fmt.Sprintf(" AND vl.created_at < $%d::date + INTERVAL '1 day'", argN)
 		args = append(args, toDate)
 	}
+	// Legacy combined filter: matches voider OR authorizer.
 	if userFilter != "" {
 		argN++
 		where += fmt.Sprintf(" AND (vl.voided_by = $%d OR vl.authorized_by = $%d)", argN, argN)
 		args = append(args, userFilter)
 	}
+	if voidedByFilter != "" {
+		argN++
+		where += fmt.Sprintf(" AND vl.voided_by = $%d", argN)
+		args = append(args, voidedByFilter)
+	}
+	if authorizedByFilter != "" {
+		argN++
+		where += fmt.Sprintf(" AND vl.authorized_by = $%d", argN)
+		args = append(args, authorizedByFilter)
+	}
+	if reasonFilter != "" {
+		argN++
+		where += fmt.Sprintf(" AND vl.reason = $%d", argN)
+		args = append(args, reasonFilter)
+	}
+	if orderNumberFilter != "" {
+		argN++
+		where += fmt.Sprintf(" AND o.order_number ILIKE $%d", argN)
+		args = append(args, "%"+orderNumberFilter+"%")
+	}
+	if minValueStr != "" {
+		if minVal, perr := strconv.ParseFloat(minValueStr, 64); perr == nil && minVal > 0 {
+			argN++
+			where += fmt.Sprintf(" AND (vl.unit_price * vl.quantity) >= $%d", argN)
+			args = append(args, minVal)
+		}
+	}
 
+	// Count uses the same join graph because some filters reference `o`.
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM void_log vl
+		LEFT JOIN orders o ON vl.order_id = o.id
+		%s
+	`, where)
 	var total int
-	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM void_log vl %s`, where)
-	h.db.QueryRow(countQuery, args...).Scan(&total)
+	if err := h.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to count void log", Error: strPtr(err.Error())})
+		return
+	}
 
 	argN++
 	limitArg := argN
@@ -141,7 +186,7 @@ func (h *PinHandler) GetVoidLog(c *gin.Context) {
 		LEFT JOIN users u1 ON vl.voided_by = u1.id
 		LEFT JOIN users u2 ON vl.authorized_by = u2.id
 		%s
-		ORDER BY vl.created_at DESC
+		ORDER BY vl.created_at DESC, vl.id DESC
 		LIMIT $%d OFFSET $%d
 	`, where, limitArg, offsetArg)
 
@@ -152,13 +197,20 @@ func (h *PinHandler) GetVoidLog(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var entries []models.VoidLogEntry
+	entries := make([]models.VoidLogEntry, 0)
 	for rows.Next() {
 		var e models.VoidLogEntry
-		rows.Scan(&e.ID, &e.OrderID, &e.OrderItemID, &e.VoidedBy, &e.AuthorizedBy,
+		if scanErr := rows.Scan(&e.ID, &e.OrderID, &e.OrderItemID, &e.VoidedBy, &e.AuthorizedBy,
 			&e.ItemName, &e.Quantity, &e.UnitPrice, &e.Reason, &e.CreatedAt,
-			&e.OrderNumber, &e.VoidedByName, &e.AuthorizedName)
+			&e.OrderNumber, &e.VoidedByName, &e.AuthorizedName); scanErr != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to read void log row", Error: strPtr(scanErr.Error())})
+			return
+		}
 		entries = append(entries, e)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Void log query error", Error: strPtr(rowsErr.Error())})
+		return
 	}
 
 	totalPages := int(math.Ceil(float64(total) / float64(perPage)))

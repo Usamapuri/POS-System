@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import apiClient from '@/api/client'
-import { formatCurrency } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Ban, CheckCircle, X } from 'lucide-react'
 import { useCurrency } from '@/contexts/CurrencyContext'
+import { VOID_REASONS, type VoidReason } from '@/lib/void-reasons'
 
 interface PinEntryModalProps {
   orderId: string
@@ -15,15 +15,6 @@ interface PinEntryModalProps {
   onSuccess: (itemId: string) => void
   onClose: () => void
 }
-
-const VOID_REASONS = [
-  'Customer Request',
-  'Kitchen Error',
-  'Wrong Order',
-  'Manager Decision',
-  'Quality Issue',
-  'Other',
-]
 
 export function PinEntryModal({
   orderId,
@@ -36,7 +27,7 @@ export function PinEntryModal({
 }: PinEntryModalProps) {
   const { formatCurrency } = useCurrency()
   const [pin, setPin] = useState(['', '', '', ''])
-  const [reason, setReason] = useState(VOID_REASONS[0])
+  const [reason, setReason] = useState<VoidReason>(VOID_REASONS[0])
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
   const [shake, setShake] = useState(false)
@@ -152,7 +143,7 @@ export function PinEntryModal({
           <label className="text-sm font-medium text-gray-700 block mb-2">Reason</label>
           <select
             value={reason}
-            onChange={e => setReason(e.target.value)}
+            onChange={e => setReason(e.target.value as VoidReason)}
             className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             {VOID_REASONS.map(r => (
