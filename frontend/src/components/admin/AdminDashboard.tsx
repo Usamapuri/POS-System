@@ -14,7 +14,7 @@ import {
   Settings,
   BarChart3
 } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
+import { formatDateDDMMYYYY } from '@/lib/utils'
 
 interface IncomeBreakdownItem {
   period: string
@@ -211,7 +211,7 @@ export function AdminDashboard() {
                   {income.breakdown.slice(0, 10).map((item: IncomeBreakdownItem, index: number) => (
                     <div key={index} className="grid grid-cols-5 gap-4 p-4 border-t text-sm">
                       <div className="font-medium">
-                        {new Date(item.period).toLocaleDateString()}
+                        {formatDateDDMMYYYY(item.period)}
                       </div>
                       <div className="text-center">{item.orders}</div>
                       <div className="text-center">{formatCurrency(item.gross)}</div>

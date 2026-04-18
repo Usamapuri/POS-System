@@ -29,6 +29,7 @@ import {
   Printer,
 } from "lucide-react"
 import type { Category } from "@/types"
+import { formatDateDDMMYYYY } from "@/lib/utils"
 
 interface AdminCategoriesTableProps {
   data: Category[]
@@ -162,7 +163,7 @@ export function AdminCategoriesTable({
         const date = getValue() as string
         return (
           <div className="text-gray-900">
-            {new Date(date).toLocaleDateString()}
+            {formatDateDDMMYYYY(date)}
           </div>
         )
       },

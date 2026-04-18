@@ -21,6 +21,7 @@ import { useCurrency } from '@/contexts/CurrencyContext'
 import { ReceiptDisplay } from './ReceiptDisplay'
 import apiClient from '@/api/client'
 import type { Order, Payment } from '@/types'
+import { formatDateTimeDDMMYYYY } from '@/lib/utils'
 
 interface PaymentHistoryProps {
   isOpen: boolean
@@ -108,14 +109,7 @@ export function PaymentHistory({ isOpen, onClose }: PaymentHistoryProps) {
     }
   }
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
+  const formatDate = (dateString: string) => formatDateTimeDDMMYYYY(dateString)
 
   const handleViewReceipt = (payment: PaymentWithOrder) => {
     if (payment.order) {

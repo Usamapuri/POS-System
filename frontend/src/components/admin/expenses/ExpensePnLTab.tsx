@@ -12,6 +12,7 @@ import {
 import { useCurrency } from '@/contexts/CurrencyContext'
 import type { PnLReport } from '@/types'
 import { getCategoryBadge } from './expense-constants'
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '@/lib/utils'
 import { useExpenseCategoryDefs } from './use-expense-category-defs'
 import {
   DollarSign,
@@ -33,12 +34,9 @@ import {
 
 function formatPeriod(dateStr: string, period: string): string {
   try {
-    const d = new Date(dateStr)
-    if (period === 'hourly')
-      return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    if (period === 'weekly') return `Week of ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
-    if (period === 'monthly') return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long' })
-    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+    if (period === 'hourly') return formatDateTimeDDMMYYYY(dateStr)
+    if (period === 'weekly') return `Week of ${formatDateDDMMYYYY(dateStr)}`
+    return formatDateDDMMYYYY(dateStr)
   } catch {
     return dateStr
   }

@@ -1,5 +1,6 @@
 import type { PurchaseOrderDetail } from '@/types'
 import { printThermalHtmlDocument } from '@/lib/printKotReceipt'
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '@/lib/utils'
 
 function escapeHtml(s: string): string {
   return s
@@ -30,13 +31,10 @@ export function buildPurchaseOrderPrintHtml(
   opts: { businessName: string; formatCurrency: (n: number) => string },
 ): string {
   const fmt = opts.formatCurrency
-  const created = new Date(po.created_at).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  })
+  const created = formatDateTimeDDMMYYYY(po.created_at)
   const expected =
     po.expected_date && po.expected_date.trim()
-      ? new Date(po.expected_date).toLocaleDateString(undefined, { dateStyle: 'medium' })
+      ? formatDateDDMMYYYY(po.expected_date)
       : ''
 
   let grand = 0

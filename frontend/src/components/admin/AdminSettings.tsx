@@ -199,11 +199,21 @@ export function AdminSettings() {
     enabled: boolean
     qr_url_template: string
     footer_note: string
+    /** Allow cashiers to reprint a PRA invoice after the order was completed. */
+    late_print_enabled: boolean
+    /**
+     * Number of full days after the order's completion (or creation, if the
+     * order has no completed_at) during which a non-admin user may still issue
+     * a reprint. 0 = same business day only. Capped at 7 by the backend.
+     */
+    late_print_window_days: string
   }
   const EMPTY_PRA_FORM: PraFormState = {
     enabled: false,
     qr_url_template: '',
     footer_note: '',
+    late_print_enabled: true,
+    late_print_window_days: '1',
   }
   const [praForm, setPraForm] = useState<PraFormState>(EMPTY_PRA_FORM)
 
@@ -248,10 +258,17 @@ export function AdminSettings() {
       thank_you: str('receipt_thank_you') || 'Thank you for your visit!',
       custom_fields: parsedCustom,
     })
+    const lateEnabledRaw = d.pra_invoice_late_print_enabled
+    const windowDaysRaw = d.pra_invoice_late_print_window_days
     setPraForm({
       enabled: d.pra_invoice_enabled === true,
       qr_url_template: str('pra_invoice_qr_url_template'),
       footer_note: str('pra_invoice_footer_note'),
+      late_print_enabled: lateEnabledRaw === undefined ? true : lateEnabledRaw === true,
+      late_print_window_days:
+        typeof windowDaysRaw === 'number'
+          ? String(Math.max(0, Math.min(7, Math.round(windowDaysRaw))))
+          : '1',
     })
   }, [allSettingsRes])
 
@@ -291,9 +308,15 @@ export function AdminSettings() {
 
   const savePraInvoice = useMutation({
     mutationFn: async () => {
+      const days = Math.max(
+        0,
+        Math.min(7, Math.round(Number(praForm.late_print_window_days || '1') || 0)),
+      )
       await apiClient.updateSetting('pra_invoice_enabled', praForm.enabled)
       await apiClient.updateSetting('pra_invoice_qr_url_template', praForm.qr_url_template.trim())
       await apiClient.updateSetting('pra_invoice_footer_note', praForm.footer_note.trim())
+      await apiClient.updateSetting('pra_invoice_late_print_enabled', praForm.late_print_enabled)
+      await apiClient.updateSetting('pra_invoice_late_print_window_days', days)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'all'] })
@@ -1134,6 +1157,51 @@ export function AdminSettings() {
                 />
               </FieldGroup>
             </div>
+          </div>
+
+          <div className={praForm.enabled ? 'border-t pt-5 space-y-4' : 'border-t pt-5 space-y-4 opacity-60 pointer-events-none'}>
+            <div>
+              <p className="text-sm font-medium">Late printing (reprints)</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Lets cashiers issue a PRA invoice for a past order from{' '}
+                <strong>Reports → Orders</strong> when the customer comes back later. Admins and
+                managers can always reprint regardless of this window.
+              </p>
+            </div>
+            <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
+              <div>
+                <p className="text-sm font-medium">Allow late reprints</p>
+                <p className="text-xs text-muted-foreground">
+                  When off, only the first print at checkout is allowed for non-admins.
+                </p>
+              </div>
+              <Switch
+                checked={praForm.late_print_enabled}
+                onCheckedChange={(v) => setPraForm((p) => ({ ...p, late_print_enabled: v }))}
+                aria-label="Allow late PRA reprints"
+              />
+            </div>
+            <FieldGroup
+              label="Reprint window"
+              hint="Number of full days after the order is completed during which a reprint is allowed. 0 = same business day only. Maximum 7 days. Window ends at 23:59 Asia/Karachi."
+            >
+              <div className="flex items-center gap-3">
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={7}
+                  step={1}
+                  value={praForm.late_print_window_days}
+                  onChange={(e) =>
+                    setPraForm((p) => ({ ...p, late_print_window_days: e.target.value }))
+                  }
+                  className="w-24"
+                  disabled={!praForm.late_print_enabled}
+                />
+                <span className="text-sm text-muted-foreground">days</span>
+              </div>
+            </FieldGroup>
           </div>
 
           <div className="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 p-3 text-xs text-amber-900 dark:text-amber-200">

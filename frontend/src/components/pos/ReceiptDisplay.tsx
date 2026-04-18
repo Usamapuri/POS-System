@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { useCurrency } from '@/contexts/CurrencyContext'
 import type { Order, Payment, CartItem, DiningTable } from '@/types'
+import { formatDateTimeDDMMYYYY } from '@/lib/utils'
 
 interface ReceiptDisplayProps {
   isOpen: boolean
@@ -61,15 +62,7 @@ export function ReceiptDisplay({
     }
   }
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
+  const formatDate = (dateString: string) => formatDateTimeDDMMYYYY(dateString)
 
   const handlePrint = () => {
     // TODO: Implement actual receipt printing

@@ -39,6 +39,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
 import { InventoryPurchasingTab } from '@/components/store/InventoryPurchasingTab'
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '@/lib/utils'
 import * as ReportHelp from '@/lib/inventory-report-help'
 
 // ─── Unit conversion ─────────────────────────────────────────────
@@ -1174,7 +1175,7 @@ function ActivityTab({
             )}
             {entries.map((a: InventoryActivityEntry) => (
               <tr key={a.id} className="hover:bg-muted/30 align-top">
-                <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{new Date(a.created_at).toLocaleString()}</td>
+                <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{formatDateTimeDDMMYYYY(a.created_at)}</td>
                 <td className="px-4 py-2">{a.actor_name?.trim() || '—'}</td>
                 <td className="px-4 py-2 max-w-[220px] text-sm text-foreground" title={`Technical code: ${a.action}`}>
                   {friendlyInventoryActivityAction(a.action)}
@@ -1332,7 +1333,7 @@ function MovementsTab({
               return (
                 <tr key={m.id} className={`hover:bg-muted/30 ${voided ? 'opacity-60' : ''}`}>
                   <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
-                    {new Date(m.created_at).toLocaleDateString()}
+                    {formatDateDDMMYYYY(m.created_at)}
                     {voided && (
                       <Badge variant="outline" className="ml-2 text-[10px] px-1 py-0">Voided</Badge>
                     )}

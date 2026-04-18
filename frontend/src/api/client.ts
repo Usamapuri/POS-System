@@ -47,6 +47,14 @@ import type {
   FireKOTResponse,
   PricingSettings,
   CounterServer,
+  OverviewReport,
+  DailySalesRow,
+  HourlySalesReport,
+  ItemSalesRow,
+  TableSalesRow,
+  PartySizeRow,
+  OrdersBrowserResponse,
+  ReportsExportId,
 } from '@/types';
 
 class APIClient {
@@ -329,6 +337,117 @@ class APIClient {
       url: '/admin/reports/income',
       params: { period },
     });
+  }
+
+  // ─── Reports v2 ──────────────────────────────────────────────────────────
+  // All v2 endpoints share a `from`/`to` ISO YYYY-MM-DD contract. The UI
+  // displays DD-MM-YYYY but always sends ISO on the wire.
+
+  async getReportsOverview(from: string, to: string): Promise<APIResponse<OverviewReport>> {
+    return this.request({
+      method: 'GET',
+      url: '/admin/reports/v2/overview',
+      params: { from, to },
+    });
+  }
+
+  async getDailySalesReport(from: string, to: string): Promise<APIResponse<DailySalesRow[]>> {
+    return this.request({
+      method: 'GET',
+      url: '/admin/reports/v2/sales/daily',
+      params: { from, to },
+    });
+  }
+
+  async getHourlySalesReport(from: string, to: string): Promise<APIResponse<HourlySalesReport>> {
+    return this.request({
+      method: 'GET',
+      url: '/admin/reports/v2/sales/hourly',
+      params: { from, to },
+    });
+  }
+
+  async getItemSalesReport(
+    from: string,
+    to: string,
+    opts: { search?: string; category_id?: string; sort?: 'qty' | 'gross' | 'net'; limit?: number } = {},
+  ): Promise<APIResponse<ItemSalesRow[]>> {
+    const params: Record<string, string | number> = { from, to };
+    if (opts.search && opts.search.trim() !== '') params.search = opts.search.trim();
+    if (opts.category_id) params.category_id = opts.category_id;
+    if (opts.sort) params.sort = opts.sort;
+    if (opts.limit) params.limit = opts.limit;
+    return this.request({
+      method: 'GET',
+      url: '/admin/reports/v2/items',
+      params,
+    });
+  }
+
+  async getTableSalesReport(from: string, to: string): Promise<APIResponse<TableSalesRow[]>> {
+    return this.request({
+      method: 'GET',
+      url: '/admin/reports/v2/tables',
+      params: { from, to },
+    });
+  }
+
+  async getPartySizeReport(from: string, to: string): Promise<APIResponse<PartySizeRow[]>> {
+    return this.request({
+      method: 'GET',
+      url: '/admin/reports/v2/party-size',
+      params: { from, to },
+    });
+  }
+
+  /**
+   * Returns a lightweight list of orders for one business day, including the
+   * computed PRA late-print eligibility per order. Used by the Reports →
+   * Orders Browser tab.
+   *
+   * `date` accepts ISO YYYY-MM-DD or DD-MM-YYYY. `praFilter` defaults to 'all'.
+   */
+  async getOrdersBrowser(
+    date: string,
+    opts: { search?: string; pra_filter?: 'all' | 'printed' | 'not_printed' | 'eligible' } = {},
+  ): Promise<APIResponse<OrdersBrowserResponse>> {
+    const params: Record<string, string> = { date };
+    if (opts.search && opts.search.trim() !== '') params.search = opts.search.trim();
+    if (opts.pra_filter) params.pra_filter = opts.pra_filter;
+    return this.request({
+      method: 'GET',
+      url: '/admin/reports/v2/orders',
+      params,
+    });
+  }
+
+  /**
+   * Downloads a report as a CSV file in the user's browser. Filename comes
+   * from the backend Content-Disposition header so naming stays consistent
+   * (DD-MM-YYYY range, with cafe-cova prefix).
+   */
+  async exportReportCsv(
+    report: ReportsExportId,
+    from: string,
+    to: string,
+    extra: Record<string, string> = {},
+  ): Promise<void> {
+    const response = await this.client.get('/admin/reports/v2/export', {
+      params: { report, from, to, format: 'csv', ...extra },
+      responseType: 'blob',
+    });
+    const blob = response.data as Blob;
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    // Try to honour the server-provided filename; fall back to a sensible name.
+    const cd = response.headers['content-disposition'] as string | undefined;
+    const match = cd && /filename="?([^"]+)"?/i.exec(cd);
+    a.download = match ? match[1] : `cafe-cova_${report}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
   }
 
   // Kitchen endpoints

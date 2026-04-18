@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import apiClient from '@/api/client'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { ChevronLeft, ChevronRight, Ban, Calendar } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react'
 import type { VoidLogEntry } from '@/types'
 import { useCurrency } from '@/contexts/CurrencyContext'
+import { formatDateTimeDDMMYYYY } from '@/lib/utils'
 
 export function VoidLog() {
   const { formatCurrency } = useCurrency()
@@ -32,13 +33,7 @@ export function VoidLog() {
   const entries = (data?.data as VoidLogEntry[] | null) || []
   const meta = data?.meta || { current_page: 1, total_pages: 1, total: 0, per_page: 20 }
 
-  const formatDate = (d: string) => {
-    try {
-      return new Date(d).toLocaleString()
-    } catch {
-      return d
-    }
-  }
+  const formatDate = (d: string) => formatDateTimeDDMMYYYY(d)
 
   const getSeverity = (entry: VoidLogEntry) => {
     const value = entry.unit_price * entry.quantity

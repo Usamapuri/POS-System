@@ -26,11 +26,11 @@ import {
   Shield,
   Mail,
   Calendar,
-  MoreHorizontal,
   Key,
 } from "lucide-react"
 import type { User } from "@/types"
 import { staffAvatarImageUrl } from "@/lib/staff-avatar"
+import { formatDateDDMMYYYY } from "@/lib/utils"
 
 interface AdminStaffTableProps {
   data: (User & { has_pin?: boolean })[]
@@ -218,7 +218,7 @@ export function AdminStaffTable({
         const date = getValue() as string
         return (
           <div className="text-gray-900">
-            {new Date(date).toLocaleDateString()}
+            {formatDateDDMMYYYY(date)}
           </div>
         )
       },

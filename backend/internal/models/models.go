@@ -474,3 +474,163 @@ type MetaData struct {
 	Total       int `json:"total"`
 	TotalPages  int `json:"total_pages"`
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Reports v2 — payload types shared with the frontend.
+// All money is currency-major units (e.g. PKR), all timestamps are UTC, and
+// all *_label fields are pre-formatted DD-MM-YYYY for direct rendering.
+// ───────────────────────────────────────────────────────────────────────────
+
+// MetricPair captures a current value plus the comparable value from the
+// previous equal-length window. Pct is `nil` when the previous value is zero
+// (avoids divide-by-zero and lets the UI render "—" instead of "+∞%").
+type MetricPair struct {
+	Current  float64  `json:"current"`
+	Previous float64  `json:"previous"`
+	Delta    float64  `json:"delta"`
+	Pct      *float64 `json:"pct,omitempty"`
+}
+
+// IntMetricPair is the integer-valued counterpart of MetricPair (orders, covers).
+type IntMetricPair struct {
+	Current  int      `json:"current"`
+	Previous int      `json:"previous"`
+	Delta    int      `json:"delta"`
+	Pct      *float64 `json:"pct,omitempty"`
+}
+
+// TenderMixRow is one slice of the payment-method donut.
+type TenderMixRow struct {
+	Method string  `json:"method"`
+	Amount float64 `json:"amount"`
+	Count  int     `json:"count"`
+	Pct    float64 `json:"pct"`
+}
+
+// OverviewReport powers the top KPI tiles + tender-mix donut on the Reports
+// dashboard. All metrics include a previous-period comparison.
+type OverviewReport struct {
+	From            string         `json:"from"`              // ISO YYYY-MM-DD
+	To              string         `json:"to"`                // ISO YYYY-MM-DD
+	FromLabel       string         `json:"from_label"`        // DD-MM-YYYY
+	ToLabel         string         `json:"to_label"`          // DD-MM-YYYY
+	PreviousFrom    string         `json:"previous_from"`     // ISO YYYY-MM-DD
+	PreviousTo      string         `json:"previous_to"`       // ISO YYYY-MM-DD
+	PreviousFromLbl string         `json:"previous_from_label"`
+	PreviousToLbl   string         `json:"previous_to_label"`
+	Timezone        string         `json:"timezone"`
+	GrossSales      MetricPair     `json:"gross_sales"`
+	Discounts       MetricPair     `json:"discounts"`
+	NetSales        MetricPair     `json:"net_sales"`
+	Tax             MetricPair     `json:"tax"`
+	ServiceCharge   MetricPair     `json:"service_charge"`
+	Orders          IntMetricPair  `json:"orders"`
+	Covers          IntMetricPair  `json:"covers"`
+	AverageCheck    MetricPair     `json:"average_check"`
+	TenderMix       []TenderMixRow `json:"tender_mix"`
+}
+
+// DailySalesRow is one row of the day-by-day sales table.
+type DailySalesRow struct {
+	Date      string  `json:"date"`       // ISO YYYY-MM-DD
+	DateLabel string  `json:"date_label"` // DD-MM-YYYY
+	Orders    int     `json:"orders"`
+	Covers    int     `json:"covers"`
+	Gross     float64 `json:"gross"`
+	Discounts float64 `json:"discounts"`
+	Net       float64 `json:"net"`
+	Tax       float64 `json:"tax"`
+}
+
+// HourlySeriesPoint is one hour bucket on the hourly time series.
+type HourlySeriesPoint struct {
+	HourStart      string  `json:"hour_start"`       // ISO timestamp
+	HourStartLabel string  `json:"hour_start_label"` // DD-MM-YYYY HH:mm
+	Orders         int     `json:"orders"`
+	Net            float64 `json:"net"`
+}
+
+// HourlyHeatmapCell is one cell of the day-of-week × hour-of-day heatmap.
+// Dow runs 0..6 (0 = Sunday, 6 = Saturday), Hour runs 0..23.
+type HourlyHeatmapCell struct {
+	Dow    int     `json:"dow"`
+	Hour   int     `json:"hour"`
+	Orders int     `json:"orders"`
+	Net    float64 `json:"net"`
+}
+
+// HourlySalesReport carries both shapes the UI needs.
+type HourlySalesReport struct {
+	Series  []HourlySeriesPoint `json:"series"`
+	Heatmap []HourlyHeatmapCell `json:"heatmap"`
+}
+
+// ItemSalesRow is one row of the item-wise sales table.
+type ItemSalesRow struct {
+	ProductID     uuid.UUID `json:"product_id"`
+	Name          string    `json:"name"`
+	Category      *string   `json:"category,omitempty"`
+	QtySold       int       `json:"qty_sold"`
+	Gross         float64   `json:"gross"`
+	Net           float64   `json:"net"`
+	OrdersCount   int       `json:"orders_count"`
+	PercentOfNet  float64   `json:"percent_of_net"`
+	AvgUnitPrice  float64   `json:"avg_unit_price"`
+}
+
+// TableSalesRow is one row of the per-table summary.
+type TableSalesRow struct {
+	TableID            *uuid.UUID `json:"table_id"`
+	TableNumber        string     `json:"table_number"`
+	Location           *string    `json:"location,omitempty"`
+	Zone               *string    `json:"zone,omitempty"`
+	SeatingCapacity    *int       `json:"seating_capacity,omitempty"`
+	Parties            int        `json:"parties"`
+	Covers             int        `json:"covers"`
+	NetSales           float64    `json:"net_sales"`
+	AvgCheck           float64    `json:"avg_check"`
+	AvgCoversPerParty  float64    `json:"avg_covers_per_party"`
+	RevenuePerCover    float64    `json:"revenue_per_cover"`
+}
+
+// PartySizeRow is one bucket of the party-size breakdown.
+type PartySizeRow struct {
+	Bucket          string  `json:"bucket"`
+	MinSize         int     `json:"min_size"`
+	MaxSize         int     `json:"max_size"` // 0 means "no upper bound"
+	Parties         int     `json:"parties"`
+	Covers          int     `json:"covers"`
+	NetSales        float64 `json:"net_sales"`
+	AvgCheck        float64 `json:"avg_check"`
+	RevenuePerCover float64 `json:"revenue_per_cover"`
+}
+
+// OrdersBrowserRow is one row of the day-scoped Orders Browser tab. Fields
+// are intentionally lightweight — the UI fetches the full Order on demand
+// before printing a PRA invoice.
+type OrdersBrowserRow struct {
+	ID                            uuid.UUID  `json:"id"`
+	OrderNumber                   string     `json:"order_number"`
+	TableNumber                   *string    `json:"table_number,omitempty"`
+	ServerName                    *string    `json:"server_name,omitempty"`
+	CustomerName                  *string    `json:"customer_name,omitempty"`
+	GuestCount                    int        `json:"guest_count"`
+	TotalAmount                   float64    `json:"total_amount"`
+	CheckoutPaymentMethod         *string    `json:"checkout_payment_method,omitempty"`
+	Status                        string     `json:"status"`
+	CreatedAt                     time.Time  `json:"created_at"`
+	CreatedAtLabel                string     `json:"created_at_label"` // DD-MM-YYYY HH:mm
+	CompletedAt                   *time.Time `json:"completed_at,omitempty"`
+	CompletedAtLabel              *string    `json:"completed_at_label,omitempty"`
+	PraInvoicePrinted             bool       `json:"pra_invoice_printed"`
+	PraInvoiceNumber              *string    `json:"pra_invoice_number,omitempty"`
+	PraInvoicePrintedAt           *time.Time `json:"pra_invoice_printed_at,omitempty"`
+	PraInvoicePrintedAtLabel      *string    `json:"pra_invoice_printed_at_label,omitempty"`
+	PraInvoiceReprintCount        int        `json:"pra_invoice_reprint_count"`
+	PraInvoiceLastReprintedAt     *time.Time `json:"pra_invoice_last_reprinted_at,omitempty"`
+	PraInvoiceLastReprintedByName *string    `json:"pra_invoice_last_reprinted_by_name,omitempty"`
+	PraLateWindowExpiresAt        *time.Time `json:"pra_late_window_expires_at,omitempty"`
+	PraLateWindowSecondsRemaining *int64     `json:"pra_late_window_seconds_remaining,omitempty"`
+	CanPrintPra                   bool       `json:"can_print_pra"`
+	CanPrintPraReason             *string    `json:"can_print_pra_reason,omitempty"`
+}

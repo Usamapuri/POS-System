@@ -1,4 +1,5 @@
 import type { ExpenseCategoryDefinition } from '@/types'
+import { formatDateTimeDDMMYYYY } from '@/lib/utils'
 
 /** Fallback labels when category definitions have not loaded yet. */
 export const EXPENSE_CATEGORIES: { value: string; label: string; color: string }[] = [
@@ -66,14 +67,7 @@ export function formatRecordedAtForLedger(recordedAt?: string | null, expenseDat
     return '—'
   }
   if (Number.isNaN(d.getTime())) return expenseDateFallback || '—'
-  const datePart = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-  const timePart = d.toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true,
-  })
-  return `${datePart} ${timePart}`
+  return formatDateTimeDDMMYYYY(d)
 }
 
 export function getMonthToDateRange(): { from: string; to: string } {

@@ -42,6 +42,17 @@ func ApplySchemaPatches(db *sql.DB) {
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pra_invoice_printed BOOLEAN NOT NULL DEFAULT false`,
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pra_invoice_number VARCHAR(64)`,
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pra_invoice_printed_at TIMESTAMP WITH TIME ZONE`,
+		// PRA late-print audit (Reports → Orders Browser → Reprint PRA).
+		// Tracks how many times an invoice was reprinted (excluding the first
+		// initial print) and who/when did the most recent reprint.
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pra_invoice_reprint_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pra_invoice_last_reprinted_at TIMESTAMP WITH TIME ZONE`,
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pra_invoice_last_reprinted_by UUID REFERENCES users(id) ON DELETE SET NULL`,
+		// Reports v2 — speed up hourly/daily aggregations and the Orders Browser
+		// day-scoped query. All partial / functional indexes; safe to add.
+		`CREATE INDEX IF NOT EXISTS idx_orders_completed_status ON orders(completed_at) WHERE status = 'completed'`,
+		`CREATE INDEX IF NOT EXISTS idx_orders_created_status ON orders(created_at, status)`,
+		`CREATE INDEX IF NOT EXISTS idx_orders_pra_printed_at ON orders(pra_invoice_printed_at) WHERE pra_invoice_printed = true`,
 	}
 	for _, q := range stmts {
 		if _, err := db.Exec(q); err != nil {
@@ -81,6 +92,26 @@ func ApplySchemaPatches(db *sql.DB) {
 		ON CONFLICT (key) DO NOTHING
 	`); err != nil {
 		log.Printf("schema patch: app_settings.currency default: %v", err)
+	}
+
+	// PRA late-print policy — used by counter-side MarkPraInvoicePrinted to
+	// decide whether a "reprint after the fact" is allowed. Settings UI is in
+	// Admin → Settings → PRA tax invoice; admins always bypass this window via
+	// the /admin/orders/:id/pra-invoice route.
+	praLateDefaults := []struct {
+		key string
+		val string
+	}{
+		{"pra_invoice_late_print_enabled", "true"},
+		{"pra_invoice_late_print_window_days", "1"},
+	}
+	for _, d := range praLateDefaults {
+		if _, err := db.Exec(
+			`INSERT INTO app_settings (key, value) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO NOTHING`,
+			d.key, d.val,
+		); err != nil {
+			log.Printf("schema patch: %s default: %v", d.key, err)
+		}
 	}
 
 	crmOpenTab := []string{

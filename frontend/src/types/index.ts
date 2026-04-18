@@ -289,6 +289,164 @@ export interface OrdersReportItem {
   avg_amount: number;
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Reports v2 — payload types mirroring backend/internal/models/models.go.
+// ───────────────────────────────────────────────────────────────────────────
+
+export interface MetricPair {
+  current: number;
+  previous: number;
+  delta: number;
+  /** null when previous is 0 — the UI should render "—" rather than "+∞%". */
+  pct?: number | null;
+}
+
+export interface IntMetricPair {
+  current: number;
+  previous: number;
+  delta: number;
+  pct?: number | null;
+}
+
+export interface TenderMixRow {
+  method: string;
+  amount: number;
+  count: number;
+  pct: number;
+}
+
+export interface OverviewReport {
+  from: string;
+  to: string;
+  from_label: string;
+  to_label: string;
+  previous_from: string;
+  previous_to: string;
+  previous_from_label: string;
+  previous_to_label: string;
+  timezone: string;
+  gross_sales: MetricPair;
+  discounts: MetricPair;
+  net_sales: MetricPair;
+  tax: MetricPair;
+  service_charge: MetricPair;
+  orders: IntMetricPair;
+  covers: IntMetricPair;
+  average_check: MetricPair;
+  tender_mix: TenderMixRow[];
+}
+
+export interface DailySalesRow {
+  date: string;
+  date_label: string;
+  orders: number;
+  covers: number;
+  gross: number;
+  discounts: number;
+  net: number;
+  tax: number;
+}
+
+export interface HourlySeriesPoint {
+  hour_start: string;
+  hour_start_label: string;
+  orders: number;
+  net: number;
+}
+
+export interface HourlyHeatmapCell {
+  dow: number;   // 0=Sunday … 6=Saturday
+  hour: number;  // 0..23
+  orders: number;
+  net: number;
+}
+
+export interface HourlySalesReport {
+  series: HourlySeriesPoint[];
+  heatmap: HourlyHeatmapCell[];
+}
+
+export interface ItemSalesRow {
+  product_id: string;
+  name: string;
+  category?: string | null;
+  qty_sold: number;
+  gross: number;
+  net: number;
+  orders_count: number;
+  percent_of_net: number;
+  avg_unit_price: number;
+}
+
+export interface TableSalesRow {
+  table_id?: string | null;
+  table_number: string;
+  location?: string | null;
+  zone?: string | null;
+  seating_capacity?: number | null;
+  parties: number;
+  covers: number;
+  net_sales: number;
+  avg_check: number;
+  avg_covers_per_party: number;
+  revenue_per_cover: number;
+}
+
+export interface PartySizeRow {
+  bucket: string;
+  min_size: number;
+  /** 0 means "no upper bound" (e.g. 9+ guests). */
+  max_size: number;
+  parties: number;
+  covers: number;
+  net_sales: number;
+  avg_check: number;
+  revenue_per_cover: number;
+}
+
+export interface OrdersBrowserRow {
+  id: string;
+  order_number: string;
+  table_number?: string | null;
+  server_name?: string | null;
+  customer_name?: string | null;
+  guest_count: number;
+  total_amount: number;
+  checkout_payment_method?: 'cash' | 'card' | 'online' | string | null;
+  status: string;
+  created_at: string;
+  created_at_label: string;
+  completed_at?: string | null;
+  completed_at_label?: string | null;
+  pra_invoice_printed: boolean;
+  pra_invoice_number?: string | null;
+  pra_invoice_printed_at?: string | null;
+  pra_invoice_printed_at_label?: string | null;
+  pra_invoice_reprint_count: number;
+  pra_invoice_last_reprinted_at?: string | null;
+  pra_invoice_last_reprinted_by_name?: string | null;
+  pra_late_window_expires_at?: string | null;
+  pra_late_window_seconds_remaining?: number | null;
+  can_print_pra: boolean;
+  can_print_pra_reason?: string | null;
+}
+
+export interface OrdersBrowserResponse {
+  date: string;
+  date_label: string;
+  timezone: string;
+  pra_window_days: number;
+  orders: OrdersBrowserRow[];
+}
+
+export type ReportsExportId =
+  | 'overview'
+  | 'daily_sales'
+  | 'hourly'
+  | 'items'
+  | 'tables'
+  | 'party_size';
+
 // Kitchen Types
 export interface KitchenOrder {
   id: string;

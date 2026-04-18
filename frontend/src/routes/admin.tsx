@@ -46,13 +46,16 @@ function AdminLayout() {
     return <Navigate to="/login" />
   }
 
-  // Check admin role
-  if (user.role !== 'admin') {
+  // Allow admin and manager roles into the admin shell. Manager-scoped pages
+  // (Reports, Dashboard, Expenses) are explicitly safe; admin-only pages
+  // already enforce permissions on the backend, so non-admin attempts will
+  // surface as 403 from the API rather than rendering broken UI.
+  if (user.role !== 'admin' && user.role !== 'manager') {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-destructive mb-2">Access Denied</h1>
-          <p className="text-muted-foreground mb-4">You don't have admin privileges.</p>
+          <p className="text-muted-foreground mb-4">You don't have admin or manager privileges.</p>
           <Navigate to="/" />
         </div>
       </div>

@@ -15,6 +15,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { getCategoryBadge } from './expense-constants'
+import { formatDateDDMMYYYY } from '@/lib/utils'
 import { useExpenseCategoryDefs } from './use-expense-category-defs'
 import {
   LineChart,
@@ -39,11 +40,7 @@ type Props = {
 }
 
 function shortDayLabel(iso: string) {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  } catch {
-    return iso
-  }
+  return formatDateDDMMYYYY(iso)
 }
 
 export function ExpenseOverviewTab({

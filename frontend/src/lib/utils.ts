@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import { format as formatDateFns, parse as parseDateFns, isValid as isValidDateFns } from 'date-fns'
 import { formatMoney } from '@/lib/currency'
 
 export function cn(...inputs: ClassValue[]) {
@@ -11,21 +12,64 @@ export function formatCurrency(amount: number): string {
   return formatMoney(amount)
 }
 
-export function formatDate(dateString: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(dateString))
+// ---------------------------------------------------------------------------
+// Date formatting — DD-MM-YYYY everywhere a human reads a date.
+//
+// The user has mandated DD-MM-YYYY across the entire UI. To make this safe
+// and uniform, every date helper here renders day-month-year. ISO YYYY-MM-DD
+// is reserved for the wire (API params, URL state, JSON) where a sortable,
+// unambiguous format is necessary; use `toIsoDate(...)` for that case.
+// ---------------------------------------------------------------------------
+
+function toDate(input: Date | string | number | null | undefined): Date | null {
+  if (input == null) return null
+  if (input instanceof Date) return isValidDateFns(input) ? input : null
+  const d = new Date(input)
+  return isValidDateFns(d) ? d : null
 }
 
+/** DD-MM-YYYY (e.g. "18-04-2026"). Returns "—" for invalid input. */
+export function formatDateDDMMYYYY(input: Date | string | number | null | undefined): string {
+  const d = toDate(input)
+  return d ? formatDateFns(d, 'dd-MM-yyyy') : '—'
+}
+
+/** DD-MM-YYYY HH:mm (24h, e.g. "18-04-2026 21:45"). Returns "—" for invalid input. */
+export function formatDateTimeDDMMYYYY(input: Date | string | number | null | undefined): string {
+  const d = toDate(input)
+  return d ? formatDateFns(d, 'dd-MM-yyyy HH:mm') : '—'
+}
+
+/**
+ * Parses a DD-MM-YYYY string into a Date. Returns null when the string is
+ * empty, malformed, or represents an invalid calendar date.
+ */
+export function parseDDMMYYYY(input: string | null | undefined): Date | null {
+  if (!input) return null
+  const trimmed = input.trim()
+  if (trimmed === '') return null
+  const parsed = parseDateFns(trimmed, 'dd-MM-yyyy', new Date())
+  return isValidDateFns(parsed) ? parsed : null
+}
+
+/** Serializes a Date as ISO YYYY-MM-DD for use in API params / URL state. */
+export function toIsoDate(input: Date | string | number | null | undefined): string {
+  const d = toDate(input)
+  return d ? formatDateFns(d, 'yyyy-MM-dd') : ''
+}
+
+/**
+ * Backwards-compatible: legacy callers pass an ISO timestamp string and
+ * expect a "date + time" label. Now returns DD-MM-YYYY HH:mm.
+ */
+export function formatDate(dateString: string): string {
+  return formatDateTimeDDMMYYYY(dateString)
+}
+
+/** HH:mm (24h). Kept for compatibility with existing callers. */
 export function formatTime(dateString: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(dateString))
+  const d = toDate(dateString)
+  return d ? formatDateFns(d, 'HH:mm') : '—'
 }
 
 export function getOrderStatusColor(status: string): string {

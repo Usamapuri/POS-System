@@ -1288,14 +1288,58 @@ func (h *OrderHandler) allocDailyOrderNumber(tx *sql.Tx) (string, error) {
 	return fmt.Sprintf("%s-%03d", compact, n), nil
 }
 
+// loadPraLatePrintPolicy reads the configurable late-print policy from
+// app_settings. Falls back to safe defaults (enabled, 1 day) if the keys are
+// missing or malformed — never blocks a user over bad config.
+//
+// The window is defined inclusively: an order completed on day D is eligible
+// until end-of-day D + window_days in Asia/Karachi local time. window_days=0
+// therefore means "same business day only".
+func loadPraLatePrintPolicy(db *sql.DB) (enabled bool, windowDays int) {
+	enabled = true
+	windowDays = 1
+
+	var raw []byte
+	if err := db.QueryRow(`SELECT value FROM app_settings WHERE key = 'pra_invoice_late_print_enabled'`).Scan(&raw); err == nil {
+		s := strings.TrimSpace(string(raw))
+		if s == "false" {
+			enabled = false
+		}
+	}
+	if err := db.QueryRow(`SELECT value FROM app_settings WHERE key = 'pra_invoice_late_print_window_days'`).Scan(&raw); err == nil {
+		s := strings.TrimSpace(string(raw))
+		s = strings.Trim(s, "\"")
+		if n, err := strconv.Atoi(s); err == nil {
+			if n < 0 {
+				n = 0
+			}
+			if n > 7 {
+				n = 7
+			}
+			windowDays = n
+		}
+	}
+	return
+}
+
 // MarkPraInvoicePrinted records that a PRA (Punjab Revenue Authority) tax
 // invoice slip was printed for an order. The invoice number is optional —
 // callers that don't yet have a real PRA-issued number may omit it; the
 // printed_at timestamp always reflects the most recent print.
 //
-// Only the flag, number and timestamp are updated; no monetary fields change.
-// This is safe to call multiple times (e.g. reprints) and will refresh the
-// timestamp + number each time.
+// Reprint policy:
+//   - The first print (pra_invoice_printed = false → true) is always allowed
+//     (subject to admin policy on whether PRA invoices are enabled at all).
+//   - A reprint is allowed when one of:
+//       (a) the caller's role is admin or manager (manager override), OR
+//       (b) the configurable late-print window in app_settings has not yet
+//           expired. The window is computed in Asia/Karachi local time and
+//           defaults to "until end of the next business day" (window_days=1).
+//   - When a reprint is rejected the response is 409 Conflict and includes
+//     the original printed_at timestamp + the computed window expiry so the
+//     UI can show a clear, dated tooltip.
+//   - Reprints stamp pra_invoice_reprint_count, pra_invoice_last_reprinted_at
+//     and pra_invoice_last_reprinted_by for audit.
 func (h *OrderHandler) MarkPraInvoicePrinted(c *gin.Context) {
 	orderID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -1310,7 +1354,6 @@ func (h *OrderHandler) MarkPraInvoicePrinted(c *gin.Context) {
 	var body struct {
 		PraInvoiceNumber *string `json:"pra_invoice_number,omitempty"`
 	}
-	// Body is optional — accept empty POSTs gracefully.
 	_ = c.ShouldBindJSON(&body)
 
 	var invoiceNum interface{}
@@ -1324,33 +1367,121 @@ func (h *OrderHandler) MarkPraInvoicePrinted(c *gin.Context) {
 		}
 	}
 
-	res, err := h.db.Exec(`
-		UPDATE orders
-		SET pra_invoice_printed = true,
-		    pra_invoice_number = COALESCE($2, pra_invoice_number),
-		    pra_invoice_printed_at = CURRENT_TIMESTAMP,
-		    updated_at = CURRENT_TIMESTAMP
+	userID, _, role, _ := middleware.GetUserFromContext(c)
+	isManagerOverride := role == "admin" || role == "manager"
+
+	lateEnabled, windowDays := loadPraLatePrintPolicy(h.db)
+
+	// Pull the current state plus the computed window-expiry timestamp. The
+	// SQL keeps the timezone math in the database for a single source of truth.
+	var (
+		alreadyPrinted   bool
+		printedAt        sql.NullTime
+		windowExpiresAt  sql.NullTime
+		referenceMoment  sql.NullTime // completed_at, falling back to created_at
+	)
+	err = h.db.QueryRow(`
+		SELECT
+			COALESCE(pra_invoice_printed, false),
+			pra_invoice_printed_at,
+			COALESCE(completed_at, created_at) AS reference_moment,
+			(date_trunc('day', COALESCE(completed_at, created_at) AT TIME ZONE 'Asia/Karachi')
+				+ make_interval(days => $2 + 1)
+				- interval '1 microsecond')
+				AT TIME ZONE 'Asia/Karachi' AS window_expires_at
+		FROM orders
 		WHERE id = $1
-	`, orderID, invoiceNum)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
-			Success: false,
-			Message: "Failed to mark PRA invoice printed",
-			Error:   stringPtr(err.Error()),
-		})
-		return
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	`, orderID, windowDays).Scan(&alreadyPrinted, &printedAt, &referenceMoment, &windowExpiresAt)
+	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, models.APIResponse{
 			Success: false,
 			Message: "Order not found",
 		})
 		return
 	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Message: "Failed to load order",
+			Error:   stringPtr(err.Error()),
+		})
+		return
+	}
 
+	// Window enforcement applies only to non-overrides AND only when the
+	// invoice has been printed at least once before (i.e. this is a reprint).
+	// First prints are never blocked by the late-print window.
+	if alreadyPrinted && !isManagerOverride {
+		if !lateEnabled {
+			c.JSON(http.StatusConflict, models.APIResponse{
+				Success: false,
+				Message: "PRA invoice reprints are disabled in settings",
+				Error:   stringPtr("pra_reprint_disabled"),
+			})
+			return
+		}
+		if windowExpiresAt.Valid && time.Now().After(windowExpiresAt.Time) {
+			expires := windowExpiresAt.Time.UTC()
+			payload := gin.H{
+				"window_expires_at": expires,
+				"window_days":       windowDays,
+			}
+			if printedAt.Valid {
+				payload["pra_invoice_printed_at"] = printedAt.Time.UTC()
+			}
+			c.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"message": "PRA invoice reprint window has expired",
+				"error":   "pra_reprint_window_expired",
+				"data":    payload,
+			})
+			return
+		}
+	}
+
+	// Audit fields only apply to reprints (pre-existing printed=true).
+	var actor interface{}
+	if userID != uuid.Nil {
+		actor = userID
+	}
+	var execErr error
+	if alreadyPrinted {
+		_, execErr = h.db.Exec(`
+			UPDATE orders
+			SET pra_invoice_number = COALESCE($2, pra_invoice_number),
+			    pra_invoice_printed_at = CURRENT_TIMESTAMP,
+			    pra_invoice_reprint_count = COALESCE(pra_invoice_reprint_count, 0) + 1,
+			    pra_invoice_last_reprinted_at = CURRENT_TIMESTAMP,
+			    pra_invoice_last_reprinted_by = $3,
+			    updated_at = CURRENT_TIMESTAMP
+			WHERE id = $1
+		`, orderID, invoiceNum, actor)
+	} else {
+		_, execErr = h.db.Exec(`
+			UPDATE orders
+			SET pra_invoice_printed = true,
+			    pra_invoice_number = COALESCE($2, pra_invoice_number),
+			    pra_invoice_printed_at = CURRENT_TIMESTAMP,
+			    updated_at = CURRENT_TIMESTAMP
+			WHERE id = $1
+		`, orderID, invoiceNum)
+	}
+	if execErr != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Message: "Failed to mark PRA invoice printed",
+			Error:   stringPtr(execErr.Error()),
+		})
+		return
+	}
+
+	msg := "PRA invoice marked as printed"
+	if alreadyPrinted {
+		msg = "PRA invoice reprint recorded"
+	}
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
-		Message: "PRA invoice marked as printed",
+		Message: msg,
 	})
 }
 

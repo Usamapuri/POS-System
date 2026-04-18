@@ -33,7 +33,7 @@ import {
   Printer,
   ChevronDown,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatDateDDMMYYYY } from '@/lib/utils'
 
 type ToastFn = (type: 'success' | 'error', message: string) => void
 
@@ -547,12 +547,10 @@ export function InventoryPurchasingTab({ stockItems, showToast }: { stockItems: 
                       <tr key={o.id} className="bg-card hover:bg-muted/20">
                         <td className="px-4 py-3.5 align-middle font-medium text-foreground">{o.supplier_name}</td>
                         <td className="px-4 py-3.5 align-middle text-muted-foreground tabular-nums whitespace-nowrap">
-                          {new Date(o.created_at).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                          {formatDateDDMMYYYY(o.created_at)}
                         </td>
                         <td className="px-4 py-3.5 align-middle text-muted-foreground tabular-nums whitespace-nowrap">
-                          {o.expected_date
-                            ? new Date(o.expected_date).toLocaleDateString(undefined, { dateStyle: 'medium' })
-                            : '—'}
+                          {o.expected_date ? formatDateDDMMYYYY(o.expected_date) : '—'}
                         </td>
                         <td className="px-4 py-3.5 align-middle text-right tabular-nums font-medium">
                           {o.total_ordered_qty}

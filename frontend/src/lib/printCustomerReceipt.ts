@@ -1,5 +1,6 @@
 import type { Order } from '@/types'
 import { formatMoney, formatMoneyPlain } from '@/lib/currency'
+import { formatDateDDMMYYYY } from '@/lib/utils'
 
 // ── Hardcoded attribution ─────────────────────────────────────────────
 // Intentionally NOT configurable from the Settings UI. Only changeable here.
@@ -374,12 +375,8 @@ export function buildReceiptHtml(
   const items = (order.items ?? []).filter((i) => i.status !== 'voided')
   const totalQty = items.reduce((s, i) => s + i.quantity, 0)
   const inv = order.order_number
-  const dateStr = opts.paidAt.toLocaleDateString(undefined, {
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  })
-  const timeStr = opts.paidAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  const dateStr = formatDateDDMMYYYY(opts.paidAt)
+  const timeStr = opts.paidAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
   const pay = paymentLabel(opts.paymentMethod)
 
   const taxPct = formatPercent(pickTaxRate(cfg, opts.paymentMethod))

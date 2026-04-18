@@ -36,6 +36,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 	pinHandler := handlers.NewPinHandler(db)
 	settingsHandler := handlers.NewSettingsHandler(db)
 	counterHandler := handlers.NewCounterHandler(db)
+	reportsHandler := handlers.NewReportsHandler(db)
 
 	// Public routes (no authentication required)
 	public := router.Group("/")
@@ -132,6 +133,18 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		admin.GET("/reports/sales", getSalesReport(db))
 		admin.GET("/reports/orders", getOrdersReport(db))
 		admin.GET("/reports/income", getIncomeReport(db))
+
+		// Reports v2 — granular, drill-down enterprise-grade reports
+		// (powers the redesigned /admin/reports page). All endpoints honor
+		// Asia/Karachi calendar days and return DD-MM-YYYY *_label fields.
+		admin.GET("/reports/v2/overview", reportsHandler.GetOverview)
+		admin.GET("/reports/v2/sales/daily", reportsHandler.GetDailySales)
+		admin.GET("/reports/v2/sales/hourly", reportsHandler.GetHourlySales)
+		admin.GET("/reports/v2/items", reportsHandler.GetItemSales)
+		admin.GET("/reports/v2/tables", reportsHandler.GetTableSales)
+		admin.GET("/reports/v2/party-size", reportsHandler.GetPartySizeReport)
+		admin.GET("/reports/v2/orders", reportsHandler.GetOrdersBrowser)
+		admin.GET("/reports/v2/export", reportsHandler.ExportReport)
 
 		// Menu management with pagination
 		admin.GET("/products", productHandler.GetProducts) // Use existing paginated handler
