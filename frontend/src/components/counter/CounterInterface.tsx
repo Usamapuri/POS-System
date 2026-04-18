@@ -603,18 +603,23 @@ export function CounterInterface() {
     setPraPrinting(true)
     try {
       const { order, settings, paymentMethod, paidAt } = praPromptContext
-      const { invoiceNumber } = await printPraTaxInvoice(order, settings, {
+      const { invoiceNumber, printed } = await printPraTaxInvoice(order, settings, {
         cashierName: getCashierNameFromStorage(),
         paymentMethod,
         paidAt,
         formatAmount: formatCurrency,
       })
-      try {
-        await apiClient.markPraInvoicePrinted(order.id, invoiceNumber || undefined)
-        queryClient.invalidateQueries({ queryKey: ['orders'] })
-        queryClient.invalidateQueries({ queryKey: ['order', order.id] })
-      } catch {
-        /* audit log is best-effort; print already succeeded */
+      // Only record the print event when the print window actually opened.
+      // If the browser's popup blocker intercepted the window, the cashier
+      // still sees the prompt close — but we do not lie to the audit trail.
+      if (printed) {
+        try {
+          await apiClient.markPraInvoicePrinted(order.id, invoiceNumber || undefined)
+          queryClient.invalidateQueries({ queryKey: ['orders'] })
+          queryClient.invalidateQueries({ queryKey: ['order', order.id] })
+        } catch {
+          /* audit log is best-effort; print already succeeded */
+        }
       }
     } finally {
       setPraPrinting(false)
@@ -1289,6 +1294,71 @@ export function CounterInterface() {
             </Link>{' '}
             for deeper analysis.
           </p>
+          {historyReadOnlyOrder?.pra_invoice_printed ? (
+            <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 p-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium">PRA tax invoice printed</p>
+                {historyReadOnlyOrder.pra_invoice_number ? (
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    Invoice #{historyReadOnlyOrder.pra_invoice_number}
+                  </p>
+                ) : null}
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={praPrinting}
+                onClick={async () => {
+                  if (!historyReadOnlyOrder) return
+                  setPraPrinting(true)
+                  try {
+                    const settingsRes = await queryClient.fetchQuery({
+                      queryKey: ['settings', 'all'],
+                      queryFn: () => apiClient.getAllSettings(),
+                    })
+                    if (!settingsRes.success || !settingsRes.data) return
+                    const cfg = parseReceiptSettings(
+                      settingsRes.data as Record<string, unknown>,
+                    )
+                    const paidAt = historyReadOnlyOrder.completed_at
+                      ? new Date(historyReadOnlyOrder.completed_at)
+                      : new Date()
+                    const method =
+                      historyReadOnlyOrder.checkout_payment_method ?? 'cash'
+                    const { invoiceNumber, printed } = await printPraTaxInvoice(
+                      historyReadOnlyOrder,
+                      cfg,
+                      {
+                        cashierName: getCashierNameFromStorage(),
+                        paymentMethod: method,
+                        paidAt,
+                        formatAmount: formatCurrency,
+                      },
+                    )
+                    if (printed) {
+                      try {
+                        await apiClient.markPraInvoicePrinted(
+                          historyReadOnlyOrder.id,
+                          invoiceNumber || undefined,
+                        )
+                        queryClient.invalidateQueries({ queryKey: ['orders'] })
+                        queryClient.invalidateQueries({
+                          queryKey: ['order', historyReadOnlyOrder.id],
+                        })
+                      } catch {
+                        /* audit log is best-effort */
+                      }
+                    }
+                  } finally {
+                    setPraPrinting(false)
+                  }
+                }}
+              >
+                {praPrinting ? 'Printing…' : 'Reprint PRA'}
+              </Button>
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
 

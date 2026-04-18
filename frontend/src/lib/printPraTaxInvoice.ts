@@ -1,9 +1,14 @@
 import QRCode from 'qrcode'
 
 import type { Order } from '@/types'
+// Vite resolves the asset to a URL (hashed in prod, `/src/assets/...` in dev).
+// We do NOT use the URL directly in the print HTML because the slip renders
+// inside a `blob:` popup window which has no origin — relative URLs break
+// there. Instead, at print time we fetch this URL and convert it to a base64
+// data URL so the logo is self-contained in the printed document.
 import praLogoUrl from '@/assets/pra-logo.png'
 import {
-  APP_ATTRIBUTION,
+  buildReceiptClosing,
   buildReceiptHtml,
   getServerNameFromOrder,
   type CustomerReceiptSettings,
@@ -57,6 +62,46 @@ export function buildPraQrPayload(
   return inv || ord
 }
 
+// ── Logo loader ──────────────────────────────────────────────────────────
+// We must inline the PRA logo as a base64 data URL in the print HTML because
+// the receipt renders inside a `blob:` popup window (`window.open`). Blob
+// documents have no origin, so a relative URL like `/assets/pra-logo-*.png`
+// cannot be resolved from that context and the logo renders as a broken
+// image icon. Vite's `?inline` suffix is unreliable across dev/prod, so we
+// do the conversion at runtime: fetch → FileReader → data URL, then cache
+// the result so subsequent reprints incur zero cost.
+
+let cachedPraLogoDataUrl: string | null = null
+let pendingPraLogoLoad: Promise<string> | null = null
+
+async function loadPraLogoAsDataUrl(): Promise<string> {
+  if (cachedPraLogoDataUrl) return cachedPraLogoDataUrl
+  if (pendingPraLogoLoad) return pendingPraLogoLoad
+  pendingPraLogoLoad = (async () => {
+    try {
+      const res = await fetch(praLogoUrl)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result || ''))
+        reader.onerror = () => reject(reader.error ?? new Error('FileReader error'))
+        reader.readAsDataURL(blob)
+      })
+      cachedPraLogoDataUrl = dataUrl
+      return dataUrl
+    } catch (err) {
+      // Log once; a missing logo should not break the slip — the invoice
+      // number and QR still convey regulatory intent.
+      console.warn('[PRA] Failed to load PRA logo for print:', err)
+      return ''
+    } finally {
+      pendingPraLogoLoad = null
+    }
+  })()
+  return pendingPraLogoLoad
+}
+
 // ── HTML + print ─────────────────────────────────────────────────────────
 
 export type PrintPraTaxInvoiceOptions = {
@@ -68,35 +113,44 @@ export type PrintPraTaxInvoiceOptions = {
   formatAmountPlain?: (n: number) => string
 }
 
+export type PrintPraTaxInvoiceResult = {
+  /** Invoice number printed on the slip (empty during rollout / pre-API). */
+  invoiceNumber: string
+  /**
+   * Whether `window.open` successfully produced a print window. False when
+   * the browser's popup blocker intercepted the window — callers should skip
+   * the audit log in that case so we never record a print that never
+   * reached paper.
+   */
+  printed: boolean
+}
+
 export async function printPraTaxInvoice(
   order: Order,
   cfg: CustomerReceiptSettings,
   opts: PrintPraTaxInvoiceOptions,
-): Promise<{ invoiceNumber: string }> {
+): Promise<PrintPraTaxInvoiceResult> {
   const invoiceNumber = generatePraInvoiceNumber(order)
   const qrPayload = buildPraQrPayload(order, invoiceNumber, cfg.praInvoiceQrUrlTemplate)
 
-  // Generate QR as a data URL so the popup window can render offline without
-  // any external requests. Width is deliberately small — thermal printers
-  // render crisp QR at ~120px and a larger source just eats paper.
-  let qrDataUrl = ''
-  try {
-    qrDataUrl = await QRCode.toDataURL(qrPayload || ' ', {
+  // Kick off QR + logo conversion in parallel — both produce base64 data URLs
+  // so the print document is fully self-contained and renders inside the
+  // `blob:` popup window without needing any network access.
+  const [qrDataUrl, logoDataUrl] = await Promise.all([
+    QRCode.toDataURL(qrPayload || ' ', {
       margin: 1,
       width: 220,
       errorCorrectionLevel: 'M',
-    })
-  } catch {
-    // A QR failure must not block the slip — the logo + invoice number still
-    // carry regulatory intent. Swallow and render without the QR image.
-    qrDataUrl = ''
-  }
+    }).catch(() => ''),
+    loadPraLogoAsDataUrl(),
+  ])
 
   const html = buildPraInvoiceHtml(order, cfg, {
     ...opts,
     serverName: opts.serverName ?? getServerNameFromOrder(order),
     praInvoiceNumber: invoiceNumber,
     qrDataUrl,
+    logoDataUrl,
   })
 
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
@@ -104,7 +158,7 @@ export async function printPraTaxInvoice(
   const w = window.open(url, '_blank', 'width=420,height=720,left=-2400,top=0,menubar=no,toolbar=no')
   if (!w) {
     URL.revokeObjectURL(url)
-    return { invoiceNumber }
+    return { invoiceNumber, printed: false }
   }
 
   let printed = false
@@ -130,7 +184,7 @@ export async function printPraTaxInvoice(
     if (!printed) doPrint()
   }, 1400)
 
-  return { invoiceNumber }
+  return { invoiceNumber, printed: true }
 }
 
 // ── HTML builder ─────────────────────────────────────────────────────────
@@ -138,6 +192,11 @@ export async function printPraTaxInvoice(
 type BuildPraInvoiceOptions = PrintPraTaxInvoiceOptions & {
   praInvoiceNumber: string
   qrDataUrl: string
+  /**
+   * Base64 data URL for the PRA logo. Empty string falls back to a neutral
+   * placeholder so a logo-load failure still produces a valid slip.
+   */
+  logoDataUrl: string
 }
 
 function escapeHtml(s: string): string {
@@ -158,9 +217,11 @@ export function buildPraInvoiceHtml(
   cfg: CustomerReceiptSettings,
   opts: BuildPraInvoiceOptions,
 ): string {
-  // Build the main receipt as a styled fragment (no <html> wrapper). We then
-  // append the PRA block inside the same document so both parts share paper
-  // width + print rules.
+  // Build the main receipt as a styled fragment (no <html> wrapper) WITHOUT
+  // its closing block (thank-you + attribution). The closing is appended
+  // after the PRA block below so that "Thank you for your visit!" and the
+  // "software powered by artyreal.com" attribution always remain the very
+  // last lines on any slip, whether or not a PRA block is present.
   const mainFragment = buildReceiptHtml(order, cfg, {
     cashierName: opts.cashierName,
     paymentMethod: opts.paymentMethod,
@@ -169,15 +230,20 @@ export function buildPraInvoiceHtml(
     formatAmount: opts.formatAmount,
     formatAmountPlain: opts.formatAmountPlain,
     forPrint: false,
+    omitClosing: true,
   })
+  const closingFragment = buildReceiptClosing(cfg)
 
   const inv = escapeHtml(order.order_number || '')
   const paper = cfg.paperWidthMm
 
-  // Logo uses the bundled asset; Vite resolves the import above to a hashed
-  // URL under /assets/. Using a URL (vs. inlining base64) keeps this file
-  // small and lets the browser cache the logo between reprints.
-  const logoSrc = escapeHtml(praLogoUrl)
+  // Logo was pre-converted to a base64 data URL by the caller so the popup
+  // window can render it without any network access. If the conversion
+  // failed (unlikely), we fall back to a plain "PRA" text block so the slip
+  // still reads as the regulatory section it's meant to be.
+  const logoMarkup = opts.logoDataUrl
+    ? `<div class="pra-logo-wrap"><img class="pra-logo" src="${escapeHtml(opts.logoDataUrl)}" alt="Punjab Revenue Authority"/></div>`
+    : '<div class="pra-logo-fallback">PRA</div>'
   const qrMarkup = opts.qrDataUrl
     ? `<img class="pra-qr" src="${escapeHtml(opts.qrDataUrl)}" alt="PRA QR Code"/>`
     : '<div class="pra-qr-placeholder" aria-hidden="true"></div>'
@@ -194,7 +260,7 @@ export function buildPraInvoiceHtml(
   const praBlock = `
   <section class="pra-block" aria-label="PRA Tax Invoice">
     ${footerNoteMarkup}
-    <div class="pra-logo-wrap"><img class="pra-logo" src="${logoSrc}" alt="Punjab Revenue Authority"/></div>
+    ${logoMarkup}
     <div class="pra-qr-wrap">${qrMarkup}</div>
     ${invoiceNumberMarkup}
     <div class="pra-label">Punjab Revenue Authority — Tax Invoice</div>
@@ -204,12 +270,16 @@ export function buildPraInvoiceHtml(
   ${praTaxStyles()}
   `
 
+  // Render order: main body (items + totals) → PRA block (logo, QR, invoice
+  // number) → closing block (thank-you + attribution). The closing is the
+  // SAME fragment the standard receipt uses, just emitted after the PRA
+  // section so it always ends up on the last line of the slip.
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>PRA Tax Invoice ${inv}</title>
 <style>
   @page { size: ${paper}mm auto; margin: 3mm 3mm 4mm; }
   html, body { width: ${paper}mm; max-width: ${paper}mm; margin: 0; padding: 0; background: #fff; }
   ${styles}
-</style></head><body>${mainFragment}${praBlock}<div class="pra-attribution">${escapeHtml(APP_ATTRIBUTION)}</div></body></html>`
+</style></head><body>${mainFragment}${praBlock}${closingFragment}</body></html>`
 }
 
 function praTaxStyles(): string {
@@ -244,6 +314,13 @@ function praTaxStyles(): string {
     max-width: 60%;
     max-height: 18mm;
     object-fit: contain;
+  }
+  .pra-logo-fallback {
+    font-size: 18px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    margin-bottom: 3mm;
+    color: #000;
   }
   .pra-qr-wrap {
     display: flex;
@@ -285,14 +362,6 @@ function praTaxStyles(): string {
     text-transform: uppercase;
     color: #444;
     margin-top: 2mm;
-  }
-  .pra-attribution {
-    font-family: 'Inter', system-ui, Helvetica, Arial, sans-serif;
-    text-align: center;
-    font-size: 8px;
-    color: #666;
-    letter-spacing: 0.02em;
-    margin: 2mm 0 3mm;
   }
   `
 }

@@ -313,6 +313,51 @@ export type BuildReceiptOptions = {
   /** When true, emits a fully-styled document for window.print(); when false,
    *  emits a fragment suitable for embedding in the admin preview. */
   forPrint: boolean
+  /**
+   * When true, the closing block (custom footer lines, thank-you message,
+   * and the "software powered by…" attribution) is omitted. Used by the
+   * PRA tax invoice builder so it can slot its own block BEFORE the closing
+   * block — ensuring the thank-you + attribution always come last on paper.
+   * Callers that set this should render the closing block themselves via
+   * `buildReceiptClosing()`.
+   */
+  omitClosing?: boolean
+}
+
+/**
+ * Returns the closing HTML fragment rendered at the very bottom of every
+ * printed receipt: optional footer custom fields, thank-you message, and the
+ * hardcoded "software powered by artyreal.com" attribution. Exposed so that
+ * receipt variants (e.g. the PRA tax invoice) can inject extra content above
+ * it while keeping the final trailing lines consistent across all slips.
+ *
+ * Wrapped in a `.receipt`-styled container so CSS rules scoped under
+ * `.receipt` (accent color, typography, paddings) still apply when this
+ * fragment is rendered outside of the main receipt body.
+ */
+export function buildReceiptClosing(cfg: CustomerReceiptSettings): string {
+  const footerCustom = cfg.customFields
+    .filter((f) => f.position === 'footer')
+    .map((field) => {
+      const cls = `cf cf-${field.style ?? 'normal'}`
+      if (field.label && field.value) {
+        return `<div class="${cls}"><span class="cf-label">${escapeHtml(field.label)}</span><span class="cf-value">${escapeHtml(field.value)}</span></div>`
+      }
+      const content = field.label || field.value
+      return `<div class="${cls} cf-solo">${escapeHtml(content)}</div>`
+    })
+    .join('')
+  const thankYouMarkup = cfg.thankYouMessage
+    ? `<div class="thankyou">${escapeHtml(cfg.thankYouMessage)}</div>`
+    : ''
+  const accent = cfg.accentColor || DEFAULT_ACCENT
+  return `<div class="receipt rc-closing-wrap" style="--accent:${accent}">
+    ${footerCustom ? `<div class="cf-block footer-cf">${footerCustom}</div>` : ''}
+    ${thankYouMarkup}
+    <footer class="rc-footer">
+      <div class="attribution">${escapeHtml(APP_ATTRIBUTION)}</div>
+    </footer>
+  </div>`
 }
 
 export function buildReceiptHtml(
@@ -477,12 +522,12 @@ export function buildReceiptHtml(
       <div class="tr grand"><span>Payable</span><span>${fmt(order.total_amount)}</span></div>
     </div>
 
-    ${footerCustom ? `<div class="cf-block footer-cf">${footerCustom}</div>` : ''}
+    ${opts.omitClosing ? '' : `${footerCustom ? `<div class="cf-block footer-cf">${footerCustom}</div>` : ''}
     ${thankYouMarkup}
 
     <footer class="rc-footer">
       <div class="attribution">${escapeHtml(APP_ATTRIBUTION)}</div>
-    </footer>
+    </footer>`}
   </div>`
 
   const styles = receiptStylesheet(paper)

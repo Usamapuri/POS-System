@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
 import {
   Globe,
   DollarSign,
@@ -27,6 +28,7 @@ import {
   ChefHat,
   AlertTriangle,
   Info,
+  FileText,
 } from 'lucide-react'
 import { KITCHEN_SETTINGS_QUERY_KEY } from '@/hooks/useKitchenSettings'
 import type { KitchenStation } from '@/types'
@@ -43,12 +45,13 @@ interface OrderTypeConfig {
   enabled: boolean
 }
 
-type SettingsSection = 'general' | 'financial' | 'receipt' | 'order-types' | 'kitchen' | 'appearance'
+type SettingsSection = 'general' | 'financial' | 'receipt' | 'pra' | 'order-types' | 'kitchen' | 'appearance'
 
 const NAV_ITEMS: { id: SettingsSection; label: string; icon: typeof Globe; description: string }[] = [
   { id: 'general', label: 'General', icon: Globe, description: 'Restaurant name and currency' },
   { id: 'financial', label: 'Financial', icon: DollarSign, description: 'Tax rates and service charges' },
   { id: 'receipt', label: 'Receipt & Printing', icon: Printer, description: 'Receipt branding and layout' },
+  { id: 'pra', label: 'PRA Tax Invoice', icon: FileText, description: 'Optional Punjab Revenue Authority slip' },
   { id: 'order-types', label: 'Order Types', icon: UtensilsCrossed, description: 'Manage available order types' },
   { id: 'kitchen', label: 'Kitchen', icon: ChefHat, description: 'KDS mode and kitchen thresholds' },
   { id: 'appearance', label: 'Appearance', icon: Palette, description: 'Theme and display preferences' },
@@ -188,6 +191,22 @@ export function AdminSettings() {
 
   const [customerReceipt, setCustomerReceipt] = useState<ReceiptFormState>(EMPTY_RECEIPT_FORM)
 
+  // ── PRA (Punjab Revenue Authority) tax invoice ──
+  // These live in the same `app_settings` key-value store under simple keys,
+  // gated by `pra_invoice_enabled`. When disabled, the post-payment prompt
+  // is never shown to cashiers.
+  type PraFormState = {
+    enabled: boolean
+    qr_url_template: string
+    footer_note: string
+  }
+  const EMPTY_PRA_FORM: PraFormState = {
+    enabled: false,
+    qr_url_template: '',
+    footer_note: '',
+  }
+  const [praForm, setPraForm] = useState<PraFormState>(EMPTY_PRA_FORM)
+
   useEffect(() => {
     const d = allSettingsRes?.data as Record<string, unknown> | undefined
     if (!d) return
@@ -229,6 +248,11 @@ export function AdminSettings() {
       thank_you: str('receipt_thank_you') || 'Thank you for your visit!',
       custom_fields: parsedCustom,
     })
+    setPraForm({
+      enabled: d.pra_invoice_enabled === true,
+      qr_url_template: str('pra_invoice_qr_url_template'),
+      footer_note: str('pra_invoice_footer_note'),
+    })
   }, [allSettingsRes])
 
   const saveCustomerReceipt = useMutation({
@@ -259,6 +283,21 @@ export function AdminSettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'all'] })
       toast({ title: 'Settings saved', description: 'Receipt branding updated.' })
+    },
+    onError: (e: unknown) => {
+      toast({ title: 'Save failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' })
+    },
+  })
+
+  const savePraInvoice = useMutation({
+    mutationFn: async () => {
+      await apiClient.updateSetting('pra_invoice_enabled', praForm.enabled)
+      await apiClient.updateSetting('pra_invoice_qr_url_template', praForm.qr_url_template.trim())
+      await apiClient.updateSetting('pra_invoice_footer_note', praForm.footer_note.trim())
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'all'] })
+      toast({ title: 'Saved', description: 'PRA tax invoice settings updated.' })
     },
     onError: (e: unknown) => {
       toast({ title: 'Save failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' })
@@ -1033,6 +1072,94 @@ export function AdminSettings() {
     )
   }
 
+  const renderPra = () => (
+    <div className="space-y-6">
+      <SectionHeader
+        title="PRA Tax Invoice"
+        description="Optional second receipt for Punjab Revenue Authority tax compliance. The standard customer receipt is always printed; this slip is only produced when the customer asks for it."
+      />
+
+      <Card>
+        <CardHeader className="pb-4">
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileText className="w-4 h-4" /> PRA Tax Invoice
+          </CardTitle>
+          <CardDescription>
+            When enabled, the cashier is prompted after payment to optionally print a second
+            <strong> Punjab Revenue Authority</strong> tax invoice slip (PRA logo, QR code, invoice
+            number).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/30 p-4">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">Enable PRA tax invoice prompt</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Adds a post-payment prompt with <em>Skip</em> (default) and <em>Print PRA Invoice</em>{' '}
+                buttons. Leave off to keep checkout identical to today.
+              </p>
+            </div>
+            <Switch
+              checked={praForm.enabled}
+              onCheckedChange={(v) => setPraForm((p) => ({ ...p, enabled: v }))}
+              aria-label="Enable PRA tax invoice"
+            />
+          </div>
+
+          <div className={praForm.enabled ? '' : 'opacity-60 pointer-events-none'}>
+            <div className="space-y-4">
+              <FieldGroup
+                label="QR Code Payload Template"
+                hint="Optional. Supports {invoice_number} and {order_number} placeholders. Leave blank to encode the invoice number directly."
+              >
+                <Input
+                  value={praForm.qr_url_template}
+                  onChange={(e) => setPraForm((p) => ({ ...p, qr_url_template: e.target.value }))}
+                  placeholder="https://e.pra.punjab.gov.pk/invoice/{invoice_number}"
+                  disabled={!praForm.enabled}
+                />
+              </FieldGroup>
+
+              <FieldGroup
+                label="Footer Note"
+                hint="Optional short line rendered above the PRA logo on the tax invoice slip."
+              >
+                <Textarea
+                  rows={2}
+                  value={praForm.footer_note}
+                  onChange={(e) => setPraForm((p) => ({ ...p, footer_note: e.target.value }))}
+                  placeholder="e.g. Verify this invoice by scanning the QR code."
+                  className="resize-y min-h-[56px]"
+                  disabled={!praForm.enabled}
+                />
+              </FieldGroup>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 p-3 text-xs text-amber-900 dark:text-amber-200">
+            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <p>
+              The PRA invoice number field is printed blank during rollout. A future update will wire
+              it to the PRA API / a sequential counter without changing this screen.
+            </p>
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={() => savePraInvoice.mutate()}
+              disabled={savePraInvoice.isPending}
+            >
+              {savePraInvoice.isPending
+                ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                : <Save className="w-4 h-4 mr-2" />}
+              Save PRA Settings
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+
   const renderAppearance = () => (
     <div className="space-y-6">
       <SectionHeader
@@ -1078,6 +1205,7 @@ export function AdminSettings() {
     general: renderGeneral,
     financial: renderFinancial,
     receipt: renderReceipt,
+    pra: renderPra,
     'order-types': renderOrderTypes,
     kitchen: renderKitchen,
     appearance: renderAppearance,

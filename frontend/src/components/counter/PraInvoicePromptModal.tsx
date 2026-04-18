@@ -5,45 +5,81 @@ import { FileText, Receipt } from 'lucide-react'
 
 type Props = {
   open: boolean
-  /** Invoked when cashier chooses to skip the PRA invoice — the default, fastest path. */
+  /** Invoked when cashier chooses to skip the PRA invoice (Escape). */
   onSkip: () => void
-  /** Invoked when cashier chooses to print the PRA tax invoice slip. */
+  /** Invoked when cashier chooses to print the PRA tax invoice slip (Enter). */
   onPrint: () => void
   /** True while the PRA slip is rendering/printing; disables both buttons. */
   busy?: boolean
 }
 
+const TYPING_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (TYPING_TAGS.has(target.tagName)) return true
+  if (target.isContentEditable) return true
+  return false
+}
+
 /**
  * Post-payment prompt that appears only when the PRA tax invoice feature is
- * enabled in Admin Settings. Default focus sits on Skip so a cashier who
- * doesn't need the extra slip can dismiss with Enter/Space immediately.
+ * enabled in Admin Settings.
  *
- * Intentionally built as a lightweight dialog (same styling approach as
- * KotPrintModal) rather than pulling in Radix Dialog — the UX is two buttons
- * and we want zero focus-management surprises at the register.
+ * Keyboard shortcuts:
+ *  • Enter  → Print PRA invoice (primary action, initial focus)
+ *  • Escape → Skip
+ *
+ * We register the keydown listener with `{ capture: true }` on `document` so
+ * this modal wins against global window-level hotkey handlers (e.g. the
+ * counter's Escape-closes-checkout handler in `useCounterHotkeys`). We also
+ * call `stopImmediatePropagation()` so those other listeners never see the
+ * event while this modal is open.
  */
 export function PraInvoicePromptModal({ open, onSkip, onPrint, busy = false }: Props) {
-  const skipBtnRef = useRef<HTMLButtonElement | null>(null)
+  const printBtnRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
     if (!open) return
-    // Focus Skip on open so Enter dismisses without any extra slip printing —
-    // matches the "Skip is the fast path" UX decision.
-    const id = window.setTimeout(() => skipBtnRef.current?.focus(), 30)
+    // Focus the PRINT button on open so Enter (the most common intent when
+    // the cashier opened this prompt) fires the primary action.
+    const id = window.setTimeout(() => printBtnRef.current?.focus(), 30)
     return () => window.clearTimeout(id)
   }, [open])
 
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy) {
+      // Escape always wins, even while typing — matches global counter UX.
+      if (e.key === 'Escape') {
+        if (busy) return
         e.preventDefault()
+        e.stopPropagation()
+        // stopImmediatePropagation prevents the counter's global window-level
+        // Escape listener from also firing (which would close checkout).
+        e.stopImmediatePropagation()
         onSkip()
+        return
+      }
+      // Enter only triggers Print when the user isn't typing into an input.
+      // (The cashier shouldn't hit this case since the modal has no inputs,
+      // but this guards against edge cases where focus escapes.)
+      if (e.key === 'Enter') {
+        if (busy) return
+        if (isTypingTarget(e.target)) return
+        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
+        onPrint()
+        return
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, busy, onSkip])
+    // Capture phase + document target to run BEFORE any window-level hotkey
+    // handlers (like useCounterHotkeys) that rely on the default bubbling
+    // phase at window.
+    document.addEventListener('keydown', onKey, { capture: true })
+    return () => document.removeEventListener('keydown', onKey, { capture: true })
+  }, [open, busy, onSkip, onPrint])
 
   if (!open) return null
 
@@ -73,7 +109,6 @@ export function PraInvoicePromptModal({ open, onSkip, onPrint, busy = false }: P
 
         <div className="grid grid-cols-2 gap-3">
           <Button
-            ref={skipBtnRef}
             type="button"
             variant="outline"
             onClick={onSkip}
@@ -83,6 +118,7 @@ export function PraInvoicePromptModal({ open, onSkip, onPrint, busy = false }: P
             Skip
           </Button>
           <Button
+            ref={printBtnRef}
             type="button"
             onClick={onPrint}
             disabled={busy}
@@ -94,9 +130,9 @@ export function PraInvoicePromptModal({ open, onSkip, onPrint, busy = false }: P
         </div>
 
         <p className="text-[11px] text-muted-foreground text-center">
-          Press <kbd className="px-1.5 py-0.5 text-[10px] rounded bg-muted border border-border">Esc</kbd>{' '}
-          or <kbd className="px-1.5 py-0.5 text-[10px] rounded bg-muted border border-border">Enter</kbd>{' '}
-          to skip.
+          <kbd className="px-1.5 py-0.5 text-[10px] rounded bg-muted border border-border">Enter</kbd>{' '}
+          to print · <kbd className="px-1.5 py-0.5 text-[10px] rounded bg-muted border border-border">Esc</kbd>{' '}
+          to skip
         </p>
       </div>
     </div>
