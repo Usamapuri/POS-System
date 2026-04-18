@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -43,6 +44,8 @@ export function ManageExpenseCategoriesDialog({
   const [editColor, setEditColor] = useState('')
   const [editSort, setEditSort] = useState('0')
   const [editActive, setEditActive] = useState(true)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<ExpenseCategoryDefinition | null>(null)
 
   const sorted = useMemo(() => [...defs].sort((a, b) => a.sort_order - b.sort_order || a.label.localeCompare(b.label)), [defs])
 
@@ -87,6 +90,8 @@ export function ManageExpenseCategoriesDialog({
       invalidate()
       toastHelpers.success('Category deleted')
       void refetch()
+      setDeleteDialogOpen(false)
+      setPendingDelete(null)
     },
     onError: (err: Error) => toastHelpers.apiError('Delete category', err),
   })
@@ -100,6 +105,7 @@ export function ManageExpenseCategoriesDialog({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[min(90vh,720px)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
@@ -125,7 +131,9 @@ export function ManageExpenseCategoriesDialog({
                 Add
               </Button>
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">A URL-safe slug is created from the label. System categories cannot be deleted.</p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              That name is what people see when they pick a category. Categories that came with the app cannot be removed.
+            </p>
           </div>
 
           {isLoading ? (
@@ -162,8 +170,8 @@ export function ManageExpenseCategoriesDialog({
                       className="text-destructive hover:text-destructive"
                       disabled={d.is_system || deleteMut.isPending}
                       onClick={() => {
-                        if (!window.confirm(`Delete category “${d.label}”? This cannot be undone if no expenses use it.`)) return
-                        deleteMut.mutate(d.id)
+                        setPendingDelete(d)
+                        setDeleteDialogOpen(true)
                       }}
                     >
                       Delete
@@ -235,5 +243,47 @@ export function ManageExpenseCategoriesDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <Dialog
+      open={deleteDialogOpen}
+      onOpenChange={o => {
+        setDeleteDialogOpen(o)
+        if (!o) setPendingDelete(null)
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete this category?</DialogTitle>
+          <DialogDescription>
+            {pendingDelete
+              ? `Delete "${pendingDelete.label}"? This only works if no expenses use this category. If it is deleted, you cannot bring it back.`
+              : 'Delete this category? This only works if no expenses use this category. If it is deleted, you cannot bring it back.'}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setDeleteDialogOpen(false)
+              setPendingDelete(null)
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={!pendingDelete || deleteMut.isPending}
+            onClick={() => {
+              if (pendingDelete) deleteMut.mutate(pendingDelete.id)
+            }}
+          >
+            {deleteMut.isPending ? 'Deleting…' : 'Delete'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }

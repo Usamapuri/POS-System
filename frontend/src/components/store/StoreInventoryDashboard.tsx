@@ -274,7 +274,7 @@ export function StoreInventoryDashboard() {
   const movements: StockMovement[] = movRes?.data ?? []
   const movMeta = movRes?.meta
 
-  const { data: actRes, isLoading: actLoading } = useQuery({
+  const { data: actRes, isLoading: actLoading, error: actError } = useQuery({
     queryKey: ['inventoryActivity', actPage, actAction, actFrom, actTo],
     queryFn: () =>
       apiClient.getInventoryActivity({
@@ -285,6 +285,7 @@ export function StoreInventoryDashboard() {
         to: actTo || undefined,
       }),
     enabled: tab === 'activity',
+    retry: false,
   })
   const activityEntries: InventoryActivityEntry[] = actRes?.data ?? []
   const actMeta = actRes?.meta
@@ -427,6 +428,7 @@ export function StoreInventoryDashboard() {
           to={actTo}
           setTo={setActTo}
           loading={actLoading}
+          error={actError instanceof Error ? actError.message : actError ? String(actError) : null}
         />
       )}
       {tab === 'reports' && <ReportsTab report={advancedReport} loading={reportLoading} period={reportPeriod} setPeriod={setReportPeriod} />}
@@ -583,12 +585,13 @@ function ItemsTab({
 
   const deleteMut = useMutation({
     mutationFn: (id: string) => apiClient.deleteStockItem(id),
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['stockItems'] })
       qc.invalidateQueries({ queryKey: ['stockCategories'] })
       qc.invalidateQueries({ queryKey: ['stockSummary'] })
       qc.invalidateQueries({ queryKey: ['advancedStockReport'] })
-      showToast('success', 'Item deleted')
+      qc.invalidateQueries({ queryKey: ['inventoryActivity'] })
+      showToast('success', res?.message || 'Item deleted')
     },
     onError: (err: Error) => showToast('error', err.message || 'Failed to delete item'),
   })
@@ -890,17 +893,19 @@ function ItemsTab({
       <Dialog open={deleteItemOpen} onOpenChange={setDeleteItemOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete Inventory Item?</DialogTitle>
+            <DialogTitle>Delete inventory item?</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{pendingDeleteItem?.name}"? This action cannot be undone.
+              {pendingDeleteItem
+                ? `Delete "${pendingDeleteItem.name}"? If this item has past stock activity (purchases, issues, adjustments), it will be archived instead so your reports stay accurate. Items with stock on hand or open purchase orders cannot be removed.`
+                : 'Delete this item? If it has past stock activity, it will be archived so reports stay accurate.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setDeleteItemOpen(false)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={confirmDeleteItem}>
-              Delete
+            <Button variant="destructive" onClick={confirmDeleteItem} disabled={deleteMut.isPending}>
+              {deleteMut.isPending ? 'Working…' : 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1026,6 +1031,7 @@ function ActivityTab({
   to,
   setTo,
   loading,
+  error,
 }: {
   entries: InventoryActivityEntry[]
   meta?: { total_pages: number }
@@ -1038,12 +1044,23 @@ function ActivityTab({
   to: string
   setTo: (v: string) => void
   loading: boolean
+  error?: string | null
 }) {
   if (loading) {
     return (
       <div className="text-center py-16 text-muted-foreground">
         <RefreshCw className="w-8 h-8 mx-auto mb-3 animate-spin opacity-50" />
         <p className="font-medium">Loading activity…</p>
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-6 text-center">
+        <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-destructive" />
+        <p className="font-medium text-destructive">Could not load activity</p>
+        <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">{error}</p>
+        <p className="text-xs text-muted-foreground mt-3">If this keeps happening, restart the backend to apply database patches.</p>
       </div>
     )
   }

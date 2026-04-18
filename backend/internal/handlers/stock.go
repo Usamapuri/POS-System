@@ -389,11 +389,89 @@ func (h *StockHandler) UpdateStockItem(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock item updated"})
 }
 
+// DeleteStockItem removes a stock item.
+//
+// Behavior:
+//   - If the item still has remaining stock (on-hand > 0), deletion is blocked with a clear message.
+//   - If the item is referenced by any purchase order line (draft or otherwise), deletion is blocked
+//     with a count so the user knows why (FK is ON DELETE RESTRICT for auditability).
+//   - If the item has any historical stock movements (purchase/issue/adjust), it is soft-deleted
+//     (is_active = false) so historical reports / audit logs / FIFO batch history are preserved.
+//     The item disappears from the inventory UI (which filters by is_active = true).
+//   - Otherwise the row is hard-deleted.
 func (h *StockHandler) DeleteStockItem(c *gin.Context) {
 	itemID := c.Param("id")
-	var delName string
-	_ = h.db.QueryRow("SELECT name FROM stock_items WHERE id = $1", itemID).Scan(&delName)
-	res, err := h.db.Exec("DELETE FROM stock_items WHERE id = $1", itemID)
+
+	var (
+		delName  string
+		onHand   float64
+		isActive bool
+	)
+	if err := h.db.QueryRow(`SELECT name, quantity_on_hand, is_active FROM stock_items WHERE id = $1`, itemID).
+		Scan(&delName, &onHand, &isActive); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Stock item not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load item", Error: strPtr(err.Error())})
+		return
+	}
+
+	if onHand > 0.00001 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Message: "Cannot delete: this item still has stock on hand. Issue or adjust it to zero first.",
+			Error:   strPtr("item_has_stock"),
+		})
+		return
+	}
+
+	var poLineCount int
+	if err := h.db.QueryRow(`SELECT COUNT(*) FROM purchase_order_lines WHERE stock_item_id = $1`, itemID).Scan(&poLineCount); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to check purchase orders", Error: strPtr(err.Error())})
+		return
+	}
+	if poLineCount > 0 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Cannot delete: this item is on %d purchase order line(s). Cancel or remove those POs first, or archive the item instead.", poLineCount),
+			Error:   strPtr("item_in_purchase_orders"),
+		})
+		return
+	}
+
+	var movementCount int
+	if err := h.db.QueryRow(`SELECT COUNT(*) FROM stock_movements WHERE stock_item_id = $1`, itemID).Scan(&movementCount); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to check history", Error: strPtr(err.Error())})
+		return
+	}
+
+	if movementCount > 0 {
+		if !isActive {
+			c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Stock item already archived"})
+			return
+		}
+		if _, err := h.db.Exec(`UPDATE stock_items SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, itemID); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to archive item", Error: strPtr(err.Error())})
+			return
+		}
+		if uid, _, _, ok := middleware.GetUserFromContext(c); ok {
+			iid := itemID
+			summary := "Archived stock item (history preserved)"
+			if delName != "" {
+				summary = "Archived stock item: " + delName + " (history preserved)"
+			}
+			_ = insertInventoryActivityLog(h.db, uid, "inventory.item_archive", "stock_item", &iid, summary, map[string]interface{}{
+				"name":            delName,
+				"movement_count":  movementCount,
+				"reason":          "item had historical stock movements",
+			})
+		}
+		c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Item archived (has historical stock activity, so history was preserved)"})
+		return
+	}
+
+	res, err := h.db.Exec(`DELETE FROM stock_items WHERE id = $1`, itemID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to delete item", Error: strPtr(err.Error())})
 		return
