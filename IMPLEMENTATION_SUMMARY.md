@@ -1,5 +1,16 @@
 # 🚀 Kitchen Enhancement Implementation - Complete Summary
 
+> **Archival note (superseded by KDS/KOT Overhaul):** Several files referenced
+> below (`EnhancedKitchenLayout.tsx`, `EnhancedKitchenOrderCard.tsx`,
+> `TakeawayBoard.tsx`, `SoundSettings.tsx`, `KitchenLayout.tsx`,
+> `KitchenHeader.tsx`, `KitchenOrderCard.tsx`, `OrderFilters.tsx`, and
+> `kdsKanban.ts`) have been removed. The current KDS is rendered by
+> `frontend/src/components/kitchen/NewEnhancedKitchenLayout.tsx` with
+> `KOTCard.tsx`, `ConsolidatedPrepList.tsx`, `useKdsUrgencyTimer.ts`, and the
+> `KitchenDisabledScreen.tsx`. Kitchen Mode (KDS / Hybrid / KOT-only) is
+> managed from Admin → Settings → Kitchen. See the project README for the
+> current feature list.
+
 ## ✅ All Features Successfully Implemented
 
 ### 1. **🔊 Sound Notification System**

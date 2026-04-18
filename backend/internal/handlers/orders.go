@@ -12,6 +12,7 @@ import (
 	"pos-backend/internal/middleware"
 	"pos-backend/internal/models"
 	"pos-backend/internal/pricing"
+	"pos-backend/internal/realtime"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -961,6 +962,19 @@ func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {
 			Error:   stringPtr(err.Error()),
 		})
 		return
+	}
+
+	// Push KDS-relevant transitions to SSE subscribers.
+	if req.Status == "served" || req.Status == "completed" || req.Status == "cancelled" {
+		evType := req.Status
+		if req.Status == "completed" || req.Status == "cancelled" {
+			evType = "served" // KDS only cares about ticket leaving the board
+		}
+		realtime.Publish(realtime.Event{
+			Type:    evType,
+			OrderID: orderID.String(),
+			Extra:   map[string]interface{}{"status": req.Status},
+		})
 	}
 
 	// Fetch and return the updated order

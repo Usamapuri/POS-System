@@ -4,6 +4,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Printer, Monitor, Store } from 'lucide-react'
 import type { StationKOT } from '@/types'
 import { printKotReceipts } from '@/lib/printKotReceipt'
+import { useKitchenSettings } from '@/hooks/useKitchenSettings'
 
 type Props = {
   open: boolean
@@ -16,6 +17,10 @@ export function KotPrintModal({ open, onOpenChange, kots }: Props) {
   const list = kots ?? []
   const printerSlips = useMemo(() => list.filter((k) => k.output_type === 'printer'), [list])
   const hasKds = useMemo(() => list.some((k) => k.output_type === 'kds'), [list])
+  const kitchen = useKitchenSettings()
+  // In KOT-only mode the print dialog is the primary success affordance —
+  // every fired ticket needs a printed slip and there's no KDS to mention.
+  const isKotOnly = kitchen.mode === 'kot_only'
 
   const [selectedIdx, setSelectedIdx] = useState<Set<number>>(() => new Set())
 
@@ -55,14 +60,26 @@ export function KotPrintModal({ open, onOpenChange, kots }: Props) {
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
       <div className="bg-card border border-border rounded-xl shadow-lg max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-6">
         <div>
-          <h2 className="text-xl font-semibold">Kitchen order tickets (KOT)</h2>
+          <h2 className="text-xl font-semibold">
+            {isKotOnly ? 'Print kitchen tickets' : 'Kitchen order tickets (KOT)'}
+          </h2>
           <p className="text-muted-foreground text-sm mt-1">
-            Choose which thermal slips to print. Use <strong>Kitchen</strong> when a receipt printer is at that station;
-            use <strong>Checkout counter</strong> when staff will walk the ticket to the kitchen.
+            {isKotOnly ? (
+              <>
+                This venue runs in <strong>KOT-only</strong> mode. Print a slip for every station
+                below — the kitchen relies on the printed ticket.
+              </>
+            ) : (
+              <>
+                Choose which thermal slips to print. Use <strong>Kitchen</strong> when a receipt
+                printer is at that station; use <strong>Checkout counter</strong> when staff will
+                walk the ticket to the kitchen.
+              </>
+            )}
           </p>
         </div>
 
-        {hasKds && (
+        {hasKds && !isKotOnly && (
           <div className="rounded-lg border border-blue-200 bg-blue-50/80 dark:bg-blue-950/40 dark:border-blue-900 px-3 py-2 text-sm flex gap-2 items-start">
             <Monitor className="h-5 w-5 shrink-0 text-blue-700 dark:text-blue-300" />
             <span>
@@ -73,7 +90,9 @@ export function KotPrintModal({ open, onOpenChange, kots }: Props) {
 
         {printerSlips.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No thermal tickets for this fire (KDS-only routing). You can close this dialog.
+            {isKotOnly
+              ? 'No stations returned a printer slip. Check that at least one kitchen station is active in Admin → Kitchen Stations.'
+              : 'No thermal tickets for this fire (KDS-only routing). You can close this dialog.'}
           </p>
         ) : (
           <>
@@ -146,12 +165,18 @@ export function KotPrintModal({ open, onOpenChange, kots }: Props) {
 
         <div className="flex gap-2 justify-end pt-2">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Skip printing
+            {isKotOnly ? 'Skip' : 'Skip printing'}
           </Button>
           {printerSlips.length > 0 && (
-            <Button type="button" onClick={handlePrint} disabled={selectedIdx.size === 0}>
+            <Button
+              type="button"
+              onClick={handlePrint}
+              disabled={selectedIdx.size === 0}
+              size={isKotOnly ? 'lg' : 'default'}
+              className={isKotOnly ? 'font-semibold' : ''}
+            >
               <Printer className="h-4 w-4 mr-2" />
-              Print selected
+              {isKotOnly ? `Print ${selectedIdx.size} slip${selectedIdx.size === 1 ? '' : 's'}` : 'Print selected'}
             </Button>
           )}
         </div>

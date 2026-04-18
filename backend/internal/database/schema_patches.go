@@ -132,5 +132,60 @@ func ApplySchemaPatches(db *sql.DB) {
 		}
 	}
 
+	// KDS/KOT overhaul: prepared-at tracking, station urgency override, events audit log.
+	kdsPatches := []string{
+		`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS prepared_at TIMESTAMPTZ`,
+		`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS prepared_by UUID REFERENCES users(id) ON DELETE SET NULL`,
+		`ALTER TABLE kitchen_stations ADD COLUMN IF NOT EXISTS urgency_minutes INTEGER`,
+		`CREATE TABLE IF NOT EXISTS kitchen_events (
+			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+			order_item_id UUID REFERENCES order_items(id) ON DELETE SET NULL,
+			event_type VARCHAR(40) NOT NULL CHECK (event_type IN (
+				'fired','item_started','item_prepared','item_unprepared',
+				'bumped','recalled','voided','served'
+			)),
+			station_id UUID REFERENCES kitchen_stations(id) ON DELETE SET NULL,
+			user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+			metadata JSONB,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_kitchen_events_order_created ON kitchen_events(order_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_kitchen_events_type_created ON kitchen_events(event_type, created_at DESC)`,
+	}
+	for _, q := range kdsPatches {
+		if _, err := db.Exec(q); err != nil {
+			log.Printf("schema patch (kds): %v", err)
+		}
+	}
+
+	// Seed KDS/KOT app_settings with smart defaults.
+	// Mode default picks 'kds' if any active KDS station exists, else 'kot_only'.
+	if _, err := db.Exec(`
+		INSERT INTO app_settings (key, value)
+		SELECT 'kitchen.mode',
+			CASE WHEN EXISTS (SELECT 1 FROM kitchen_stations WHERE is_active = true AND output_type = 'kds')
+				THEN '"kds"'::jsonb ELSE '"kot_only"'::jsonb END
+		ON CONFLICT (key) DO NOTHING
+	`); err != nil {
+		log.Printf("schema patch: kitchen.mode default: %v", err)
+	}
+	kdsDefaults := []struct {
+		key string
+		val string
+	}{
+		{"kitchen.urgency_minutes", "15"},
+		{"kitchen.stale_minutes", "120"},
+		{"kitchen.recall_window_seconds", "300"},
+	}
+	for _, d := range kdsDefaults {
+		if _, err := db.Exec(
+			`INSERT INTO app_settings (key, value) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO NOTHING`,
+			d.key, d.val,
+		); err != nil {
+			log.Printf("schema patch: %s default: %v", d.key, err)
+		}
+	}
+
 	log.Println("Schema patches finished")
 }

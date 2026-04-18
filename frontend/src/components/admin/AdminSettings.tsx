@@ -24,7 +24,12 @@ import {
   ArrowDown,
   Image as ImageIcon,
   Link2,
+  ChefHat,
+  AlertTriangle,
+  Info,
 } from 'lucide-react'
+import { KITCHEN_SETTINGS_QUERY_KEY } from '@/hooks/useKitchenSettings'
+import type { KitchenStation } from '@/types'
 import apiClient from '@/api/client'
 import { useToast } from '@/hooks/use-toast'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -38,15 +43,36 @@ interface OrderTypeConfig {
   enabled: boolean
 }
 
-type SettingsSection = 'general' | 'financial' | 'receipt' | 'order-types' | 'appearance'
+type SettingsSection = 'general' | 'financial' | 'receipt' | 'order-types' | 'kitchen' | 'appearance'
 
 const NAV_ITEMS: { id: SettingsSection; label: string; icon: typeof Globe; description: string }[] = [
   { id: 'general', label: 'General', icon: Globe, description: 'Restaurant name and currency' },
   { id: 'financial', label: 'Financial', icon: DollarSign, description: 'Tax rates and service charges' },
   { id: 'receipt', label: 'Receipt & Printing', icon: Printer, description: 'Receipt branding and layout' },
   { id: 'order-types', label: 'Order Types', icon: UtensilsCrossed, description: 'Manage available order types' },
+  { id: 'kitchen', label: 'Kitchen', icon: ChefHat, description: 'KDS mode and kitchen thresholds' },
   { id: 'appearance', label: 'Appearance', icon: Palette, description: 'Theme and display preferences' },
 ]
+
+type KitchenModeChoice = 'kds' | 'kot_only' | 'hybrid'
+
+const KITCHEN_MODE_COPY: Record<KitchenModeChoice, { title: string; description: string }> = {
+  kds: {
+    title: 'KDS',
+    description:
+      'Digital kitchen display is primary. Stations configured as "KDS" send tickets to the screen; stations configured as "Printer" still print.',
+  },
+  hybrid: {
+    title: 'Hybrid',
+    description:
+      'Some stations use the KDS, others print. Routing follows each station\'s output_type. Good for venues with a bar printer + kitchen screen.',
+  },
+  kot_only: {
+    title: 'KOT only',
+    description:
+      'No kitchen display. Every station is treated as a printer and KOTs print on fire. The /kitchen screens are hidden from staff.',
+  },
+}
 
 export function AdminSettings() {
   const [activeSection, setActiveSection] = useState<SettingsSection>('general')
@@ -367,6 +393,63 @@ export function AdminSettings() {
     setLocalOrderTypes(updated)
     saveOrderTypesMutation.mutate(updated)
   }
+
+  // ── Kitchen ──
+  const [kitchenForm, setKitchenForm] = useState({
+    mode: 'kds' as KitchenModeChoice,
+    urgencyMinutes: '15',
+    staleMinutes: '120',
+    recallWindowSeconds: '300',
+  })
+
+  useEffect(() => {
+    const d = allSettingsRes?.data as Record<string, unknown> | undefined
+    if (!d) return
+    const modeRaw = typeof d['kitchen.mode'] === 'string' ? (d['kitchen.mode'] as string) : 'kds'
+    const mode: KitchenModeChoice =
+      modeRaw === 'kot_only' || modeRaw === 'hybrid' || modeRaw === 'kds' ? modeRaw : 'kds'
+    const num = (k: string, fallback: string) => {
+      const v = d[k]
+      if (typeof v === 'number') return String(v)
+      if (typeof v === 'string' && v.trim() !== '') return v
+      return fallback
+    }
+    setKitchenForm({
+      mode,
+      urgencyMinutes: num('kitchen.urgency_minutes', '15'),
+      staleMinutes: num('kitchen.stale_minutes', '120'),
+      recallWindowSeconds: num('kitchen.recall_window_seconds', '300'),
+    })
+  }, [allSettingsRes])
+
+  const { data: stationsRes } = useQuery({
+    queryKey: ['admin', 'stations', 'list-for-settings'],
+    queryFn: () => apiClient.getStations(),
+    staleTime: 60_000,
+  })
+  const stations = (stationsRes?.data ?? []) as KitchenStation[]
+  const kdsStationCount = stations.filter((s) => s.is_active && s.output_type === 'kds').length
+  const printerStationCount = stations.filter((s) => s.is_active && s.output_type === 'printer').length
+
+  const saveKitchenMutation = useMutation({
+    mutationFn: async () => {
+      const urgency = Math.max(1, Math.min(240, Number(kitchenForm.urgencyMinutes) || 15))
+      const stale = Math.max(15, Math.min(1440, Number(kitchenForm.staleMinutes) || 120))
+      const recall = Math.max(0, Math.min(3600, Number(kitchenForm.recallWindowSeconds) || 300))
+      await apiClient.updateSetting('kitchen.mode', kitchenForm.mode)
+      await apiClient.updateSetting('kitchen.urgency_minutes', urgency)
+      await apiClient.updateSetting('kitchen.stale_minutes', stale)
+      await apiClient.updateSetting('kitchen.recall_window_seconds', recall)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'all'] })
+      queryClient.invalidateQueries({ queryKey: KITCHEN_SETTINGS_QUERY_KEY })
+      toast({ title: 'Settings saved', description: 'Kitchen configuration updated.' })
+    },
+    onError: (e: unknown) => {
+      toast({ title: 'Save failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' })
+    },
+  })
 
   // ── Section renderers ──
 
@@ -800,6 +883,156 @@ export function AdminSettings() {
     </div>
   )
 
+  const renderKitchen = () => {
+    const mode = kitchenForm.mode
+    // Friendly live-impact statements so the admin sees exactly what the
+    // switch will do to their existing station config.
+    const routingSummary = (() => {
+      if (mode === 'kot_only') {
+        if (kdsStationCount > 0) {
+          return {
+            tone: 'warn' as const,
+            icon: AlertTriangle,
+            text: `${kdsStationCount} station${kdsStationCount === 1 ? '' : 's'} configured as KDS will be treated as printers.${printerStationCount > 0 ? ` ${printerStationCount} already print natively.` : ''}`,
+          }
+        }
+        return {
+          tone: 'info' as const,
+          icon: Info,
+          text: 'All stations already print. The KDS screen will be hidden for everyone.',
+        }
+      }
+      if (mode === 'kds') {
+        if (kdsStationCount === 0) {
+          return {
+            tone: 'warn' as const,
+            icon: AlertTriangle,
+            text: 'No stations are configured as KDS yet. Add at least one in Admin → Kitchen Stations so tickets appear on the screen.',
+          }
+        }
+        return {
+          tone: 'info' as const,
+          icon: Info,
+          text: `${kdsStationCount} station${kdsStationCount === 1 ? '' : 's'} on the screen${printerStationCount > 0 ? `, ${printerStationCount} still printing` : ''}.`,
+        }
+      }
+      return {
+        tone: 'info' as const,
+        icon: Info,
+        text: `${kdsStationCount} station${kdsStationCount === 1 ? '' : 's'} on the screen, ${printerStationCount} printing. Routing follows each station's output type.`,
+      }
+    })()
+
+    return (
+      <div className="space-y-6">
+        <SectionHeader
+          title="Kitchen"
+          description="Choose how orders reach the kitchen and tune KDS urgency/stale thresholds."
+        />
+
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="text-base">Kitchen Mode</CardTitle>
+            <CardDescription>
+              Controls routing and whether the Kitchen Display screen is visible. Per-station
+              output types still apply in <em>KDS</em> and <em>Hybrid</em>.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              {(['kds', 'hybrid', 'kot_only'] as const).map((m) => {
+                const copy = KITCHEN_MODE_COPY[m]
+                const active = kitchenForm.mode === m
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setKitchenForm((p) => ({ ...p, mode: m }))}
+                    className={`text-left rounded-xl border-2 p-4 transition-all ${
+                      active
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border bg-background hover:border-muted-foreground/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-sm font-semibold">{copy.title}</span>
+                      {active && (
+                        <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                          <Check className="w-3 h-3 text-primary-foreground" />
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-snug">{copy.description}</p>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div
+              className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm ${
+                routingSummary.tone === 'warn'
+                  ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200'
+                  : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-gray-700 dark:bg-gray-800/50 dark:text-slate-300'
+              }`}
+            >
+              <routingSummary.icon className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{routingSummary.text}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="text-base">KDS Thresholds</CardTitle>
+            <CardDescription>
+              Applied to the Kitchen Display. Urgency tints tickets that have been on the line too
+              long; stale excludes abandoned tickets from the default view; recall window lets a
+              bumped ticket be sent back to the line.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <FieldGroup label="Urgency (minutes)" hint="Ticket turns red after this.">
+                <Input
+                  type="number"
+                  min={1}
+                  max={240}
+                  value={kitchenForm.urgencyMinutes}
+                  onChange={(e) => setKitchenForm({ ...kitchenForm, urgencyMinutes: e.target.value })}
+                />
+              </FieldGroup>
+              <FieldGroup label="Stale (minutes)" hint="Tickets older than this are hidden by default.">
+                <Input
+                  type="number"
+                  min={15}
+                  max={1440}
+                  value={kitchenForm.staleMinutes}
+                  onChange={(e) => setKitchenForm({ ...kitchenForm, staleMinutes: e.target.value })}
+                />
+              </FieldGroup>
+              <FieldGroup label="Recall window (seconds)" hint="Allow un-bump within this window.">
+                <Input
+                  type="number"
+                  min={0}
+                  max={3600}
+                  value={kitchenForm.recallWindowSeconds}
+                  onChange={(e) => setKitchenForm({ ...kitchenForm, recallWindowSeconds: e.target.value })}
+                />
+              </FieldGroup>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button onClick={() => saveKitchenMutation.mutate()} disabled={saveKitchenMutation.isPending}>
+                {saveKitchenMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                Save Kitchen Settings
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   const renderAppearance = () => (
     <div className="space-y-6">
       <SectionHeader
@@ -846,6 +1079,7 @@ export function AdminSettings() {
     financial: renderFinancial,
     receipt: renderReceipt,
     'order-types': renderOrderTypes,
+    kitchen: renderKitchen,
     appearance: renderAppearance,
   }
 

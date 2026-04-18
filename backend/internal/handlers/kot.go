@@ -2,14 +2,17 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"pos-backend/internal/config"
 	"pos-backend/internal/middleware"
 	"pos-backend/internal/models"
+	"pos-backend/internal/realtime"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -124,6 +127,8 @@ func (h *KOTHandler) FireKOT(c *gin.Context) {
 	stationMeta := map[string]stInfo{}
 	itemToKey := map[uuid.UUID]string{}
 
+	kitchenSettings := config.LoadKitchen(h.db)
+
 	for _, item := range draftItems {
 		var stationID uuid.UUID
 		var stationName, outputType, printLocation string
@@ -146,6 +151,12 @@ func (h *KOTHandler) FireKOT(c *gin.Context) {
 					SELECT id, COALESCE(NULLIF(TRIM(print_location), ''), 'kitchen')
 					FROM kitchen_stations WHERE is_active = true ORDER BY sort_order LIMIT 1`).Scan(&stationID, &printLocation)
 			}
+		}
+		// KOT-only venue: force every station to printer behavior. This
+		// skips the KDS `sent` state and relies on markOrderReadyIfNoKitchenPendingTx
+		// to auto-`ready` the order once all lines are printed.
+		if kitchenSettings.ForcePrinterOnly() {
+			outputType = "printer"
 		}
 		if outputType == "kds" {
 			printLocation = "kitchen"
@@ -210,9 +221,29 @@ func (h *KOTHandler) FireKOT(c *gin.Context) {
 		return
 	}
 
-	if err := markOrderReadyIfNoKitchenPendingTx(tx, orderID, userID, now); err != nil {
+	autoReadied, err := markOrderReadyIfNoKitchenPendingTxReport(tx, orderID, userID, now)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to finalize order readiness", Error: strPtr(err.Error())})
 		return
+	}
+
+	// One audit row per station fired in this KOT.
+	for key, items := range stationItems {
+		meta := stationMeta[key]
+		qtyTotal := 0
+		for _, it := range items {
+			qtyTotal += it.Quantity
+		}
+		if err := insertKitchenEventTx(tx, orderID, nil, "fired", &meta.id, userID, map[string]interface{}{
+			"output_type":   meta.outputType,
+			"station_name":  meta.name,
+			"item_count":    len(items),
+			"quantity_sum":  qtyTotal,
+			"fire_generation": nextGen,
+		}); err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to log kitchen event", Error: strPtr(err.Error())})
+			return
+		}
 	}
 
 	var kots []stationKOT
@@ -239,6 +270,27 @@ func (h *KOTHandler) FireKOT(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to commit KOT", Error: strPtr(err.Error())})
 		return
 	}
+
+	// Fan out to SSE subscribers so the KDS and any dashboards refresh instantly.
+	realtime.Publish(realtime.Event{
+		Type:        "fired",
+		OrderID:     orderID,
+		OrderNumber: orderNumber,
+		Extra: map[string]interface{}{
+			"stations":      len(kots),
+			"items":         len(draftItems),
+			"auto_readied":  autoReadied,
+		},
+	})
+	if autoReadied {
+		realtime.Publish(realtime.Event{
+			Type:        "bumped",
+			OrderID:     orderID,
+			OrderNumber: orderNumber,
+			Extra:       map[string]interface{}{"auto": true},
+		})
+	}
+
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: fmt.Sprintf("KOT fired: %d items to %d station(s)", len(draftItems), len(kots)), Data: map[string]interface{}{"kots": kots}})
 }
 
@@ -350,7 +402,23 @@ func (h *KOTHandler) VoidItem(c *gin.Context) {
 		voidKOT = &sk
 	}
 
+	_ = insertKitchenEventTx(tx, orderID, &itemID, "voided", nil, userID, map[string]interface{}{
+		"authorized_by": managerName,
+		"item_name":     productName,
+		"quantity":      qty,
+	})
+
 	tx.Commit()
+
+	realtime.Publish(realtime.Event{
+		Type:    "voided",
+		OrderID: orderID,
+		Extra: map[string]interface{}{
+			"item_id":   itemID,
+			"item_name": productName,
+		},
+	})
+
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true, Message: fmt.Sprintf("Item '%s' voided. Authorized by %s", productName, managerName),
 		Data: map[string]interface{}{"void_kot": voidKOT, "authorized_by": managerName},
@@ -510,10 +578,26 @@ func (h *KOTHandler) KitchenBump(c *gin.Context) {
 		return
 	}
 
+	if err := insertKitchenEventTx(tx, idStr, nil, "bumped", nil, userID, map[string]interface{}{
+		"completion_seconds": completionSeconds,
+		"previous_status":    prevStatus,
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to log kitchen event", Error: strPtr(err.Error())})
+		return
+	}
+
 	if err = tx.Commit(); err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Commit failed", Error: strPtr(err.Error())})
 		return
 	}
+
+	realtime.Publish(realtime.Event{
+		Type:    "bumped",
+		OrderID: idStr,
+		Extra: map[string]interface{}{
+			"completion_seconds": completionSeconds,
+		},
+	})
 
 	var tableIDOut interface{}
 	if tableID.Valid {
@@ -533,47 +617,218 @@ func (h *KOTHandler) KitchenBump(c *gin.Context) {
 	})
 }
 
-// markOrderReadyIfNoKitchenPendingTx sets order to ready when nothing is waiting on KDS (sent/preparing)
-// or unfired (draft/pending). Used when all lines are thermal-printer (ready) or voided.
-func markOrderReadyIfNoKitchenPendingTx(tx *sql.Tx, orderID string, userID uuid.UUID, now time.Time) error {
+// RecallOrder flips a recently-bumped order back to 'preparing' for the KDS.
+// Used when a cook bumps the wrong ticket. Only allowed within
+// kitchen.recall_window_seconds of the bump.
+func (h *KOTHandler) RecallOrder(c *gin.Context) {
+	orderIDStr := c.Param("id")
+	parsed, err := uuid.Parse(orderIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid order id"})
+		return
+	}
+	userID, _, _, ok := middleware.GetUserFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.APIResponse{Success: false, Message: "Authentication required"})
+		return
+	}
+
+	idStr := parsed.String()
+	var status string
+	var bumpedAt sql.NullTime
+	err = h.db.QueryRow(`SELECT status, kitchen_bumped_at FROM orders WHERE id = $1::uuid`, idStr).
+		Scan(&status, &bumpedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Order not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load order", Error: strPtr(err.Error())})
+		return
+	}
+
+	if status != "ready" {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Message: "Only bumped orders (status=ready) can be recalled",
+		})
+		return
+	}
+
+	settings := config.LoadKitchen(h.db)
+	window := time.Duration(settings.RecallWindowSeconds) * time.Second
+	if bumpedAt.Valid && window > 0 && time.Since(bumpedAt.Time) > window {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Recall window (%ds) has expired", settings.RecallWindowSeconds),
+			Error:   strPtr("recall_window_expired"),
+		})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Transaction failed", Error: strPtr(err.Error())})
+		return
+	}
+	defer tx.Rollback()
+
+	// Flip back to preparing; clear the bump marker. If any line items were
+	// marked served-on-pickup, leave them — the kitchen can untoggle them.
+	res, err := tx.Exec(`
+		UPDATE orders SET status = 'preparing', kitchen_bumped_at = NULL, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1::uuid AND status = 'ready'`, idStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to recall order", Error: strPtr(err.Error())})
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		c.JSON(http.StatusConflict, models.APIResponse{Success: false, Message: "Order could not be recalled — status changed"})
+		return
+	}
+	_, err = tx.Exec(`
+		INSERT INTO order_status_history (order_id, previous_status, new_status, changed_by, notes)
+		VALUES ($1::uuid, 'ready', 'preparing', $2, 'kitchen_recall')`, idStr, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to log recall", Error: strPtr(err.Error())})
+		return
+	}
+	if err := insertKitchenEventTx(tx, idStr, nil, "recalled", nil, userID, nil); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to log kitchen event", Error: strPtr(err.Error())})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Commit failed", Error: strPtr(err.Error())})
+		return
+	}
+
+	realtime.Publish(realtime.Event{Type: "recalled", OrderID: idStr})
+
+	c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Message: "Order recalled to the line",
+		Data: map[string]interface{}{
+			"order_id": idStr,
+			"status":   "preparing",
+		},
+	})
+}
+
+// markOrderReadyIfNoKitchenPendingTxReport is the same semantics as the
+// legacy helper but reports whether it actually flipped the order → ready so
+// callers can emit the appropriate realtime event.
+func markOrderReadyIfNoKitchenPendingTxReport(tx *sql.Tx, orderID string, userID uuid.UUID, now time.Time) (bool, error) {
 	var pending int
 	err := tx.QueryRow(`
 		SELECT COUNT(*) FROM order_items
 		WHERE order_id = $1::uuid AND status IN ('sent','preparing','draft','pending')`, orderID).Scan(&pending)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if pending > 0 {
-		return nil
+		return false, nil
 	}
 	var prev string
 	err = tx.QueryRow(`SELECT status FROM orders WHERE id = $1::uuid`, orderID).Scan(&prev)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if prev != "pending" && prev != "confirmed" && prev != "preparing" {
-		return nil
+		return false, nil
 	}
 	res, err := tx.Exec(`
 		UPDATE orders SET status = 'ready', kitchen_bumped_at = COALESCE(kitchen_bumped_at, $2), updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1::uuid AND status IN ('pending','confirmed','preparing')`, orderID, now)
 	if err != nil {
-		return err
+		return false, err
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return nil
+		return false, nil
 	}
 	var changedBy interface{}
 	if userID != uuid.Nil {
 		changedBy = userID
 	}
-	_, err = tx.Exec(`
+	if _, err := tx.Exec(`
 		INSERT INTO order_status_history (order_id, previous_status, new_status, changed_by, notes)
 		VALUES ($1::uuid, $2, 'ready', $3, $4)`,
-		orderID, prev, changedBy, "auto_ready_thermal_kot_no_kds_pending")
+		orderID, prev, changedBy, "auto_ready_thermal_kot_no_kds_pending"); err != nil {
+		return false, err
+	}
+	if err := insertKitchenEventTx(tx, orderID, nil, "bumped", nil, userID, map[string]interface{}{
+		"auto":   true,
+		"reason": "auto_ready_thermal_kot_no_kds_pending",
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// insertKitchenEventTx writes one row into kitchen_events. orderID is a
+// string so callers don't have to re-parse the param; UUID coercion happens
+// in SQL. stationID / orderItemID may be nil. Errors are returned verbatim.
+func insertKitchenEventTx(
+	tx *sql.Tx,
+	orderID string,
+	orderItemID *string,
+	eventType string,
+	stationID *uuid.UUID,
+	userID uuid.UUID,
+	meta map[string]interface{},
+) error {
+	var metaBytes []byte
+	if len(meta) > 0 {
+		b, err := json.Marshal(meta)
+		if err == nil {
+			metaBytes = b
+		}
+	}
+	var itemParam interface{}
+	if orderItemID != nil && *orderItemID != "" {
+		itemParam = *orderItemID
+	}
+	var stationParam interface{}
+	if stationID != nil {
+		stationParam = stationID.String()
+	}
+	var userParam interface{}
+	if userID != uuid.Nil {
+		userParam = userID.String()
+	}
+	_, err := tx.Exec(`
+		INSERT INTO kitchen_events (order_id, order_item_id, event_type, station_id, user_id, metadata)
+		VALUES ($1::uuid, NULLIF($2, '')::uuid, $3, NULLIF($4, '')::uuid, NULLIF($5, '')::uuid, $6::jsonb)
+	`,
+		orderID,
+		strOrEmpty(itemParam),
+		eventType,
+		strOrEmpty(stationParam),
+		strOrEmpty(userParam),
+		nullableJSON(metaBytes),
+	)
 	return err
 }
+
+func strOrEmpty(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+func nullableJSON(b []byte) interface{} {
+	if len(b) == 0 {
+		return nil
+	}
+	return string(b)
+}
+
 
 func buildPrinterKOT(orderNo, tableNo, serverName, station string, items []kotItem, orderPlacedAt, firedAt time.Time, isVoid bool) string {
 	var b strings.Builder

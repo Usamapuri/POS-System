@@ -1,5 +1,13 @@
 # 🍳 Kitchen Enhancement System - Complete Implementation
 
+> **Archival note (superseded by KDS/KOT Overhaul):** This document describes
+> an earlier kitchen UI whose implementation files have been removed. The
+> current KDS lives in `frontend/src/components/kitchen/NewEnhancedKitchenLayout.tsx`
+> and uses the supporting files `KOTCard.tsx`, `ConsolidatedPrepList.tsx`,
+> `useKdsUrgencyTimer.ts`, and `KitchenDisabledScreen.tsx`. Kitchen Mode
+> (KDS / Hybrid / KOT-only) is managed from **Admin → Settings → Kitchen**.
+> See the project `README.md` for the up-to-date feature list.
+
 ## 🎯 Overview
 
 This document outlines the complete implementation of the enhanced kitchen system with sound notifications, minimalistic UI, item checklists, and takeaway board functionality. 

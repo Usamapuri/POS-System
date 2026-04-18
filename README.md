@@ -28,16 +28,25 @@
 ![Dashboard Server Interface](gh-image/dashboard-server-interface.png)
 *Clean, modern interface designed for speed and efficiency with real-time updates*
 
-### 👨‍🍳 Enhanced Kitchen Display - As-Ready Service Workflow
+### 👨‍🍳 Kitchen Display System (KDS) + KOT
 ![Dashboard Kitchen Interface](gh-image/dashboard-kitchen-interface.png)
-*Professional tablet-optimized kitchen interface with individual item tracking and as-ready service*
+*Dense, same-size ticket grid with live SSE updates, station filters, urgency scale, and a pinned prep queue*
 
-**🎯 New Kitchen Features:**
-- **Individual Item Checklists** - Mark each dish ready independently
-- **As-Ready Service** - Serve dishes as they're completed (real restaurant workflow)
-- **Sound Notifications** - Audio alerts for new orders, ready items, and served dishes
-- **Visual Progress Tracking** - "1 ready • 1 served • 1 cooking (67% complete)"
-- **Touch-Optimized Design** - 50px+ touch targets for tablet and TV screens
+**🎯 KDS Features:**
+- **Kitchen Mode toggle** — run the venue in `KDS`, `Hybrid`, or `KOT-only` mode from Admin → Settings → Kitchen. In KOT-only mode every station prints and the digital KDS screen is hidden.
+- **Dense ticket grid** — equal-size cards auto-fill the screen; sorted urgent → fresh → at-pass. Up to 3× more tickets above the fold vs lane-based kanban.
+- **Urgency scale (not binary)** — tickets progress fresh → warming → urgent → critical (pulsing) → stale, driven by `kitchen.urgency_minutes`.
+- **Station filter chips** — show just Grill, Bar, etc. Server-side filter via `/kitchen/orders?station_id=…`.
+- **Pinned prep queue** — right rail aggregates `3× Grilled Chicken`, `2× Coffee` across tickets; expand each SKU to see which tickets contribute.
+- **Recall strip** — last 5 bumped tickets within `kitchen.recall_window_seconds`; one click un-bumps a mistake.
+- **Server-Sent Events** — sub-second updates via `/kitchen/stream`, with polling as a 30s fallback.
+- **Kitchen events audit log** — every item mark-prepared, bump, recall, and void writes to `kitchen_events` for prep-time analytics and accountability.
+- **Item status allowlist + decayed "NEW" badge** — line-item statuses are validated server-side; add-on items show a 60s "NEW" badge that decays on its own.
+
+**🔕 KOT-only mode (no screen):**
+- Every station is treated as a printer; items fire as `ready` immediately and the order auto-moves to `ready`.
+- The `/kitchen` screens return 403 `kitchen_display_disabled` and redirect kitchen-role staff to a friendly disabled page.
+- Counter/Server fire flow emphasizes the print dialog as the primary success affordance.
 
 ### ✨ **Enterprise-Grade Admin Tables**
 Our latest update includes **professional data tables** with:

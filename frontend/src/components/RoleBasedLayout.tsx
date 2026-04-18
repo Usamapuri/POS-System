@@ -7,6 +7,7 @@ import { KOTServerInterface } from '@/components/server/KOTServerInterface'
 import { CounterInterface } from '@/components/counter/CounterInterface'
 import { POSLayout } from '@/components/pos/POSLayout'
 import { NewEnhancedKitchenLayout } from '@/components/kitchen/NewEnhancedKitchenLayout'
+import { KitchenDisabledScreen } from '@/components/kitchen/KitchenDisabledScreen'
 import { StoreInventoryDashboard } from '@/components/store/StoreInventoryDashboard'
 import { ExpenseDashboard } from '@/components/admin/ExpenseDashboard'
 import { 
@@ -24,6 +25,7 @@ import {
 import type { User as UserType } from '@/types'
 import apiClient from '@/api/client'
 import { DISPLAY_CURRENCY_EVENT, parseCurrencyFromSettings, setDisplayCurrency } from '@/lib/currency'
+import { useKitchenSettings, isKDSEnabled } from '@/hooks/useKitchenSettings'
 
 interface RoleBasedLayoutProps {
   user: UserType
@@ -32,6 +34,8 @@ interface RoleBasedLayoutProps {
 export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
   const [currentView, setCurrentView] = useState<string>(getDefaultView(user.role))
   const [currencyBump, setCurrencyBump] = useState(0)
+  const kitchen = useKitchenSettings()
+  const kdsOn = isKDSEnabled(kitchen.mode)
 
   const { data: settingsRes } = useQuery({
     queryKey: ['settings', 'all'],
@@ -134,16 +138,18 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
   const getAvailableViews = (role: string) => {
     const views = []
 
-    // Admin and managers get all views
+    // Admin and managers get all views (hide Kitchen when KDS is disabled venue-wide)
     if (role === 'admin' || role === 'manager') {
       views.push(
         { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
         { id: 'pos', label: 'General POS', icon: <ShoppingCart className="w-4 h-4" /> },
         { id: 'server', label: 'Server Interface', icon: <Users className="w-4 h-4" /> },
         { id: 'counter', label: 'Checkout Counter', icon: <CreditCard className="w-4 h-4" /> },
-        { id: 'kitchen', label: 'Kitchen Display', icon: <ChefHat className="w-4 h-4" /> },
-        { id: 'expenses', label: 'Expenses', icon: <Receipt className="w-4 h-4" /> }
       )
+      if (kdsOn) {
+        views.push({ id: 'kitchen', label: 'Kitchen Display', icon: <ChefHat className="w-4 h-4" /> })
+      }
+      views.push({ id: 'expenses', label: 'Expenses', icon: <Receipt className="w-4 h-4" /> })
     }
     // Server gets server interface and general POS
     else if (role === 'server') {
@@ -159,7 +165,8 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
         { id: 'pos', label: 'General POS', icon: <ShoppingCart className="w-4 h-4" /> }
       )
     }
-    // Kitchen staff gets kitchen display only
+    // Kitchen staff: always show the KDS nav; the screen itself renders a
+    // friendly disabled state when kitchen.mode === 'kot_only'.
     else if (role === 'kitchen') {
       views.push(
         { id: 'kitchen', label: 'Kitchen Display', icon: <ChefHat className="w-4 h-4" /> }
@@ -196,6 +203,7 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
           </div>
         )
       case 'kitchen':
+        if (!kdsOn) return <KitchenDisabledScreen userRole={user.role} />
         return <NewEnhancedKitchenLayout user={user} />
       case 'inventory':
         return <StoreInventoryDashboard />

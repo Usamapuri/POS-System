@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import type { User as UserType } from '@/types'
 import apiClient from '@/api/client'
+import { useKitchenSettings, isKDSEnabled } from '@/hooks/useKitchenSettings'
 
 interface AdminSidebarProps {
   user: UserType
@@ -136,9 +137,15 @@ export function AdminSidebar({ user }: AdminSidebarProps) {
     queryFn: () => apiClient.getAllSettings(),
     staleTime: 1000 * 60 * 5,
   })
+  const kitchen = useKitchenSettings()
+  const kdsOn = isKDSEnabled(kitchen.mode)
 
   const businessName = (settingsRes?.data as Record<string, unknown>)?.receipt_business_name as string || ''
   const logoUrl = (settingsRes?.data as Record<string, unknown>)?.receipt_logo_url as string || ''
+
+  // Hide Kitchen Display nav entry when the venue is in KOT-only mode. The
+  // route itself also renders a friendly disabled screen for direct URL access.
+  const visibleAdminSections = adminSections.filter((s) => (s.id === 'kitchen' ? kdsOn : true))
 
   // Responsive checks
   useEffect(() => {
@@ -229,7 +236,7 @@ export function AdminSidebar({ user }: AdminSidebarProps) {
 
         {/* Navigation */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {adminSections.map((section) => (
+          {visibleAdminSections.map((section) => (
             <Link
               key={section.id}
               to={section.href}

@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strings"
 
+	"pos-backend/internal/config"
 	"pos-backend/internal/models"
 	"pos-backend/internal/pricing"
 
@@ -45,6 +47,15 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 		return
 	}
 
+	// Per-key validation for keys that gate behavior. Anything else is
+	// stored as-is (legacy behavior).
+	if strings.HasPrefix(key, "kitchen.") {
+		if err := validateKitchenSetting(key, body); err != nil {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error()})
+			return
+		}
+	}
+
 	_, err := h.db.Exec(`
 		INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
 		ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
@@ -54,8 +65,40 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 		return
 	}
 
+	if strings.HasPrefix(key, "kitchen.") {
+		config.InvalidateKitchenCache()
+	}
+
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Setting saved"})
 }
+
+func validateKitchenSetting(key string, raw json.RawMessage) error {
+	switch key {
+	case "kitchen.mode":
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return errBadValue("kitchen.mode must be a JSON string")
+		}
+		if !config.IsValidMode(s) {
+			return errBadValue("kitchen.mode must be 'kds', 'kot_only', or 'hybrid'")
+		}
+	case "kitchen.urgency_minutes", "kitchen.stale_minutes", "kitchen.recall_window_seconds":
+		var n float64
+		if err := json.Unmarshal(raw, &n); err != nil {
+			return errBadValue(key + " must be a number")
+		}
+		if n < 0 || n > 24*60 {
+			return errBadValue(key + " out of range")
+		}
+	}
+	return nil
+}
+
+type kitchenSettingError struct{ msg string }
+
+func (e *kitchenSettingError) Error() string { return e.msg }
+
+func errBadValue(msg string) error { return &kitchenSettingError{msg: msg} }
 
 func (h *SettingsHandler) GetAllSettings(c *gin.Context) {
 	rows, err := h.db.Query(`SELECT key, value FROM app_settings ORDER BY key`)

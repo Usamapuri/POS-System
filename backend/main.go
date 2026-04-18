@@ -55,8 +55,13 @@ func main() {
 	gin.SetMode(getEnv("GIN_MODE", "release"))
 	router := gin.New()
 
-	// Add middleware
-	router.Use(gin.Logger())
+	// Add middleware. Skip access logs for the SSE stream endpoint because
+	// its auth token rides in the query string (EventSource can't set headers)
+	// and we don't want that token in logs. The stream itself still runs
+	// through gin.Recovery + the normal auth pipeline.
+	router.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		SkipPaths: []string{"/api/v1/kitchen/stream"},
+	}))
 	router.Use(gin.Recovery())
 	corsOrigins := getEnv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:5173")
 	origins := strings.Split(corsOrigins, ",")

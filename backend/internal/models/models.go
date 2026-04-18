@@ -91,7 +91,9 @@ type Order struct {
 	TableOpenedAt  *time.Time   `json:"table_opened_at,omitempty"`
 	IsOpenTab      bool         `json:"is_open_tab"`
 	OrderType      string       `json:"order_type"` // dine_in, takeout, delivery
-	Status         string       `json:"status"`     // pending, confirmed, preparing, ready, served, completed, cancelled
+	// Status: one of pending | confirmed | preparing | ready | served | completed | cancelled.
+	// See OrderStatus* constants above.
+	Status         string       `json:"status"`
 	Subtotal             float64  `json:"subtotal"`
 	TaxAmount            float64  `json:"tax_amount"`
 	DiscountAmount       float64  `json:"discount_amount"`
@@ -127,19 +129,56 @@ type Customer struct {
 	LastVisitAt *time.Time `json:"last_visit_at,omitempty"`
 }
 
-// OrderItem represents an item within an order
+// Order status ladder — mirror of the DB CHECK constraint. Use these when
+// comparing/writing the field so a typo becomes a compile error.
+const (
+	OrderStatusPending    = "pending"
+	OrderStatusConfirmed  = "confirmed"
+	OrderStatusPreparing  = "preparing"
+	OrderStatusReady      = "ready"
+	OrderStatusServed     = "served"
+	OrderStatusCompleted  = "completed"
+	OrderStatusCancelled  = "cancelled"
+)
+
+// OrderItem status ladder — includes KDS/KOT flow states in addition to the
+// simpler order ladder:
+//   draft      → line added to an open tab/order, not yet fired
+//   pending    → created as part of a non–dine-in order, not yet fired
+//   sent       → fired to a KDS station, waiting for the cook
+//   preparing  → legacy; current KDS flows use sent → ready
+//   ready      → prepared (or printed to a printer station, which is instantly ready)
+//   served     → picked up / handed off to the guest
+//   voided     → removed after fire; requires manager PIN
+const (
+	OrderItemStatusDraft     = "draft"
+	OrderItemStatusPending   = "pending"
+	OrderItemStatusSent      = "sent"
+	OrderItemStatusPreparing = "preparing"
+	OrderItemStatusReady     = "ready"
+	OrderItemStatusServed    = "served"
+	OrderItemStatusVoided    = "voided"
+)
+
+// OrderItem represents an item within an order.
 type OrderItem struct {
-	ID                  uuid.UUID `json:"id"`
-	OrderID             uuid.UUID `json:"order_id"`
-	ProductID           uuid.UUID `json:"product_id"`
-	Quantity            int       `json:"quantity"`
-	UnitPrice           float64   `json:"unit_price"`
-	TotalPrice          float64   `json:"total_price"`
-	SpecialInstructions *string   `json:"special_instructions"`
-	Status              string    `json:"status"` // pending, preparing, ready, served
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
-	Product             *Product  `json:"product,omitempty"`
+	ID                  uuid.UUID  `json:"id"`
+	OrderID             uuid.UUID  `json:"order_id"`
+	ProductID           uuid.UUID  `json:"product_id"`
+	Quantity            int        `json:"quantity"`
+	UnitPrice           float64    `json:"unit_price"`
+	TotalPrice          float64    `json:"total_price"`
+	SpecialInstructions *string    `json:"special_instructions"`
+	// Status: one of draft | pending | sent | preparing | ready | served | voided.
+	// See OrderItemStatus* constants above for full meaning and lifecycle.
+	Status              string     `json:"status"`
+	// PreparedAt / PreparedBy are set when a KDS station marks the line ready.
+	// Null for printer stations and for lines that are still in progress.
+	PreparedAt          *time.Time `json:"prepared_at,omitempty"`
+	PreparedBy          *uuid.UUID `json:"prepared_by,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	Product             *Product   `json:"product,omitempty"`
 }
 
 // Payment represents a payment transaction

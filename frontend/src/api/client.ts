@@ -22,7 +22,6 @@ import type {
   OrderFilters,
   UpdateCounterOrderGuestRequest,
   UpdateCounterOrderServiceRequest,
-  UpdateOrderStatusRequest,
   ProductFilters,
   TableFilters,
   StockCategory,
@@ -333,11 +332,18 @@ class APIClient {
   }
 
   // Kitchen endpoints
-  async getKitchenOrders(status?: string): Promise<APIResponse<Order[]>> {
+  async getKitchenOrders(
+    statusOrOptions?: string | { status?: string; station_id?: string; include_stale?: boolean },
+  ): Promise<APIResponse<Order[]>> {
+    const opts = typeof statusOrOptions === 'string' ? { status: statusOrOptions } : statusOrOptions ?? {}
+    const params: Record<string, string> = {}
+    if (opts.status && opts.status !== 'all') params.status = opts.status
+    if (opts.station_id) params.station_id = opts.station_id
+    if (opts.include_stale) params.include_stale = 'true'
     return this.request({
       method: 'GET',
       url: '/kitchen/orders',
-      params: status && status !== 'all' ? { status } : {},
+      params,
     });
   }
 
@@ -362,6 +368,39 @@ class APIClient {
     return this.request({
       method: 'POST',
       url: `/kitchen/orders/${orderId}/bump`,
+    });
+  }
+
+  /** Recall a bumped order back to the line (within kitchen.recall_window_seconds). */
+  async recallOrder(orderId: string): Promise<APIResponse<{ order_id: string; status: string }>> {
+    return this.request({
+      method: 'POST',
+      url: `/kitchen/orders/${orderId}/recall`,
+    });
+  }
+
+  /** Kitchen-scoped read-only stations list (works for kitchen, admin, manager). */
+  async getKitchenStations(): Promise<APIResponse<KitchenStation[]>> {
+    return this.request({ method: 'GET', url: '/kitchen/stations' });
+  }
+
+  /** Recently bumped orders (for the KDS recall strip). */
+  async getRecentBumpedOrders(limit = 5): Promise<
+    APIResponse<
+      Array<{
+        id: string
+        order_number: string
+        order_type: string
+        customer_name?: string
+        table_number?: string | null
+        kitchen_bumped_at?: string | null
+      }>
+    >
+  > {
+    return this.request({
+      method: 'GET',
+      url: '/kitchen/recent-bumped',
+      params: { limit },
     });
   }
 

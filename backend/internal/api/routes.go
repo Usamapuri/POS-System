@@ -9,9 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"pos-backend/internal/config"
 	"pos-backend/internal/handlers"
 	"pos-backend/internal/middleware"
 	"pos-backend/internal/models"
+	"pos-backend/internal/realtime"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -71,18 +73,25 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		protected.GET("/orders/:id/payments", paymentHandler.GetPayments)
 		protected.GET("/orders/:id/payment-summary", paymentHandler.GetPaymentSummary)
 
-		// KOT routes (server, counter, admin, manager)
-		protected.POST("/orders/:id/fire-kot", kotHandler.FireKOT)
-		protected.POST("/orders/:id/items", kotHandler.AddItemsToOrder)
-		protected.DELETE("/orders/:id/items/:item_id", kotHandler.RemoveDraftItem)
-		protected.POST("/orders/:id/items/:item_id/void", kotHandler.VoidItem)
-
 		// PIN verification (any authenticated user can verify)
 		protected.POST("/verify-pin", pinHandler.VerifyPin)
 
 		// Settings (read for all authenticated users)
 		protected.GET("/settings/:key", settingsHandler.GetSetting)
 		protected.GET("/settings", settingsHandler.GetAllSettings)
+	}
+
+	// KOT / order-line mutation routes — restricted to roles that take orders
+	// (server, counter, admin, manager). Kitchen role is intentionally excluded;
+	// the kitchen can only observe and mark prepared, never fire/void lines.
+	orderWrite := router.Group("/")
+	orderWrite.Use(authMiddleware)
+	orderWrite.Use(middleware.RequireRoles([]string{"server", "counter", "admin", "manager"}))
+	{
+		orderWrite.POST("/orders/:id/fire-kot", kotHandler.FireKOT)
+		orderWrite.POST("/orders/:id/items", kotHandler.AddItemsToOrder)
+		orderWrite.DELETE("/orders/:id/items/:item_id", kotHandler.RemoveDraftItem)
+		orderWrite.POST("/orders/:id/items/:item_id/void", kotHandler.VoidItem)
 	}
 
 	// Server routes (server role - dine-in orders only)
@@ -234,15 +243,27 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		store.POST("/purchase-orders/:id/receive", stockHandler.ReceivePurchaseOrder)
 	}
 
-	// Kitchen routes (kitchen staff access)
+	// Kitchen routes (kitchen staff access). Gated by venue Kitchen Mode:
+	// if set to 'kot_only', all endpoints return kitchen_display_disabled.
 	kitchen := router.Group("/kitchen")
 	kitchen.Use(authMiddleware)
 	kitchen.Use(middleware.RequireRoles([]string{"kitchen", "admin", "manager"}))
+	kitchen.Use(middleware.RequireKDSEnabled(db))
 	{
 		kitchen.GET("/orders", getKitchenOrders(db))
+		kitchen.GET("/recent-bumped", getRecentBumpedOrders(db))
+		// Read-only stations list for the KDS station filter. Kitchen role
+		// doesn't have /admin/stations access, so we expose a scoped alias.
+		kitchen.GET("/stations", stationHandler.GetStations)
 		kitchen.PATCH("/orders/:id/items/:item_id/status", updateOrderItemStatus(db))
 		kitchen.POST("/orders/:id/bump", kotHandler.KitchenBump)
+		kitchen.POST("/orders/:id/recall", kotHandler.RecallOrder)
 	}
+
+	// SSE stream: EventSource can't send custom headers, so we accept the
+	// JWT via query string (?token=) as well as Authorization. The stream is
+	// gated on the same role + mode rules as the kitchen REST endpoints.
+	router.GET("/kitchen/stream", sseAuthMiddleware(), middleware.RequireRoles([]string{"kitchen", "admin", "manager"}), middleware.RequireKDSEnabled(db), kitchenStream())
 }
 
 // Dashboard stats handler
@@ -503,6 +524,14 @@ func getOrdersReport(db *sql.DB) gin.HandlerFunc {
 func getKitchenOrders(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		status := c.DefaultQuery("status", "all")
+		stationID := strings.TrimSpace(c.Query("station_id"))
+		includeStale := c.Query("include_stale") == "true"
+		settings := config.LoadKitchen(db)
+
+		// Use a parameterized query so the stale threshold can be tuned
+		// per venue without string interpolation risk.
+		args := []interface{}{}
+		idx := 1
 
 		q := `
 			SELECT DISTINCT o.id::text, o.order_number, o.table_id::text, o.order_type, o.status,
@@ -513,14 +542,41 @@ func getKitchenOrders(db *sql.DB) gin.HandlerFunc {
 			FROM orders o
 			LEFT JOIN dining_tables t ON o.table_id = t.id
 			LEFT JOIN users u ON o.user_id = u.id
-			WHERE o.status IN ('confirmed', 'preparing', 'ready')
 		`
+
+		whereParts := []string{"o.status IN ('confirmed', 'preparing', 'ready')"}
+
 		if status != "all" {
-			q += ` AND o.status = '` + status + `'`
+			whereParts = append(whereParts, fmt.Sprintf("o.status = $%d", idx))
+			args = append(args, status)
+			idx++
 		}
+
+		if !includeStale && settings.StaleMinutes > 0 {
+			whereParts = append(whereParts,
+				fmt.Sprintf("o.created_at > NOW() - ($%d || ' minutes')::interval", idx))
+			args = append(args, strconv.Itoa(settings.StaleMinutes))
+			idx++
+		}
+
+		if stationID != "" {
+			if _, err := uuid.Parse(stationID); err == nil {
+				q += `
+					JOIN order_items oi ON oi.order_id = o.id
+					JOIN products p ON oi.product_id = p.id
+					JOIN category_station_map csm ON csm.category_id = p.category_id
+				`
+				whereParts = append(whereParts, fmt.Sprintf("csm.station_id = $%d::uuid", idx))
+				whereParts = append(whereParts, "oi.status NOT IN ('draft','voided')")
+				args = append(args, stationID)
+				idx++
+			}
+		}
+
+		q += " WHERE " + strings.Join(whereParts, " AND ")
 		q += ` ORDER BY o.created_at ASC`
 
-		rows, err := db.Query(q)
+		rows, err := db.Query(q, args...)
 		if err != nil {
 			c.JSON(500, gin.H{
 				"success": false,
@@ -686,21 +742,29 @@ func fetchKitchenOrderItems(db *sql.DB, orderID string) []map[string]interface{}
 	return items
 }
 
-// Update order item status handler
+// Update order item status handler. Only 'sent' (untoggle/mark in-progress)
+// and 'ready' (mark prepared) are accepted from the KDS. Every transition is
+// recorded in kitchen_events for prep-time analytics and audit.
 func updateOrderItemStatus(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		orderID := c.Param("id")
 		itemID := c.Param("item_id")
+		userID, _, _, _ := middleware.GetUserFromContext(c)
 
 		var req struct {
 			Status string `json:"status"`
 		}
-
 		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"success": false, "message": "Invalid request body", "error": err.Error()})
+			return
+		}
+
+		nextStatus := strings.ToLower(strings.TrimSpace(req.Status))
+		if nextStatus != "sent" && nextStatus != "ready" {
 			c.JSON(400, gin.H{
 				"success": false,
-				"message": "Invalid request body",
-				"error":   err.Error(),
+				"message": "Only 'sent' (un-prepare) and 'ready' (prepare) are allowed from the KDS",
+				"error":   "invalid_item_status",
 			})
 			return
 		}
@@ -719,35 +783,250 @@ func updateOrderItemStatus(db *sql.DB) gin.HandlerFunc {
 			c.JSON(400, gin.H{"success": false, "message": "Draft items are not on KDS yet"})
 			return
 		}
-
-		_, err = db.Exec(`
-			UPDATE order_items 
-			SET status = $1, updated_at = CURRENT_TIMESTAMP 
-			WHERE id = $2 AND order_id = $3
-		`, req.Status, itemID, orderID)
-
-		if err != nil {
-			c.JSON(500, gin.H{
-				"success": false,
-				"message": "Failed to update order item status",
-				"error":   err.Error(),
-			})
+		if currentStatus == nextStatus {
+			c.JSON(200, gin.H{"success": true, "message": "No change"})
 			return
 		}
 
-		// Keep order-level status in sync so bump/KDS rules see `preparing` once cooking starts.
-		if req.Status == "ready" || req.Status == "preparing" {
-			_, _ = db.Exec(`
+		tx, err := db.Begin()
+		if err != nil {
+			c.JSON(500, gin.H{"success": false, "message": "Transaction failed", "error": err.Error()})
+			return
+		}
+		defer tx.Rollback()
+
+		// Update status and prepared_at/by. Clearing prepared_at on 'sent'
+		// keeps downstream analytics accurate when a cook undo-taps a row.
+		if nextStatus == "ready" {
+			var uid interface{}
+			if userID != uuid.Nil {
+				uid = userID.String()
+			}
+			_, err = tx.Exec(`
+				UPDATE order_items
+				SET status = 'ready', prepared_at = CURRENT_TIMESTAMP, prepared_by = NULLIF($1,'')::uuid,
+				    updated_at = CURRENT_TIMESTAMP
+				WHERE id = $2 AND order_id = $3
+			`, strOrEmptyAPI(uid), itemID, orderID)
+		} else {
+			_, err = tx.Exec(`
+				UPDATE order_items
+				SET status = 'sent', prepared_at = NULL, prepared_by = NULL,
+				    updated_at = CURRENT_TIMESTAMP
+				WHERE id = $1 AND order_id = $2
+			`, itemID, orderID)
+		}
+		if err != nil {
+			c.JSON(500, gin.H{"success": false, "message": "Failed to update order item status", "error": err.Error()})
+			return
+		}
+
+		// Keep order-level status in sync so bump/KDS rules see `preparing`
+		// once the kitchen starts cooking. Only escalates on prepare —
+		// un-preparing a single item doesn't downgrade the order.
+		if nextStatus == "ready" {
+			_, _ = tx.Exec(`
 				UPDATE orders SET status = 'preparing', updated_at = CURRENT_TIMESTAMP
 				WHERE id = $1::uuid AND status = 'confirmed'
 			`, orderID)
 		}
 
-		c.JSON(200, gin.H{
-			"success": true,
-			"message": "Order item status updated successfully",
+		eventType := "item_prepared"
+		if nextStatus == "sent" {
+			eventType = "item_unprepared"
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO kitchen_events (order_id, order_item_id, event_type, user_id, metadata)
+			VALUES ($1::uuid, $2::uuid, $3, NULLIF($4,'')::uuid, $5::jsonb)
+		`, orderID, itemID, eventType, strOrEmptyAPI(func() interface{} {
+			if userID != uuid.Nil {
+				return userID.String()
+			}
+			return nil
+		}()), fmt.Sprintf(`{"previous_status":"%s"}`, currentStatus)); err != nil {
+			c.JSON(500, gin.H{"success": false, "message": "Failed to log kitchen event", "error": err.Error()})
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			c.JSON(500, gin.H{"success": false, "message": "Commit failed", "error": err.Error()})
+			return
+		}
+
+		realtime.Publish(realtime.Event{
+			Type:    "item_updated",
+			OrderID: orderID,
+			Extra: map[string]interface{}{
+				"item_id":     itemID,
+				"status":      nextStatus,
+				"prev_status": currentStatus,
+			},
 		})
+
+		c.JSON(200, gin.H{"success": true, "message": "Order item status updated"})
 	}
+}
+
+func strOrEmptyAPI(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// getRecentBumpedOrders returns orders bumped within the recall window so the
+// KDS can render a "Recall" strip.
+func getRecentBumpedOrders(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		settings := config.LoadKitchen(db)
+		limit := 5
+		if v := c.Query("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 20 {
+				limit = n
+			}
+		}
+		if settings.RecallWindowSeconds <= 0 {
+			c.JSON(200, gin.H{"success": true, "data": []map[string]interface{}{}})
+			return
+		}
+
+		rows, err := db.Query(`
+			SELECT o.id::text, o.order_number, o.order_type, o.kitchen_bumped_at,
+			       o.customer_name, t.table_number
+			FROM orders o
+			LEFT JOIN dining_tables t ON o.table_id = t.id
+			WHERE o.status = 'ready'
+			  AND o.kitchen_bumped_at IS NOT NULL
+			  AND o.kitchen_bumped_at > NOW() - ($1 || ' seconds')::interval
+			ORDER BY o.kitchen_bumped_at DESC
+			LIMIT $2
+		`, strconv.Itoa(settings.RecallWindowSeconds), limit)
+		if err != nil {
+			c.JSON(500, gin.H{"success": false, "message": "Failed to load recent bumped orders", "error": err.Error()})
+			return
+		}
+		defer rows.Close()
+
+		out := []map[string]interface{}{}
+		for rows.Next() {
+			var id, num, ot, custName sql.NullString
+			var tableNum sql.NullString
+			var bumpedAt sql.NullTime
+			if err := rows.Scan(&id, &num, &ot, &bumpedAt, &custName, &tableNum); err != nil {
+				continue
+			}
+			row := map[string]interface{}{
+				"id":                id.String,
+				"order_number":      num.String,
+				"order_type":        ot.String,
+				"customer_name":     custName.String,
+				"kitchen_bumped_at": nil,
+				"table_number":      nil,
+			}
+			if bumpedAt.Valid {
+				row["kitchen_bumped_at"] = bumpedAt.Time
+			}
+			if tableNum.Valid {
+				row["table_number"] = tableNum.String
+			}
+			out = append(out, row)
+		}
+
+		c.JSON(200, gin.H{"success": true, "data": out})
+	}
+}
+
+// sseAuthMiddleware supports both Authorization: Bearer and ?token=, because
+// the browser EventSource API can't set custom headers.
+func sseAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tok := c.GetHeader("Authorization")
+		if strings.HasPrefix(tok, "Bearer ") {
+			tok = strings.TrimPrefix(tok, "Bearer ")
+		} else {
+			tok = c.Query("token")
+		}
+		if tok == "" {
+			c.AbortWithStatusJSON(401, gin.H{"success": false, "message": "Missing token"})
+			return
+		}
+		claims, err := middleware.ValidateToken(tok)
+		if err != nil {
+			c.AbortWithStatusJSON(401, gin.H{"success": false, "message": "Invalid or expired token"})
+			return
+		}
+		c.Set("user_id", claims.UserID)
+		c.Set("username", claims.Username)
+		c.Set("role", claims.Role)
+		c.Next()
+	}
+}
+
+// kitchenStream serves Server-Sent Events for KDS clients. It pushes a
+// ready+heartbeat pair immediately so the client can render a "Live"
+// indicator, then streams mutation events as handlers publish them.
+func kitchenStream() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		w := c.Writer
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+
+		flusher, ok := w.(interface{ Flush() })
+		if !ok {
+			c.AbortWithStatusJSON(500, gin.H{"success": false, "message": "Streaming not supported"})
+			return
+		}
+
+		events, unsubscribe := realtime.Default().Subscribe(64)
+		defer unsubscribe()
+
+		fmt.Fprintf(w, "event: ready\ndata: {\"ts\":\"%s\"}\n\n", time.Now().UTC().Format(time.RFC3339))
+		flusher.Flush()
+
+		heartbeat := time.NewTicker(20 * time.Second)
+		defer heartbeat.Stop()
+
+		clientGone := c.Request.Context().Done()
+
+		for {
+			select {
+			case <-clientGone:
+				return
+			case ev, open := <-events:
+				if !open {
+					return
+				}
+				payload, _ := json.Marshal(ev)
+				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", safeEventName(ev.Type), payload)
+				flusher.Flush()
+			case <-heartbeat.C:
+				fmt.Fprintf(w, ": ping %s\n\n", time.Now().UTC().Format(time.RFC3339))
+				flusher.Flush()
+			}
+		}
+	}
+}
+
+func safeEventName(t string) string {
+	t = strings.ToLower(strings.TrimSpace(t))
+	if t == "" {
+		return "message"
+	}
+	out := make([]byte, 0, len(t))
+	for _, r := range t {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			out = append(out, byte(r))
+		}
+	}
+	if len(out) == 0 {
+		return "message"
+	}
+	return string(out)
 }
 
 // Server role handler - creates orders with configurable order types
