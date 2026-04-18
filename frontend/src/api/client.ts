@@ -55,6 +55,14 @@ import type {
   PartySizeRow,
   OrdersBrowserResponse,
   ReportsExportId,
+  DashboardOverview,
+  DashboardPeriod,
+  LivePulse,
+  SalesTimeseries,
+  DashboardTopItem,
+  PaymentMixSlice,
+  OrderTypeMixSlice,
+  DashboardAlert,
 } from '@/types';
 
 class APIClient {
@@ -309,12 +317,108 @@ class APIClient {
   }
 
   // Dashboard endpoints
+  // ─── Legacy snapshot (kept for backward compatibility) ─────────────────
+  /**
+   * @deprecated Use {@link getDashboardOverview} + {@link getDashboardLive}
+   * which return typed payloads with prior-period comparisons.
+   */
   async getDashboardStats(): Promise<APIResponse<DashboardStats>> {
     return this.request({
       method: 'GET',
       url: '/admin/dashboard/stats',
     });
   }
+
+  // ─── Dashboard v2 ─────────────────────────────────────────────────────
+  // Typed, business-timezone-aware payloads with prior-period comparisons.
+  // Powers the redesigned admin dashboard. See backend/internal/handlers/dashboard.go.
+
+  /** Builds the params object for any dashboard v2 endpoint. */
+  private dashboardParams(period: DashboardPeriod, from?: string, to?: string) {
+    const params: Record<string, string> = { period };
+    if (period === 'custom') {
+      if (from) params.from = from;
+      if (to) params.to = to;
+    }
+    return params;
+  }
+
+  async getDashboardOverview(
+    period: DashboardPeriod,
+    from?: string,
+    to?: string,
+  ): Promise<APIResponse<DashboardOverview>> {
+    return this.request({
+      method: 'GET',
+      url: '/admin/dashboard/overview',
+      params: this.dashboardParams(period, from, to),
+    });
+  }
+
+  async getDashboardLive(): Promise<APIResponse<LivePulse>> {
+    return this.request({
+      method: 'GET',
+      url: '/admin/dashboard/live',
+    });
+  }
+
+  async getDashboardSalesTimeseries(
+    period: DashboardPeriod,
+    from?: string,
+    to?: string,
+  ): Promise<APIResponse<SalesTimeseries>> {
+    return this.request({
+      method: 'GET',
+      url: '/admin/dashboard/sales-timeseries',
+      params: this.dashboardParams(period, from, to),
+    });
+  }
+
+  async getDashboardTopItems(
+    period: DashboardPeriod,
+    opts: { limit?: number; from?: string; to?: string } = {},
+  ): Promise<APIResponse<DashboardTopItem[]>> {
+    const params = this.dashboardParams(period, opts.from, opts.to);
+    if (opts.limit) (params as Record<string, string | number>).limit = opts.limit;
+    return this.request({
+      method: 'GET',
+      url: '/admin/dashboard/top-items',
+      params,
+    });
+  }
+
+  async getDashboardPaymentMix(
+    period: DashboardPeriod,
+    from?: string,
+    to?: string,
+  ): Promise<APIResponse<PaymentMixSlice[]>> {
+    return this.request({
+      method: 'GET',
+      url: '/admin/dashboard/payment-mix',
+      params: this.dashboardParams(period, from, to),
+    });
+  }
+
+  async getDashboardOrderTypeMix(
+    period: DashboardPeriod,
+    from?: string,
+    to?: string,
+  ): Promise<APIResponse<OrderTypeMixSlice[]>> {
+    return this.request({
+      method: 'GET',
+      url: '/admin/dashboard/order-type-mix',
+      params: this.dashboardParams(period, from, to),
+    });
+  }
+
+  async getDashboardAlerts(): Promise<APIResponse<DashboardAlert[]>> {
+    return this.request({
+      method: 'GET',
+      url: '/admin/dashboard/alerts',
+    });
+  }
+  // The SSE stream URL is built inside the useDashboardStream hook (see
+  // src/lib/dashboardStream.ts), mirroring the kitchen-stream convention.
 
   async getSalesReport(period: 'today' | 'week' | 'month' = 'today'): Promise<APIResponse<SalesReportItem[]>> {
     return this.request({
@@ -331,6 +435,11 @@ class APIClient {
     });
   }
 
+  /**
+   * @deprecated Use {@link getDashboardSalesTimeseries} which returns
+   * server-formatted bucket labels (no more duplicate-date rendering bug)
+   * and a same-length prior-period series.
+   */
   async getIncomeReport(period: 'today' | 'week' | 'month' | 'year' = 'today'): Promise<APIResponse<any>> {
     return this.request({
       method: 'GET',

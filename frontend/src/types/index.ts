@@ -269,12 +269,161 @@ export interface Cart {
   total_amount: number;
 }
 
-// Dashboard Types
+// Dashboard Types (legacy /admin/dashboard/stats — kept for backward compat)
 export interface DashboardStats {
   today_orders: number;
+  /** Total orders placed today, any status. Filled by the new backend. */
+  today_orders_placed?: number;
   today_revenue: number;
   active_orders: number;
   occupied_tables: number;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Dashboard v2 — typed payloads mirroring backend/internal/models/dashboard.go.
+// All money is currency-major units. All *_label fields are pre-formatted
+// DD-MM-YYYY (or HH:mm for sub-day buckets) — never reformat on the client.
+// ───────────────────────────────────────────────────────────────────────────
+
+export type DashboardPeriod =
+  | 'today'
+  | 'yesterday'
+  | '7d'
+  | '30d'
+  | 'cw'
+  | 'cm'
+  | 'custom';
+
+export interface DashboardOverview {
+  period: DashboardPeriod;
+  from: string;
+  to: string;
+  from_label: string;
+  to_label: string;
+  previous_from: string;
+  previous_to: string;
+  previous_from_label: string;
+  previous_to_label: string;
+  timezone: string;
+  net_sales: MetricPair;
+  gross_sales: MetricPair;
+  tax: MetricPair;
+  discounts: MetricPair;
+  /** Completed orders only — matches the revenue denominator. */
+  orders: IntMetricPair;
+  /** All orders placed in the window (any status). Useful drop-off signal. */
+  orders_placed: IntMetricPair;
+  covers: IntMetricPair;
+  avg_ticket: MetricPair;
+  expenses: MetricPair;
+  net_profit: MetricPair;
+}
+
+export interface LivePulse {
+  active_orders: number;
+  in_kitchen: number;
+  ready_to_serve: number;
+  /** Orders in active states but past the kitchen.stale_minutes window
+   *  — hidden from the KDS, surfaced separately so they don't pollute the
+   *  live ops gauges or kitchen-wait stats. */
+  stale_orders_count: number;
+  stale_threshold_minutes: number;
+  occupied_tables: number;
+  total_tables: number;
+  avg_kitchen_wait_seconds: number;
+  longest_running_seconds: number;
+  voids_today_count: number;
+  voids_today_amount: number;
+  orders_today_count: number;
+  revenue_today_so_far: number;
+  drawer_reconciled: boolean;
+  drawer_expected_cash: number;
+  generated_at: string;
+}
+
+export interface SalesBucket {
+  bucket_start: string;
+  /** Server-formatted: "14:00" for hour, "18-04" for day, "Apr 26" for month. */
+  label: string;
+  orders: number;
+  gross: number;
+  tax: number;
+  net: number;
+}
+
+export interface SalesTimeseries {
+  period: DashboardPeriod;
+  granularity: 'hour' | 'day' | 'month';
+  from: string;
+  to: string;
+  current: SalesBucket[];
+  prior: SalesBucket[];
+}
+
+export interface DashboardTopItem {
+  product_id: string;
+  name: string;
+  category?: string | null;
+  qty_sold: number;
+  revenue: number;
+  percent_of_net: number;
+}
+
+export interface PaymentMixSlice {
+  method: string;
+  label: string;
+  count: number;
+  amount: number;
+  pct: number;
+}
+
+export interface OrderTypeMixSlice {
+  order_type: string;
+  label: string;
+  count: number;
+  amount: number;
+  pct: number;
+}
+
+export type DashboardAlertSeverity = 'info' | 'warning' | 'critical';
+export type DashboardAlertKind =
+  | 'low_stock'
+  | 'void_spike'
+  | 'long_order'
+  | 'stale_orders'
+  | 'drawer_unreconciled'
+  | 'no_sales';
+
+export interface DashboardAlert {
+  id: string;
+  severity: DashboardAlertSeverity;
+  kind: DashboardAlertKind;
+  title: string;
+  detail: string;
+  /** Admin section id to navigate to when the user clicks the alert. */
+  action_to?: string;
+}
+
+export type DashboardEventType =
+  | 'order_created'
+  | 'order_updated'
+  | 'order_completed'
+  | 'order_cancelled'
+  | 'order_voided'
+  | 'payment'
+  | 'table_changed';
+
+/** Activity feed entry derived from an SSE DashboardEvent. */
+export interface DashboardActivityEntry {
+  id: string;
+  type: DashboardEventType;
+  title: string;
+  detail: string;
+  amount?: number;
+  order_id?: string;
+  order_number?: string;
+  /** Local ISO timestamp. */
+  at: string;
 }
 
 export interface SalesReportItem {

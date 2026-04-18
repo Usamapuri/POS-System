@@ -14,6 +14,7 @@ import (
 	"pos-backend/internal/middleware"
 	"pos-backend/internal/models"
 	"pos-backend/internal/realtime"
+	"pos-backend/internal/util"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -37,6 +38,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 	settingsHandler := handlers.NewSettingsHandler(db)
 	counterHandler := handlers.NewCounterHandler(db)
 	reportsHandler := handlers.NewReportsHandler(db)
+	dashboardHandler := handlers.NewDashboardHandler(db)
 
 	// Public routes (no authentication required)
 	public := router.Group("/")
@@ -129,10 +131,22 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 	admin.Use(middleware.RequireRoles([]string{"admin", "manager"}))
 	{
 		// Dashboard and monitoring
+		// Legacy snapshot — kept for backward compatibility while clients
+		// migrate to the new typed /dashboard/* endpoints below.
 		admin.GET("/dashboard/stats", getDashboardStats(db))
 		admin.GET("/reports/sales", getSalesReport(db))
 		admin.GET("/reports/orders", getOrdersReport(db))
 		admin.GET("/reports/income", getIncomeReport(db))
+
+		// Dashboard v2 — typed, business-timezone-aware, with real
+		// previous-period comparisons and server-formatted bucket labels.
+		admin.GET("/dashboard/overview", dashboardHandler.GetOverview)
+		admin.GET("/dashboard/live", dashboardHandler.GetLive)
+		admin.GET("/dashboard/sales-timeseries", dashboardHandler.GetSalesTimeseries)
+		admin.GET("/dashboard/top-items", dashboardHandler.GetTopItems)
+		admin.GET("/dashboard/payment-mix", dashboardHandler.GetPaymentMix)
+		admin.GET("/dashboard/order-type-mix", dashboardHandler.GetOrderTypeMix)
+		admin.GET("/dashboard/alerts", dashboardHandler.GetAlerts)
 
 		// Reports v2 — granular, drill-down enterprise-grade reports
 		// (powers the redesigned /admin/reports page). All endpoints honor
@@ -279,48 +293,67 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 	// JWT via query string (?token=) as well as Authorization. The stream is
 	// gated on the same role + mode rules as the kitchen REST endpoints.
 	router.GET("/kitchen/stream", sseAuthMiddleware(), middleware.RequireRoles([]string{"kitchen", "admin", "manager"}), middleware.RequireKDSEnabled(db), kitchenStream())
+
+	// Admin dashboard SSE — same auth pattern as /kitchen/stream. Pushes a
+	// signal whenever orders, payments, tables, or voids change so the UI
+	// can refresh live cards without polling.
+	router.GET("/admin/dashboard/stream",
+		sseAuthMiddleware(),
+		middleware.RequireRoles([]string{"admin", "manager"}),
+		dashboardHandler.DashboardStream(),
+	)
 }
 
-// Dashboard stats handler
+// Dashboard stats handler — DEPRECATED.
+//
+// New clients should use /admin/dashboard/overview + /admin/dashboard/live
+// (see handlers/dashboard.go) which return typed payloads with prior-period
+// comparisons and consistent semantics.
+//
+// This shim is kept so older clients don't break. Two bug fixes vs. the
+// previous version:
+//  1. today_orders and today_revenue are both filtered to status='completed'
+//     so the two cards now share a denominator (no more "29 orders, but
+//     revenue from only 16 of them").
+//  2. "Today" is computed in the BUSINESS timezone, not the DB session
+//     timezone, matching how orders.go numbers KOTs.
 func getDashboardStats(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get basic stats for dashboard
 		stats := make(map[string]interface{})
+		tz := util.BusinessTimezoneName()
+		today := util.BusinessNow().Format("2006-01-02")
 
-		// Today's orders
+		// Today's completed orders (count + revenue come from the same row set)
 		var todayOrders int
-		db.QueryRow(`
-			SELECT COUNT(*) 
-			FROM orders 
-			WHERE DATE(created_at) = CURRENT_DATE
-		`).Scan(&todayOrders)
-
-		// Today's revenue
 		var todayRevenue float64
 		db.QueryRow(`
-			SELECT COALESCE(SUM(total_amount), 0) 
-			FROM orders 
-			WHERE DATE(created_at) = CURRENT_DATE AND status = 'completed'
-		`).Scan(&todayRevenue)
+			SELECT COUNT(*), COALESCE(SUM(total_amount - tax_amount), 0)
+			FROM orders
+			WHERE status = 'completed'
+			  AND (created_at AT TIME ZONE $1)::date = $2::date
+		`, tz, today).Scan(&todayOrders, &todayRevenue)
 
-		// Active orders
+		// Total orders placed today (any status) — useful drop-off signal.
+		var todayPlaced int
+		db.QueryRow(`
+			SELECT COUNT(*)
+			FROM orders
+			WHERE (created_at AT TIME ZONE $1)::date = $2::date
+		`, tz, today).Scan(&todayPlaced)
+
 		var activeOrders int
 		db.QueryRow(`
-			SELECT COUNT(*) 
-			FROM orders 
-			WHERE status NOT IN ('completed', 'cancelled')
+			SELECT COUNT(*) FROM orders WHERE status NOT IN ('completed', 'cancelled')
 		`).Scan(&activeOrders)
 
-		// Occupied tables
 		var occupiedTables int
 		db.QueryRow(`
-			SELECT COUNT(*) 
-			FROM dining_tables 
-			WHERE is_occupied = true
+			SELECT COUNT(*) FROM dining_tables WHERE is_occupied = true
 		`).Scan(&occupiedTables)
 
-		stats["today_orders"] = todayOrders
-		stats["today_revenue"] = todayRevenue
+		stats["today_orders"] = todayOrders         // completed only — matches today_revenue
+		stats["today_orders_placed"] = todayPlaced  // any status — drop-off denominator
+		stats["today_revenue"] = todayRevenue       // net of tax, completed orders only
 		stats["active_orders"] = activeOrders
 		stats["occupied_tables"] = occupiedTables
 

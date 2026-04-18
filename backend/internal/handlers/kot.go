@@ -419,6 +419,20 @@ func (h *KOTHandler) VoidItem(c *gin.Context) {
 		},
 	})
 
+	// Mirror the signal to the admin dashboard so the void-spike alert and
+	// activity feed update in real time.
+	realtime.PublishDashboard(realtime.DashboardEvent{
+		Type:    "order_voided",
+		Title:   "Item voided",
+		Detail:  fmt.Sprintf("%s × %d (auth %s)", productName, qty, managerName),
+		OrderID: orderID,
+		Extra: map[string]interface{}{
+			"item_id":   itemID,
+			"item_name": productName,
+			"quantity":  qty,
+		},
+	})
+
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true, Message: fmt.Sprintf("Item '%s' voided. Authorized by %s", productName, managerName),
 		Data: map[string]interface{}{"void_kot": voidKOT, "authorized_by": managerName},

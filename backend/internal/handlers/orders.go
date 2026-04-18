@@ -564,6 +564,16 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
+	// Notify the admin dashboard so live ops cards refresh instantly.
+	realtime.PublishDashboard(realtime.DashboardEvent{
+		Type:        "order_created",
+		Title:       "New order",
+		Detail:      fmt.Sprintf("Order %s · %s", order.OrderNumber, order.OrderType),
+		Amount:      order.TotalAmount,
+		OrderID:     order.ID.String(),
+		OrderNumber: order.OrderNumber,
+	})
+
 	c.JSON(http.StatusCreated, models.APIResponse{
 		Success: true,
 		Message: "Order created successfully",
@@ -984,6 +994,30 @@ func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {
 		}
 		realtime.Publish(realtime.Event{
 			Type:    evType,
+			OrderID: orderID.String(),
+			Extra:   map[string]interface{}{"status": req.Status},
+		})
+	}
+
+	// Push admin-dashboard signal for any state transition so the live pulse
+	// + KPI cards stay in sync.
+	{
+		dashType := "order_updated"
+		title := "Order updated"
+		switch req.Status {
+		case "completed":
+			dashType = "order_completed"
+			title = "Order completed"
+		case "cancelled":
+			dashType = "order_cancelled"
+			title = "Order cancelled"
+		case "served":
+			title = "Order served"
+		}
+		realtime.PublishDashboard(realtime.DashboardEvent{
+			Type:    dashType,
+			Title:   title,
+			Detail:  fmt.Sprintf("Status → %s", req.Status),
 			OrderID: orderID.String(),
 			Extra:   map[string]interface{}{"status": req.Status},
 		})

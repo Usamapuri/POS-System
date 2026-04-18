@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"time"
 
 	"pos-backend/internal/middleware"
 	"pos-backend/internal/models"
 	"pos-backend/internal/pricing"
+	"pos-backend/internal/realtime"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -258,11 +260,39 @@ func (h *PaymentHandler) ProcessPayment(c *gin.Context) {
 		return
 	}
 
+	// Fan out to the admin dashboard so revenue cards + payment-mix donut
+	// + activity feed all update without polling.
+	realtime.PublishDashboard(realtime.DashboardEvent{
+		Type:    "payment",
+		Title:   "Payment received",
+		Detail:  fmt.Sprintf("%s · %s", paymentMethodActivityLabel(payment.PaymentMethod), payment.Status),
+		Amount:  payment.Amount,
+		OrderID: payment.OrderID.String(),
+	})
+
 	c.JSON(http.StatusCreated, models.APIResponse{
 		Success: true,
 		Message: "Payment processed successfully",
 		Data:    payment,
 	})
+}
+
+// paymentMethodActivityLabel humanizes the raw enum for the dashboard activity feed.
+func paymentMethodActivityLabel(m string) string {
+	switch m {
+	case "cash":
+		return "Cash"
+	case "credit_card":
+		return "Credit card"
+	case "debit_card":
+		return "Debit card"
+	case "digital_wallet":
+		return "Digital wallet"
+	case "online":
+		return "Online"
+	default:
+		return m
+	}
 }
 
 // GetPayments retrieves payments for an order

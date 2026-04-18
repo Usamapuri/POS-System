@@ -1,268 +1,152 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import apiClient from '@/api/client'
-import { useCurrency } from '@/contexts/CurrencyContext'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import {
-  DollarSign, 
-  ShoppingCart, 
-  Users, 
-  Table, 
-  TrendingUp,
-  Plus,
-  Settings,
-  BarChart3
-} from 'lucide-react'
-import { formatDateDDMMYYYY } from '@/lib/utils'
+import { useCallback, useMemo, useState } from 'react'
+import { useRouter } from '@tanstack/react-router'
+import { useDashboardData } from '@/hooks/useDashboardData'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
+import type { DashboardPeriod } from '@/types'
+import { DashboardHeader } from './dashboard/DashboardHeader'
+import { KpiHeroRow } from './dashboard/KpiHeroRow'
+import { LivePulseStrip } from './dashboard/LivePulseStrip'
+import { SalesTimeseriesChart } from './dashboard/SalesTimeseriesChart'
+import { RevenueProfitPanel } from './dashboard/RevenueProfitPanel'
+import { TopItemsList } from './dashboard/TopItemsList'
+import { PaymentMixDonut } from './dashboard/PaymentMixDonut'
+import { OrderTypeMixBar } from './dashboard/OrderTypeMixBar'
+import { AlertsPanel } from './dashboard/AlertsPanel'
+import { QuickActionsGrid } from './dashboard/QuickActionsGrid'
+import { ActivityFeed } from './dashboard/ActivityFeed'
 
-interface IncomeBreakdownItem {
-  period: string
-  orders: number
-  gross: number
-  tax: number
-  net: number
+interface AdminDashboardProps {
+  /**
+   * Optional override used by the legacy state-based AdminLayout to swap
+   * sections via a setter. The TanStack-router admin shell mounts this
+   * component without the prop — in that case we fall back to URL
+   * navigation through `useRouter()`.
+   */
+  onNavigate?: (section: string) => void
 }
 
-export function AdminDashboard() {
-  const { formatCurrency } = useCurrency()
-  const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month'>('today')
+// Map a dashboard section id (e.g. "counter", "void-log") to its admin
+// route. All admin routes live under /admin/<id>; if any new section ever
+// needs a non-trivial path, override it here.
+function sectionToPath(section: string): string {
+  return `/admin/${section}`
+}
 
-  // Fetch dashboard stats
-  const { data: stats, isLoading: statsLoading } = useQuery({
-    queryKey: ['dashboardStats'],
-    queryFn: () => apiClient.getDashboardStats().then(res => res.data)
+const PERIOD_LABELS: Record<DashboardPeriod, string> = {
+  today: 'Yesterday',
+  yesterday: 'Day before',
+  '7d': 'Prior 7d',
+  '30d': 'Prior 30d',
+  cw: 'Last week',
+  cm: 'Last month',
+  custom: 'Prior window',
+}
+
+/**
+ * AdminDashboard — the redesigned restaurant operations cockpit.
+ *
+ * Sections (top to bottom):
+ *   1. Sticky header: title + Live status + period selector + Refresh /
+ *      Reports / Settings buttons.
+ *   2. Live Pulse strip — SSE-driven cards for active orders, kitchen,
+ *      tables, voids, drawer.
+ *   3. KPI hero row — Net sales, orders, avg ticket, covers (with real
+ *      previous-period comparison).
+ *   4. Sales chart + Activity feed.
+ *   5. Revenue & profit panel.
+ *   6. Top items + Payment mix + Order type mix.
+ *   7. Alerts panel.
+ *   8. Quick actions grid (every tile is wired to a real section).
+ */
+export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
+  const router = useRouter()
+  // Default navigation path: TanStack Router URL change. The prop override
+  // is only used by the legacy `components/admin/AdminLayout.tsx` switcher.
+  const navigate = useCallback(
+    (section: string) => {
+      if (onNavigate) {
+        onNavigate(section)
+        return
+      }
+      router.navigate({ to: sectionToPath(section) })
+    },
+    [onNavigate, router],
+  )
+  const [period, setPeriod] = useState<DashboardPeriod>('today')
+
+  const data = useDashboardData({ period })
+
+  // Keyboard shortcuts (T/Y/W/M/R) for power users — match common
+  // dashboards like Toast & Square.
+  useKeyboardShortcuts({
+    shortcuts: useMemo(
+      () => [
+        { key: 't', action: () => setPeriod('today'), description: 'Today' },
+        { key: 'y', action: () => setPeriod('yesterday'), description: 'Yesterday' },
+        { key: 'w', action: () => setPeriod('cw'), description: 'This week' },
+        { key: 'm', action: () => setPeriod('cm'), description: 'This month' },
+        { key: 'r', action: () => data.refetchAll(), description: 'Refresh' },
+      ],
+      [data],
+    ),
   })
 
-  // Fetch income report
-  const { data: income, isLoading: incomeLoading } = useQuery({
-    queryKey: ['incomeReport', selectedPeriod],
-    queryFn: () => apiClient.getIncomeReport(selectedPeriod).then(res => res.data)
-  })
-
-  if (statsLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    )
-  }
+  const overview = data.overview.data
+  const isAnyFetching =
+    data.overview.isFetching ||
+    data.live.isFetching ||
+    data.timeseries.isFetching
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
-          <p className="text-muted-foreground">
-            Manage your restaurant operations and monitor performance
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm">
-            <Settings className="w-4 h-4 mr-2" />
-            Settings
-          </Button>
-          <Button variant="outline" size="sm">
-            <BarChart3 className="w-4 h-4 mr-2" />
-            Reports
-          </Button>
-        </div>
+      <DashboardHeader
+        period={period}
+        onPeriodChange={setPeriod}
+        onRefresh={data.refetchAll}
+        onNavigate={navigate}
+        streamStatus={data.streamStatus}
+        isRefreshing={isAnyFetching}
+        fromLabel={overview?.from_label}
+        toLabel={overview?.to_label}
+      />
+
+      <LivePulseStrip pulse={data.live.data} isLoading={data.live.isLoading} onNavigate={navigate} />
+
+      <KpiHeroRow
+        overview={overview}
+        isLoading={data.overview.isLoading}
+        previousLabel={PERIOD_LABELS[period]}
+      />
+
+      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+        <SalesTimeseriesChart
+          data={data.timeseries.data}
+          isLoading={data.timeseries.isLoading}
+          priorLabel={PERIOD_LABELS[period]}
+        />
+        <ActivityFeed entries={data.activity} />
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Today's Orders</CardTitle>
-            <ShoppingCart className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.today_orders || 0}</div>
-            <p className="text-xs text-muted-foreground">
-              +12% from yesterday
-            </p>
-          </CardContent>
-        </Card>
+      <RevenueProfitPanel overview={overview} isLoading={data.overview.isLoading} />
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Today's Revenue</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats?.today_revenue || 0)}</div>
-            <p className="text-xs text-muted-foreground">
-              +8% from yesterday
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Orders</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.active_orders || 0}</div>
-            <p className="text-xs text-muted-foreground">
-              Currently being processed
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Occupied Tables</CardTitle>
-            <Table className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.occupied_tables || 0}</div>
-            <p className="text-xs text-muted-foreground">
-              Tables currently in use
-            </p>
-          </CardContent>
-        </Card>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <TopItemsList items={data.topItems.data} isLoading={data.topItems.isLoading} />
+        <PaymentMixDonut data={data.paymentMix.data} isLoading={data.paymentMix.isLoading} />
+        <OrderTypeMixBar data={data.orderTypeMix.data} isLoading={data.orderTypeMix.isLoading} />
       </div>
 
-      {/* Income Report */}
-      <Card className="col-span-4">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5" />
-                Income Report
-              </CardTitle>
-              <CardDescription>
-                Detailed breakdown of revenue and performance
-              </CardDescription>
-            </div>
-            <div className="flex gap-2">
-              <Button 
-                variant={selectedPeriod === 'today' ? 'default' : 'outline'} 
-                size="sm"
-                onClick={() => setSelectedPeriod('today')}
-              >
-                Today
-              </Button>
-              <Button 
-                variant={selectedPeriod === 'week' ? 'default' : 'outline'} 
-                size="sm"
-                onClick={() => setSelectedPeriod('week')}
-              >
-                Week
-              </Button>
-              <Button 
-                variant={selectedPeriod === 'month' ? 'default' : 'outline'} 
-                size="sm"
-                onClick={() => setSelectedPeriod('month')}
-              >
-                Month
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {incomeLoading ? (
-            <div className="flex justify-center py-8">
-              <div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-            </div>
-          ) : income ? (
-            <div className="space-y-6">
-              {/* Summary */}
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-600">
-                    {income.summary.total_orders}
-                  </div>
-                  <div className="text-sm text-muted-foreground">Total Orders</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600">
-                    {formatCurrency(income.summary.gross_income)}
-                  </div>
-                  <div className="text-sm text-muted-foreground">Gross Income</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-orange-600">
-                    {formatCurrency(income.summary.tax_collected)}
-                  </div>
-                  <div className="text-sm text-muted-foreground">Tax Collected</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-600">
-                    {formatCurrency(income.summary.net_income)}
-                  </div>
-                  <div className="text-sm text-muted-foreground">Net Income</div>
-                </div>
-              </div>
-
-              {/* Breakdown Table */}
-              {income.breakdown && income.breakdown.length > 0 && (
-                <div className="border rounded-lg">
-                  <div className="grid grid-cols-5 gap-4 p-4 bg-muted/50 font-medium text-sm">
-                    <div>Period</div>
-                    <div className="text-center">Orders</div>
-                    <div className="text-center">Gross</div>
-                    <div className="text-center">Tax</div>
-                    <div className="text-center">Net</div>
-                  </div>
-                  {income.breakdown.slice(0, 10).map((item: IncomeBreakdownItem, index: number) => (
-                    <div key={index} className="grid grid-cols-5 gap-4 p-4 border-t text-sm">
-                      <div className="font-medium">
-                        {formatDateDDMMYYYY(item.period)}
-                      </div>
-                      <div className="text-center">{item.orders}</div>
-                      <div className="text-center">{formatCurrency(item.gross)}</div>
-                      <div className="text-center">{formatCurrency(item.tax)}</div>
-                      <div className="text-center font-medium">{formatCurrency(item.net)}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              No income data available
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Quick Actions */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-          <CardHeader className="text-center">
-            <Plus className="h-8 w-8 mx-auto text-blue-600" />
-            <CardTitle className="text-lg">Manage Menu</CardTitle>
-            <CardDescription>Add, edit, or remove menu items and categories</CardDescription>
-          </CardHeader>
-        </Card>
-
-        <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-          <CardHeader className="text-center">
-            <Table className="h-8 w-8 mx-auto text-green-600" />
-            <CardTitle className="text-lg">Manage Tables</CardTitle>
-            <CardDescription>Configure dining tables and seating arrangements</CardDescription>
-          </CardHeader>
-        </Card>
-
-        <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-          <CardHeader className="text-center">
-            <Users className="h-8 w-8 mx-auto text-purple-600" />
-            <CardTitle className="text-lg">Manage Staff</CardTitle>
-            <CardDescription>Add, edit staff accounts and manage permissions</CardDescription>
-          </CardHeader>
-        </Card>
-
-        <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-          <CardHeader className="text-center">
-            <BarChart3 className="h-8 w-8 mx-auto text-orange-600" />
-            <CardTitle className="text-lg">View Reports</CardTitle>
-            <CardDescription>Detailed analytics and performance reports</CardDescription>
-          </CardHeader>
-        </Card>
+      <div className="grid gap-6 lg:grid-cols-[1fr_2fr]">
+        <AlertsPanel
+          alerts={data.alerts.data}
+          isLoading={data.alerts.isLoading}
+          onNavigate={navigate}
+        />
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Quick actions
+          </h2>
+          <QuickActionsGrid onNavigate={navigate} />
+        </div>
       </div>
     </div>
   )

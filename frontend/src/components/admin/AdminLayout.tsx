@@ -162,7 +162,9 @@ export function AdminLayout({ user }: AdminLayoutProps) {
   const renderCurrentSection = () => {
     switch (currentSection) {
       case 'dashboard':
-        return <AdminDashboard />
+        // Pass setCurrentSection so the dashboard's quick actions, alerts,
+        // and header buttons can navigate the admin shell.
+        return <AdminDashboard onNavigate={setCurrentSection} />
       case 'server':
         return <KOTServerInterface />
       case 'counter':

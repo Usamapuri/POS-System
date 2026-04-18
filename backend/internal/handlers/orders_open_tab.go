@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"pos-backend/internal/middleware"
 	"pos-backend/internal/models"
 	"pos-backend/internal/pricing"
+	"pos-backend/internal/realtime"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -159,6 +161,15 @@ func (h *OrderHandler) OpenCounterTableTab(c *gin.Context) {
 		return
 	}
 
+	// Live ops cards (active orders, occupied tables) need to refresh.
+	realtime.PublishDashboard(realtime.DashboardEvent{
+		Type:        "order_created",
+		Title:       "Tab opened",
+		Detail:      fmt.Sprintf("Order %s · counter tab", order.OrderNumber),
+		OrderID:     order.ID.String(),
+		OrderNumber: order.OrderNumber,
+	})
+
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Message: "Table tab opened", Data: order})
 }
 
@@ -254,6 +265,13 @@ func (h *OrderHandler) CancelCounterOpenTab(c *gin.Context) {
 			}
 		}
 	}
+
+	realtime.PublishDashboard(realtime.DashboardEvent{
+		Type:    "order_cancelled",
+		Title:   "Tab cancelled",
+		Detail:  "Counter tab abandoned before fire",
+		OrderID: orderID.String(),
+	})
 
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Open tab cancelled", Data: nil})
 }
@@ -409,6 +427,15 @@ func (h *OrderHandler) ReassignCounterOrderTable(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Table reassigned but failed to load order", Error: stringPtr(err.Error())})
 		return
 	}
+	// Table occupancy changed (one table freed, another occupied).
+	realtime.PublishDashboard(realtime.DashboardEvent{
+		Type:        "table_changed",
+		Title:       "Table reassigned",
+		Detail:      fmt.Sprintf("Order %s moved to table %s", order.OrderNumber, targetTableNumber),
+		OrderID:     order.ID.String(),
+		OrderNumber: order.OrderNumber,
+	})
+
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Order table reassigned", Data: order})
 }
 
