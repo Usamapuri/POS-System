@@ -39,7 +39,9 @@ import { subscribeOrderReady } from '@/lib/kdsRealtime'
 import { cn } from '@/lib/utils'
 import { useCurrency } from '@/contexts/CurrencyContext'
 import { toastHelpers } from '@/lib/toast-helpers'
-import { getCashierNameFromStorage, parseReceiptSettings, printCustomerReceipt } from '@/lib/printCustomerReceipt'
+import { getCashierNameFromStorage, parseReceiptSettings, printCustomerReceipt, type CustomerReceiptSettings } from '@/lib/printCustomerReceipt'
+import { printPraTaxInvoice } from '@/lib/printPraTaxInvoice'
+import { PraInvoicePromptModal } from '@/components/counter/PraInvoicePromptModal'
 import {
   Search,
   Package,
@@ -125,6 +127,18 @@ export function CounterInterface() {
   const [discountValue, setDiscountValue] = useState('')
   const [kotPrintOpen, setKotPrintOpen] = useState(false)
   const [lastFireKots, setLastFireKots] = useState<StationKOT[] | undefined>(undefined)
+  /**
+   * Context for the post-payment PRA tax invoice prompt. When non-null, the
+   * PraInvoicePromptModal is shown; the captured order/settings/payment are
+   * reused to build the second slip without re-querying the server.
+   */
+  const [praPromptContext, setPraPromptContext] = useState<{
+    order: Order
+    settings: CustomerReceiptSettings
+    paymentMethod: string
+    paidAt: Date
+  } | null>(null)
+  const [praPrinting, setPraPrinting] = useState(false)
   /** Full-screen thank-you after a completed payment (customer-facing terminal). */
   const [checkoutCelebration, setCheckoutCelebration] = useState<CheckoutCelebrationMode | null>(null)
   const [historyReadOnlyOrder, setHistoryReadOnlyOrder] = useState<Order | null>(null)
@@ -538,18 +552,75 @@ export function CounterInterface() {
           queryFn: () => apiClient.getAllSettings(),
         })
         if (orderRes.success && orderRes.data && settingsRes.success && settingsRes.data) {
-          printCustomerReceipt(orderRes.data, parseReceiptSettings(settingsRes.data as Record<string, unknown>), {
+          const paidAt = new Date()
+          const paymentMethod = variables.paymentData.payment_method
+          const receiptSettings = parseReceiptSettings(
+            settingsRes.data as Record<string, unknown>,
+          )
+          printCustomerReceipt(orderRes.data, receiptSettings, {
             cashierName: getCashierNameFromStorage(),
-            paymentMethod: variables.paymentData.payment_method,
-            paidAt: new Date(),
+            paymentMethod,
+            paidAt,
             formatAmount: formatCurrency,
           })
+
+          // If the PRA tax invoice feature is enabled and the order is fully
+          // paid (status: completed), surface the post-payment prompt. Skip
+          // stays the default path — we never auto-print the PRA slip.
+          if (
+            receiptSettings.praInvoiceEnabled &&
+            orderRes.data.status === 'completed'
+          ) {
+            setPraPromptContext({
+              order: orderRes.data,
+              settings: receiptSettings,
+              paymentMethod,
+              paidAt,
+            })
+          }
         }
       } catch {
         /* receipt is optional */
       }
     },
   })
+
+  /**
+   * Dismiss the PRA tax invoice prompt without printing — the main receipt
+   * already went to the printer, nothing else needs to happen.
+   */
+  const handlePraSkip = useCallback(() => {
+    setPraPromptContext(null)
+  }, [])
+
+  /**
+   * Print the PRA tax invoice slip, persist the print event, then dismiss.
+   * Persistence failures don't block the printed slip — the receipt is
+   * already in the customer's hand, so we log rather than surface an error.
+   */
+  const handlePraPrint = useCallback(async () => {
+    if (!praPromptContext || praPrinting) return
+    setPraPrinting(true)
+    try {
+      const { order, settings, paymentMethod, paidAt } = praPromptContext
+      const { invoiceNumber } = await printPraTaxInvoice(order, settings, {
+        cashierName: getCashierNameFromStorage(),
+        paymentMethod,
+        paidAt,
+        formatAmount: formatCurrency,
+      })
+      try {
+        await apiClient.markPraInvoicePrinted(order.id, invoiceNumber || undefined)
+        queryClient.invalidateQueries({ queryKey: ['orders'] })
+        queryClient.invalidateQueries({ queryKey: ['order', order.id] })
+      } catch {
+        /* audit log is best-effort; print already succeeded */
+      }
+    } finally {
+      setPraPrinting(false)
+      setPraPromptContext(null)
+    }
+  }, [praPromptContext, praPrinting, formatCurrency, queryClient])
 
   const checkoutIntentMutation = useMutation({
     mutationFn: ({
@@ -1175,6 +1246,13 @@ export function CounterInterface() {
       />
 
       <KotPrintModal open={kotPrintOpen} onOpenChange={setKotPrintOpen} kots={lastFireKots} />
+
+      <PraInvoicePromptModal
+        open={praPromptContext != null}
+        onSkip={handlePraSkip}
+        onPrint={handlePraPrint}
+        busy={praPrinting}
+      />
 
       {checkoutCelebration != null && (
         <CounterCheckoutSuccessOverlay
