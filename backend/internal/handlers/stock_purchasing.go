@@ -363,7 +363,8 @@ func (h *StockHandler) CreatePurchaseOrder(c *gin.Context) {
 	poMeta := map[string]interface{}{"supplier_id": req.SupplierID, "line_count": len(req.Lines)}
 	if err := insertInventoryActivityLog(tx, userID, "inventory.po_create", "purchase_order", &poID,
 		fmt.Sprintf("Created purchase order for %s (%d lines)", supplierName, len(req.Lines)), poMeta); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
+		msg, errPtr := activityLogInsertFailureResponse(err)
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: msg, Error: errPtr})
 		return
 	}
 	if err := tx.Commit(); err != nil {
@@ -559,7 +560,8 @@ func (h *StockHandler) ReceivePurchaseOrder(c *gin.Context) {
 		mid := movementID
 		if err := insertInventoryActivityLog(tx, userID, "inventory.po_line_receive", "stock_movement", &mid,
 			fmt.Sprintf("PO receive: %s +%.2f", lineItemName, rl.QuantityReceived), lineMeta); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
+			msg, errPtr := activityLogInsertFailureResponse(err)
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: msg, Error: errPtr})
 			return
 		}
 	}
@@ -588,7 +590,8 @@ func (h *StockHandler) ReceivePurchaseOrder(c *gin.Context) {
 		fmt.Sprintf("Received goods on PO (%d line(s)) → %s", recvCount, newStatus), map[string]interface{}{
 			"new_status": newStatus, "lines_with_receipts": recvCount,
 		}); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
+		msg, errPtr := activityLogInsertFailureResponse(err)
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: msg, Error: errPtr})
 		return
 	}
 

@@ -43,6 +43,17 @@ func insertInventoryActivityLog(exec sqlExecer, actorID uuid.UUID, action, entit
 	return err
 }
 
+// activityLogInsertFailureResponse maps DB errors (e.g. missing table on volumes created before the activity log existed) into a clear API message.
+func activityLogInsertFailureResponse(err error) (message string, apiError *string) {
+	s := strings.ToLower(err.Error())
+	if strings.Contains(s, "inventory_activity_log") && strings.Contains(s, "does not exist") {
+		return "Your database is missing the store activity log table (common on older installs). " +
+			"Restart the backend once so it can create the table automatically, or from the project folder run: make db-migrate-inventory-activity — then try again.",
+		nil
+	}
+	return "Failed to write activity log", strPtr(err.Error())
+}
+
 // GetInventoryActivity returns paginated append-only inventory audit entries.
 func (h *StockHandler) GetInventoryActivity(c *gin.Context) {
 	page, perPage := parsePagination(c)
@@ -234,7 +245,8 @@ func (h *StockHandler) VoidPurchaseMovement(c *gin.Context) {
 		"quantity": qty,
 	}
 	if err := insertInventoryActivityLog(tx, userID, "inventory.purchase_void", "stock_movement", &movID, summary, meta); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
+		msg, errPtr := activityLogInsertFailureResponse(err)
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: msg, Error: errPtr})
 		return
 	}
 
@@ -371,7 +383,8 @@ func (h *StockHandler) CorrectPurchaseMovementCost(c *gin.Context) {
 		"reason":           strings.TrimSpace(req.Reason),
 	}
 	if err := insertInventoryActivityLog(tx, userID, "inventory.purchase_cost_correct", "stock_movement", &movID, summary, meta); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
+		msg, errPtr := activityLogInsertFailureResponse(err)
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: msg, Error: errPtr})
 		return
 	}
 

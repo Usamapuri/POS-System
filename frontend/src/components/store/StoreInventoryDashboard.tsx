@@ -1019,6 +1019,71 @@ function AlertsTab({ alerts, setModal, items }: { alerts: StockAlert[]; setModal
   )
 }
 
+/** Plain-language labels for the Activity tab (server stores short codes like `inventory.category_create`). */
+const INVENTORY_ACTIVITY_ACTION_LABELS: Record<string, string> = {
+  'inventory.category_create': 'Category added',
+  'inventory.category_update': 'Category updated',
+  'inventory.category_delete': 'Category removed',
+  'inventory.item_create': 'Item added',
+  'inventory.item_update': 'Item updated',
+  'inventory.item_delete': 'Item removed',
+  'inventory.item_archive': 'Item archived',
+  'inventory.purchase': 'Stock purchased',
+  'inventory.issue': 'Stock issued / used',
+  'inventory.adjust': 'Stock adjusted',
+  'inventory.purchase_void': 'Purchase voided',
+  'inventory.purchase_cost_correct': 'Purchase cost corrected',
+  'inventory.supplier_create': 'Supplier added',
+  'inventory.supplier_update': 'Supplier updated',
+  'inventory.supplier_delete': 'Supplier removed',
+  'inventory.po_create': 'Purchase order created',
+  'inventory.po_submit': 'Purchase order submitted',
+  'inventory.po_cancel': 'Purchase order cancelled',
+  'inventory.po_line_receive': 'Order line received',
+  'inventory.po_receive': 'Purchase order received',
+}
+
+function friendlyInventoryActivityAction(action: string): string {
+  if (INVENTORY_ACTIVITY_ACTION_LABELS[action]) return INVENTORY_ACTIVITY_ACTION_LABELS[action]
+  const tail = action.replace(/^inventory\./, '').replace(/_/g, ' ')
+  return tail ? tail.charAt(0).toUpperCase() + tail.slice(1) : action
+}
+
+const INVENTORY_ACTIVITY_METADATA_KEY_LABELS: Record<string, string> = {
+  name: 'Name',
+  quantity: 'Quantity',
+  quantity_delta: 'Quantity change',
+  movement_id: 'Movement ID',
+  stock_item_id: 'Item ID',
+  supplier_id: 'Supplier ID',
+  status: 'Status',
+  new_status: 'New status',
+  lines_with_receipts: 'Lines received',
+  line_count: 'Line count',
+  reason: 'Reason',
+}
+
+function formatInventoryActivityDetails(meta?: Record<string, unknown> | null): string {
+  if (!meta || typeof meta !== 'object') return '—'
+  const keys = Object.keys(meta).filter(k => {
+    const v = meta[k]
+    return v !== undefined && v !== null && v !== ''
+  })
+  if (keys.length === 0) return '—'
+  keys.sort()
+  const lines: string[] = []
+  for (const k of keys) {
+    const v = meta[k]
+    const label = INVENTORY_ACTIVITY_METADATA_KEY_LABELS[k] ?? k.replace(/_/g, ' ')
+    if (typeof v === 'object' && !Array.isArray(v)) {
+      lines.push(`${label}: ${JSON.stringify(v)}`)
+    } else {
+      lines.push(`${label}: ${String(v)}`)
+    }
+  }
+  return lines.join('\n')
+}
+
 function ActivityTab({
   entries,
   meta,
@@ -1060,20 +1125,22 @@ function ActivityTab({
         <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-destructive" />
         <p className="font-medium text-destructive">Could not load activity</p>
         <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">{error}</p>
-        <p className="text-xs text-muted-foreground mt-3">If this keeps happening, restart the backend to apply database patches.</p>
+        <p className="text-xs text-muted-foreground mt-3">
+          Try restarting the backend, or from the project folder run: <code className="rounded bg-muted px-1 py-0.5 text-[11px]">make db-migrate-inventory-activity</code>
+        </p>
       </div>
     )
   }
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground max-w-3xl">
-        Append-only audit of inventory changes. Entries are not edited in place. Wrong purchases can be voided (removes stock and expense)
-        or corrected (new unit cost) from Movements when the received lot has not been consumed yet.
+        A read-only history of store inventory changes: who did what and when. The summary is the main story in everyday language.
+        Wrong purchases can still be voided or corrected from the Movements tab when the system allows it.
       </p>
       <div className="flex flex-wrap gap-3 items-center">
         <input
           type="text"
-          placeholder="Filter by action (e.g. purchase, void)"
+          placeholder="Search (e.g. purchase, category, supplier)"
           value={actionFilter}
           onChange={e => {
             setActionFilter(e.target.value)
@@ -1092,9 +1159,9 @@ function ActivityTab({
             <tr>
               <th className="text-left px-4 py-3 font-medium">When</th>
               <th className="text-left px-4 py-3 font-medium">Who</th>
-              <th className="text-left px-4 py-3 font-medium">Action</th>
+              <th className="text-left px-4 py-3 font-medium">What happened</th>
               <th className="text-left px-4 py-3 font-medium">Summary</th>
-              <th className="text-left px-4 py-3 font-medium">Details</th>
+              <th className="text-left px-4 py-3 font-medium">Extra details</th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -1109,10 +1176,12 @@ function ActivityTab({
               <tr key={a.id} className="hover:bg-muted/30 align-top">
                 <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{new Date(a.created_at).toLocaleString()}</td>
                 <td className="px-4 py-2">{a.actor_name?.trim() || '—'}</td>
-                <td className="px-4 py-2 font-mono text-xs">{a.action}</td>
+                <td className="px-4 py-2 max-w-[220px] text-sm text-foreground" title={`Technical code: ${a.action}`}>
+                  {friendlyInventoryActivityAction(a.action)}
+                </td>
                 <td className="px-4 py-2 max-w-[300px]">{a.summary}</td>
-                <td className="px-4 py-2 text-xs text-muted-foreground font-mono max-w-[340px] whitespace-pre-wrap break-all">
-                  {a.metadata && Object.keys(a.metadata).length > 0 ? JSON.stringify(a.metadata, null, 2) : '—'}
+                <td className="px-4 py-2 text-xs text-muted-foreground max-w-[340px] whitespace-pre-wrap break-words">
+                  {formatInventoryActivityDetails(a.metadata)}
                 </td>
               </tr>
             ))}
@@ -2200,6 +2269,7 @@ function AdjustForm({ item, onClose, qc, showToast }: { item: StockItem; onClose
       qc.invalidateQueries({ queryKey: ['stockMovements'] })
       qc.invalidateQueries({ queryKey: ['stockSummary'] })
       qc.invalidateQueries({ queryKey: ['advancedStockReport'] })
+      qc.invalidateQueries({ queryKey: ['inventoryActivity'] })
       showToast('success', `Adjusted ${item.name} by ${delta > 0 ? '+' : ''}${delta} ${item.unit}`)
       onClose()
     },
@@ -2217,7 +2287,7 @@ function AdjustForm({ item, onClose, qc, showToast }: { item: StockItem; onClose
       </div>
       <p className="text-sm text-muted-foreground">
         Current on hand: <span className="font-medium text-foreground">{item.quantity_on_hand} {item.unit}</span>.
-        Use a positive change to add stock, negative to remove (FIFO lots).
+        Enter a positive number to add stock, or a negative number to remove it. When you remove stock, older receipts are used first so costs stay fair.
       </p>
       <FormField label={`Quantity change (${item.unit})`} required>
         <input

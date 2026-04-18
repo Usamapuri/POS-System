@@ -598,7 +598,8 @@ func (h *StockHandler) PurchaseStock(c *gin.Context) {
 	}
 	summary := fmt.Sprintf("Recorded purchase: %s +%.2f", itemName, req.Quantity)
 	if err := insertInventoryActivityLog(tx, userID, "inventory.purchase", "stock_movement", &movementID, summary, meta); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
+		msg, errPtr := activityLogInsertFailureResponse(err)
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: msg, Error: errPtr})
 		return
 	}
 
@@ -717,7 +718,8 @@ func (h *StockHandler) IssueStock(c *gin.Context) {
 	}
 	if err := insertInventoryActivityLog(tx, userID, "inventory.issue", "stock_movement", &issueMovID,
 		fmt.Sprintf("Issued stock: %s −%.2f", itemNameIssue, deductQty), issMeta); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
+		msg, errPtr := activityLogInsertFailureResponse(err)
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: msg, Error: errPtr})
 		return
 	}
 
@@ -831,7 +833,8 @@ func (h *StockHandler) AdjustStock(c *gin.Context) {
 		adjMeta := map[string]interface{}{"movement_id": movementID, "stock_item_id": itemID, "quantity_delta": delta}
 		if err := insertInventoryActivityLog(tx, userID, "inventory.adjust", "stock_movement", &movementID,
 			fmt.Sprintf("Stock adjustment: %s %+g", adjItemName, delta), adjMeta); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
+			msg, errPtr := activityLogInsertFailureResponse(err)
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: msg, Error: errPtr})
 			return
 		}
 	} else {
@@ -860,7 +863,8 @@ func (h *StockHandler) AdjustStock(c *gin.Context) {
 		adjMeta2 := map[string]interface{}{"movement_id": negAdjID, "stock_item_id": itemID, "quantity_delta": delta}
 		if err := insertInventoryActivityLog(tx, userID, "inventory.adjust", "stock_movement", &negAdjID,
 			fmt.Sprintf("Stock adjustment: %s %+g", adjItemName2, delta), adjMeta2); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to write activity log", Error: strPtr(err.Error())})
+			msg, errPtr := activityLogInsertFailureResponse(err)
+			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: msg, Error: errPtr})
 			return
 		}
 	}
