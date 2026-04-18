@@ -23,6 +23,11 @@ func ApplySchemaPatches(db *sql.DB) {
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS checkout_payment_method VARCHAR(20)`,
 		`ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_checkout_payment_method_check`,
 		`ALTER TABLE orders ADD CONSTRAINT orders_checkout_payment_method_check CHECK (checkout_payment_method IS NULL OR checkout_payment_method IN ('cash', 'card', 'online'))`,
+		// discount_percent: NULL for flat-amount discounts (or no discount),
+		// 0-100 when entered as a percentage. Matches migrations/006.
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_percent DECIMAL(5,2)`,
+		`ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_discount_percent_range`,
+		`ALTER TABLE orders ADD CONSTRAINT orders_discount_percent_range CHECK (discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 100))`,
 		`ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_payment_method_check`,
 		`ALTER TABLE payments ADD CONSTRAINT payments_payment_method_check CHECK (payment_method IN ('cash', 'credit_card', 'debit_card', 'digital_wallet', 'online'))`,
 		`ALTER TABLE dining_tables ADD COLUMN IF NOT EXISTS zone VARCHAR(100)`,
@@ -104,6 +109,124 @@ func ApplySchemaPatches(db *sql.DB) {
 		if _, err := db.Exec(q); err != nil {
 			log.Printf("schema patch (crm/open-tab): %v", err)
 		}
+	}
+
+	// Store purchasing (suppliers, purchase orders, FIFO batches) — migrations/001.
+	// Keeps older dev/prod DBs compatible with handlers/stock_purchasing.go and
+	// handlers/stock_batches.go without the operator having to run migrate scripts.
+	storePurchasing := []string{
+		`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`,
+		`CREATE TABLE IF NOT EXISTS suppliers (
+			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			name VARCHAR(150) NOT NULL,
+			contact_name VARCHAR(100),
+			phone VARCHAR(40),
+			email VARCHAR(120),
+			notes TEXT,
+			is_active BOOLEAN DEFAULT true,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS purchase_orders (
+			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+			status VARCHAR(24) NOT NULL DEFAULT 'draft'
+				CHECK (status IN ('draft','ordered','partially_received','received','cancelled')),
+			expected_date DATE,
+			notes TEXT,
+			created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS purchase_order_lines (
+			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			purchase_order_id UUID NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+			stock_item_id UUID NOT NULL REFERENCES stock_items(id) ON DELETE RESTRICT,
+			quantity_ordered DECIMAL(10,2) NOT NULL CHECK (quantity_ordered > 0),
+			unit_cost DECIMAL(10,2),
+			quantity_received DECIMAL(10,2) NOT NULL DEFAULT 0 CHECK (quantity_received >= 0),
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL`,
+		`ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS purchase_order_id UUID REFERENCES purchase_orders(id) ON DELETE SET NULL`,
+		`CREATE TABLE IF NOT EXISTS stock_batches (
+			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			stock_item_id UUID NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+			quantity_remaining DECIMAL(10,2) NOT NULL CHECK (quantity_remaining >= 0),
+			initial_quantity DECIMAL(10,2) NOT NULL CHECK (initial_quantity > 0),
+			unit_cost DECIMAL(10,2),
+			expiry_date DATE,
+			stock_movement_id UUID REFERENCES stock_movements(id) ON DELETE SET NULL,
+			purchase_order_line_id UUID REFERENCES purchase_order_lines(id) ON DELETE SET NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_stock_batches_fifo ON stock_batches (stock_item_id, expiry_date NULLS LAST, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_stock_batches_remaining ON stock_batches (stock_item_id) WHERE quantity_remaining > 0`,
+		`CREATE INDEX IF NOT EXISTS idx_stock_movements_supplier ON stock_movements(supplier_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_stock_movements_po ON stock_movements(purchase_order_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_purchase_orders_supplier ON purchase_orders(supplier_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_po ON purchase_order_lines(purchase_order_id)`,
+		`ALTER TABLE stock_movements DROP CONSTRAINT IF EXISTS stock_movements_movement_type_check`,
+		`ALTER TABLE stock_movements ADD CONSTRAINT stock_movements_movement_type_check
+			CHECK (movement_type IN ('purchase', 'issue', 'adjustment'))`,
+	}
+	for _, q := range storePurchasing {
+		if _, err := db.Exec(q); err != nil {
+			log.Printf("schema patch (store-purchasing): %v", err)
+		}
+	}
+
+	// User profile image (migrations/003) — referenced by getAdminUsers SELECT.
+	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image_url TEXT`); err != nil {
+		log.Printf("schema patch: users.profile_image_url: %v", err)
+	}
+
+	// Expense categories + recorded_at (migrations/005).
+	expenseLedger := []string{
+		`CREATE TABLE IF NOT EXISTS expense_category_defs (
+			id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+			slug VARCHAR(64) UNIQUE NOT NULL,
+			label VARCHAR(120) NOT NULL,
+			color VARCHAR(80) NOT NULL DEFAULT 'bg-muted text-muted-foreground',
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			is_system BOOLEAN NOT NULL DEFAULT false,
+			is_active BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`ALTER TABLE expenses DROP CONSTRAINT IF EXISTS expenses_category_check`,
+		`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS recorded_at TIMESTAMPTZ`,
+		`UPDATE expenses SET recorded_at = COALESCE(recorded_at, (expense_date::timestamp AT TIME ZONE 'UTC')) WHERE recorded_at IS NULL`,
+		`ALTER TABLE expenses ALTER COLUMN recorded_at SET DEFAULT CURRENT_TIMESTAMP`,
+		`ALTER TABLE expenses ALTER COLUMN recorded_at SET NOT NULL`,
+		`ALTER TABLE expenses ALTER COLUMN category TYPE VARCHAR(64)`,
+		`CREATE INDEX IF NOT EXISTS idx_expenses_recorded_at ON expenses(recorded_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_expense_category_defs_slug ON expense_category_defs(slug)`,
+		`CREATE INDEX IF NOT EXISTS idx_expense_category_defs_active ON expense_category_defs(is_active) WHERE is_active = true`,
+	}
+	for _, q := range expenseLedger {
+		if _, err := db.Exec(q); err != nil {
+			log.Printf("schema patch (expense-ledger): %v", err)
+		}
+	}
+	// Seed default expense category defs (idempotent via WHERE NOT EXISTS).
+	if _, err := db.Exec(`
+		INSERT INTO expense_category_defs (slug, label, color, sort_order, is_system)
+		SELECT v.slug, v.label, v.color, v.sort_order, v.is_system
+		FROM (VALUES
+			('inventory_purchase', 'Inventory Purchase', 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200', 10, true),
+			('utilities', 'Utilities', 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-200', 20, false),
+			('rent', 'Rent', 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-200', 30, false),
+			('salaries', 'Salaries', 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200', 40, false),
+			('maintenance', 'Maintenance', 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-200', 50, false),
+			('marketing', 'Marketing', 'bg-pink-100 text-pink-800 dark:bg-pink-950 dark:text-pink-200', 60, false),
+			('supplies', 'Supplies', 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-200', 70, false),
+			('other', 'Other', 'bg-muted text-muted-foreground', 100, false)
+		) AS v(slug, label, color, sort_order, is_system)
+		WHERE NOT EXISTS (SELECT 1 FROM expense_category_defs WHERE expense_category_defs.slug = v.slug)
+	`); err != nil {
+		log.Printf("schema patch: expense_category_defs seed: %v", err)
 	}
 
 	inventoryActivity := []string{
