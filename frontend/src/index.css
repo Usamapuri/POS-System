@@ -306,3 +306,74 @@
   }
 }
 
+/*
+ * Counter route — top-center toast viewport.
+ * The global shadcn viewport renders at bottom-right on desktop, which overlaps
+ * the checkout Totals + primary CTA column. On the counter route we reposition
+ * it to top-center so the action column is never occluded. The counter page
+ * sets body[data-counter-route="true"] while mounted. The `data-toast-viewport`
+ * hook is set on the shadcn ToastViewport component.
+ */
+body[data-counter-route="true"] [data-toast-viewport] {
+  top: 1rem;
+  bottom: auto;
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
+  flex-direction: column;
+  align-items: center;
+  width: calc(100% - 2rem);
+  max-width: 28rem;
+  padding: 0;
+  gap: 0.5rem;
+}
+
+/*
+ * Subtle slide-down-from-top animation for toasts on the counter route so they
+ * feel anchored to the top-center viewport. The global toast component is
+ * styled for a bottom-right viewport; tailwindcss-animate isn't enabled in
+ * this project, so we animate here in plain CSS.
+ */
+body[data-counter-route="true"] [data-toast-viewport] > [data-state="open"] {
+  animation: counter-toast-slide-in-top 220ms ease-out;
+}
+@keyframes counter-toast-slide-in-top {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body[data-counter-route="true"] [data-toast-viewport] > [data-state="open"] {
+    animation: none;
+  }
+}
+
+/*
+ * Counter — inline "fired to kitchen" affirmation chip in the ticket header.
+ * Replaces the floating "Add-on sent" toast. Fades in and auto-dismisses via
+ * component state in CounterInterface.
+ */
+@keyframes counter-fired-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.counter-fired-chip {
+  animation: counter-fired-chip-in 220ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .counter-fired-chip {
+    animation: none;
+  }
+}
+

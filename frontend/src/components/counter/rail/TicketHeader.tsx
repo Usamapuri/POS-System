@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { ArrowRightLeft, ClipboardList, X } from 'lucide-react'
+import { ArrowRightLeft, Check, ClipboardList, X } from 'lucide-react'
 import type { DiningTable, Order } from '@/types'
 import type { TableSession } from '@/components/counter/TableSessionModal'
 import { ticketPillClasses, type TicketLifecycleMeta } from './ticketState'
@@ -14,6 +14,12 @@ export interface TicketHeaderProps {
   checkoutOpen: boolean
   lifecycle: TicketLifecycleMeta
   continuingOrderId: string | null
+  /**
+   * Transient inline affirmation shown after items are fired to the kitchen.
+   * Replaces the previous floating "Add-on sent" / "Sent to kitchen" toast,
+   * which overlapped the Totals and primary CTA in the rail.
+   */
+  firedConfirmation?: { count: number; mode: 'new' | 'continue' } | null
   onChangeTable?: () => void
   onCloseCheckout?: () => void
 }
@@ -33,6 +39,7 @@ export function TicketHeader({
   checkoutOpen,
   lifecycle,
   continuingOrderId,
+  firedConfirmation,
   onChangeTable,
   onCloseCheckout,
 }: TicketHeaderProps) {
@@ -149,6 +156,19 @@ export function TicketHeader({
             {existingOrder.kot_first_sent_at
               ? 'Items have been fired to the kitchen'
               : 'No items fired yet'}
+          </span>
+        </div>
+      )}
+      {firedConfirmation && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="counter-fired-chip inline-flex w-fit items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 shadow-sm dark:border-emerald-900/60 dark:bg-emerald-950/60 dark:text-emerald-200"
+        >
+          <Check className="h-3.5 w-3.5" aria-hidden />
+          <span>
+            {firedConfirmation.count} {firedConfirmation.count === 1 ? 'item' : 'items'}{' '}
+            {firedConfirmation.mode === 'continue' ? 'added to kitchen' : 'sent to kitchen'}
           </span>
         </div>
       )}

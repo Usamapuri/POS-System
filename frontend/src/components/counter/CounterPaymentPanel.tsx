@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import { CreditCard, DollarSign, Globe } from 'lucide-react'
+import { Check, CreditCard, DollarSign, Globe, X } from 'lucide-react'
 import type { Order, OrderItem } from '@/types'
 import type { computeCartTotals } from '@/lib/counterPricing'
 import { cn } from '@/lib/utils'
@@ -27,6 +27,13 @@ export type CounterPaymentPanelProps = {
   onApplyDiscount: () => void
   processPaymentPending: boolean
   onPrimaryPay: () => void
+  /**
+   * Inline confirmation surfaced directly above the remaining-balance ledger
+   * after a partial payment has been recorded. Replaces a floating toast that
+   * would draw the operator's eye away from the payment rail.
+   */
+  partialPaymentBanner?: string | null
+  onDismissPartialPaymentBanner?: () => void
 }
 
 export function CounterPaymentPanel({
@@ -48,6 +55,8 @@ export function CounterPaymentPanel({
   onApplyDiscount,
   processPaymentPending,
   onPrimaryPay,
+  partialPaymentBanner,
+  onDismissPartialPaymentBanner,
 }: CounterPaymentPanelProps) {
   const payCtaClass =
     paymentCheckoutIntent === 'cash'
@@ -130,6 +139,32 @@ export function CounterPaymentPanel({
           <span className="tabular-nums">{formatCurrency(payOrder.total_amount)}</span>
         </div>
       </section>
+
+      {partialPaymentBanner ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="counter-fired-chip flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 shadow-sm dark:border-emerald-900/60 dark:bg-emerald-950/60 dark:text-emerald-100"
+        >
+          <Check className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold">Payment recorded</div>
+            <div className="text-xs text-emerald-900/80 dark:text-emerald-200/80">
+              {partialPaymentBanner}
+            </div>
+          </div>
+          {onDismissPartialPaymentBanner && (
+            <button
+              type="button"
+              onClick={onDismissPartialPaymentBanner}
+              aria-label="Dismiss payment confirmation"
+              className="shrink-0 rounded p-0.5 text-emerald-900/70 transition-colors hover:bg-emerald-100 hover:text-emerald-900 dark:text-emerald-200/70 dark:hover:bg-emerald-900/40 dark:hover:text-emerald-100"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      ) : null}
 
       <TendersLedger
         payments={payOrder.payments}

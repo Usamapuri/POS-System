@@ -12,6 +12,10 @@ const ToastViewport = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <ToastPrimitives.Viewport
     ref={ref}
+    // `data-toast-viewport` is a stable hook CSS can target from page-level
+    // overrides (e.g., the counter route repositions this viewport to
+    // top-center so it doesn't overlap the Totals + primary CTA column).
+    data-toast-viewport=""
     className={cn(
       "fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]",
       className

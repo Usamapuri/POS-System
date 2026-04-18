@@ -143,6 +143,21 @@ export function CounterInterface() {
   const [existingItemsExpanded, setExistingItemsExpanded] = useState(false)
   const [tableTransferOpen, setTableTransferOpen] = useState(false)
   const [tablesPickerOpen, setTablesPickerOpen] = useState(false)
+  /**
+   * Inline affirmation after items fire to the kitchen. Replaces the previous
+   * floating "Add-on sent" toast that overlapped the Totals + primary CTA in
+   * the ticket rail. Auto-clears after a few seconds.
+   */
+  const [firedConfirmation, setFiredConfirmation] = useState<
+    { count: number; mode: 'new' | 'continue' } | null
+  >(null)
+  const firedConfirmationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /**
+   * Inline banner shown above the remaining-balance row inside the checkout
+   * dialog after a partial payment is recorded. Replaces a toast that would
+   * otherwise float away from the operator's point of focus.
+   */
+  const [partialPaymentBanner, setPartialPaymentBanner] = useState<string | null>(null)
 
   const [checkoutRailPx, setCheckoutRailPx] = useState(readCheckoutRailWidth)
   const counterSplitRef = useRef<HTMLDivElement>(null)
@@ -181,6 +196,24 @@ export function CounterInterface() {
     setCheckoutCelebration(null)
   }, [])
 
+  // Mark this route so the shadcn ToastViewport repositions to top-center
+  // (see index.css -> body[data-counter-route="true"]). The default bottom-right
+  // viewport would otherwise overlap the Totals + primary CTA on the checkout rail.
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    document.body.setAttribute('data-counter-route', 'true')
+    return () => {
+      document.body.removeAttribute('data-counter-route')
+    }
+  }, [])
+
+  // Clear the partial-payment affirmation whenever the checkout dialog closes
+  // or the operator switches to a different order so a stale banner never
+  // leaks across tickets.
+  useEffect(() => {
+    if (!checkoutOpen) setPartialPaymentBanner(null)
+  }, [checkoutOpen, selectedOrder?.id])
+
   useEffect(() => {
     return subscribeOrderReady((e) => {
       toastHelpers.success(
@@ -202,6 +235,10 @@ export function CounterInterface() {
       if (cartFlashTimeoutRef.current != null) {
         clearTimeout(cartFlashTimeoutRef.current)
         cartFlashTimeoutRef.current = null
+      }
+      if (firedConfirmationTimeoutRef.current != null) {
+        clearTimeout(firedConfirmationTimeoutRef.current)
+        firedConfirmationTimeoutRef.current = null
       }
     }
   }, [])
@@ -273,12 +310,17 @@ export function CounterInterface() {
   const payOrder = selectedOrder ? (orderForPayment ?? selectedOrder) : null
 
   const submitCartMutation = useMutation({
-    mutationFn: async (): Promise<{ orderId: string; mode: 'new' | 'continue' }> => {
+    mutationFn: async (): Promise<{
+      orderId: string
+      mode: 'new' | 'continue'
+      itemCount: number
+    }> => {
       const lines = cart.map((item) => ({
         product_id: item.product.id,
         quantity: item.quantity,
         special_instructions: item.special_instructions,
       }))
+      const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0)
       if (orderType === 'dine_in' && !continuingOrderId) {
         throw new Error('Confirm the table session first (order was not opened).')
       }
@@ -287,7 +329,7 @@ export function CounterInterface() {
         if (!res.success) {
           throw new Error(res.message || 'Could not add items to order')
         }
-        return { orderId: continuingOrderId, mode: 'continue' }
+        return { orderId: continuingOrderId, mode: 'continue', itemCount }
       }
       const orderData: CreateOrderRequest = {
         table_id: orderType === 'dine_in' ? selectedTable?.id : undefined,
@@ -308,7 +350,7 @@ export function CounterInterface() {
       if (!res.success || !res.data?.id) {
         throw new Error(res.message || 'Could not create order')
       }
-      return { orderId: res.data.id, mode: 'new' }
+      return { orderId: res.data.id, mode: 'new', itemCount }
     },
     onSuccess: async (result) => {
       setCart([])
@@ -322,10 +364,16 @@ export function CounterInterface() {
         if (!fr.success) {
           toastHelpers.error('Kitchen (KOT)', fr.message || 'Could not send order to the kitchen display.')
         } else {
-          toastHelpers.success(
-            result.mode === 'continue' ? 'Add-on sent' : 'Sent to kitchen',
-            result.mode === 'continue' ? 'New items were sent to the kitchen.' : 'Order is on the KDS queue.'
-          )
+          // Inline affirmation in the ticket header instead of a floating toast
+          // that would overlap the Totals + primary CTA on the checkout rail.
+          if (firedConfirmationTimeoutRef.current != null) {
+            clearTimeout(firedConfirmationTimeoutRef.current)
+          }
+          setFiredConfirmation({ count: result.itemCount, mode: result.mode })
+          firedConfirmationTimeoutRef.current = setTimeout(() => {
+            setFiredConfirmation(null)
+            firedConfirmationTimeoutRef.current = null
+          }, 3500)
           setLastFireKots(fr.data?.kots)
           setKotPrintOpen(true)
         }
@@ -407,6 +455,7 @@ export function CounterInterface() {
 
       if (fullyPaid) {
         setCheckoutCelebration(orderType)
+        setPartialPaymentBanner(null)
         setSelectedOrder(null)
         setCheckoutOpen(false)
         setCashModalOpen(false)
@@ -425,9 +474,13 @@ export function CounterInterface() {
         setExistingItemsExpanded(false)
         queryClient.removeQueries({ queryKey: ['order', variables.orderId, 'payment-panel'] })
       } else {
-        toastHelpers.success(
-          'Payment recorded',
-          orderAfter ? 'Remaining balance still due on this check.' : 'Refresh the order if totals look wrong.'
+        // Inline banner inside the checkout dialog (above the remaining-balance
+        // ledger) rather than a floating toast that pulls the operator's eye
+        // away from the payment rail.
+        setPartialPaymentBanner(
+          orderAfter
+            ? 'Remaining balance still due on this check.'
+            : 'Refresh the order if totals look wrong.'
         )
         setCashModalOpen(false)
         setCashReceived('')
@@ -664,7 +717,8 @@ export function CounterInterface() {
         setGuestBirthday(toGuestDateInputValue(o.guest_birthday))
         setCart([])
         setOrderNotes('')
-        toastHelpers.success('Open order loaded', `Adding items to #${o.order_number}`)
+        // Intentionally no toast: the rail immediately re-renders with the loaded
+        // order (order number, items, table badge) — the UI itself is the affirmation.
       }
     } catch {
       toastHelpers.error('Table', 'Could not load the open order for this table.')
@@ -695,7 +749,8 @@ export function CounterInterface() {
       setCustomerPhone(s.customerPhone ?? res.data.customer_phone ?? '')
       setGuestBirthday(s.guestBirthday ?? toGuestDateInputValue(res.data.guest_birthday))
       setSessionModalOpen(false)
-      toastHelpers.success('Table opened', `Order #${res.data.order_number}`)
+      // Intentionally no toast: the newly-opened tab appears in the rail header
+      // (order number, table badge, guest/server meta) as visible confirmation.
       queryClient.invalidateQueries({ queryKey: ['tables'] })
     } catch (e) {
       toastHelpers.error('Table', e instanceof Error ? e.message : 'Request failed')
@@ -740,7 +795,8 @@ export function CounterInterface() {
       queryClient.invalidateQueries({ queryKey: ['tables'] })
       queryClient.invalidateQueries({ queryKey: ['orders'] })
       queryClient.invalidateQueries({ queryKey: ['counterPendingOrders'] })
-      toastHelpers.success('Table changed', `Order moved to ${res.data.table?.table_number ?? 'new table'}`)
+      // Intentionally no toast: the table badge in the ticket header flips to the
+      // new table number, which is clearer than a floating banner.
     },
     onError: (e: Error) => {
       toastHelpers.error('Change table', e.message || 'Request failed')
@@ -851,7 +907,8 @@ export function CounterInterface() {
         setSelectedTable(null)
         setDineInSession(null)
       }
-      toastHelpers.success('Order loaded', `#${od.order_number}`)
+      // Intentionally no toast: the rail re-renders with the loaded ticket's
+      // order number, items, and status — the UI itself is the affirmation.
     },
     [orderType, sortedTables]
   )
@@ -1371,6 +1428,7 @@ export function CounterInterface() {
               checkoutOpen={checkoutOpen}
               lifecycle={ticketLifecycle}
               continuingOrderId={continuingOrderId}
+              firedConfirmation={firedConfirmation}
               onChangeTable={existingOrder && continuingOrderId ? openTableTransferDialog : undefined}
               onCloseCheckout={checkoutOpen ? () => {
                 setCheckoutOpen(false)
@@ -1544,6 +1602,8 @@ export function CounterInterface() {
                       } else if (paymentCheckoutIntent === 'card') runCardPayment()
                       else runOnlinePayment()
                     }}
+                    partialPaymentBanner={partialPaymentBanner}
+                    onDismissPartialPaymentBanner={() => setPartialPaymentBanner(null)}
                   />
 
                   {cashModalOpen && (
