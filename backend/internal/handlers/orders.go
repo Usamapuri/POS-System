@@ -1019,6 +1019,7 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 		       o.customer_email, o.customer_phone, o.guest_birthday, o.table_opened_at, COALESCE(o.is_open_tab, false),
 		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount, o.discount_percent,
 		       o.service_charge_amount, o.total_amount, o.checkout_payment_method, o.guest_count, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
+		       COALESCE(o.pra_invoice_printed, false), o.pra_invoice_number, o.pra_invoice_printed_at,
 		       t.table_number, t.location,
 		       u.username, u.first_name, u.last_name
 		FROM orders o
@@ -1032,11 +1033,14 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 	var guestBD sql.NullTime
 	var tableOpened sql.NullTime
 	var discountPct sql.NullFloat64
+	var praInvoiceNumber sql.NullString
+	var praInvoicePrintedAt sql.NullTime
 	err := h.db.QueryRow(query, orderID).Scan(
 		&order.ID, &order.OrderNumber, &order.TableID, &order.UserID, &custIDns, &order.CustomerName,
 		&custEmail, &custPhone, &guestBD, &tableOpened, &order.IsOpenTab,
 		&order.OrderType, &order.Status, &order.Subtotal, &order.TaxAmount, &order.DiscountAmount, &discountPct,
 		&order.ServiceChargeAmount, &order.TotalAmount, &checkoutMethod, &order.GuestCount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
+		&order.PraInvoicePrinted, &praInvoiceNumber, &praInvoicePrintedAt,
 		&tableNumber, &tableLocation,
 		&username, &firstName, &lastName,
 	)
@@ -1073,6 +1077,14 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 	if tableOpened.Valid {
 		t := tableOpened.Time.UTC()
 		order.TableOpenedAt = &t
+	}
+	if praInvoiceNumber.Valid {
+		s := praInvoiceNumber.String
+		order.PraInvoiceNumber = &s
+	}
+	if praInvoicePrintedAt.Valid {
+		t := praInvoicePrintedAt.Time.UTC()
+		order.PraInvoicePrintedAt = &t
 	}
 
 	// Add table info if available
