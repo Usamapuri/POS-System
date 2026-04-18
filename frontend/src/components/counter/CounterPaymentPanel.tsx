@@ -8,6 +8,16 @@ import { TenderInput, type TenderIntent } from '@/components/counter/rail/Tender
 
 export type CounterPaymentTotals = ReturnType<typeof computeCartTotals>
 
+/**
+ * Render a fractional rate like 0.075 as "7.5%" / 0.15 as "15%" — matches the
+ * convention used on the printed receipt so the UI and the bill agree.
+ */
+function formatRatePct(fraction: number): string {
+  if (!Number.isFinite(fraction) || fraction <= 0) return ''
+  const rounded = Math.round(fraction * 10000) / 100
+  return `${rounded}%`
+}
+
 export type CounterPaymentPanelProps = {
   payOrder: Order
   paymentCheckoutIntent: TenderIntent
@@ -118,19 +128,28 @@ export function CounterPaymentPanel({
         </div>
         {payOrder.discount_amount > 0 && (
           <div className="flex justify-between gap-4 text-primary">
-            <span>Discount</span>
+            <span>
+              Discount
+              {typeof payOrder.discount_percent === 'number' && payOrder.discount_percent > 0
+                ? ` (${formatRatePct(payOrder.discount_percent / 100)})`
+                : ''}
+            </span>
             <span className="font-medium tabular-nums">−{formatCurrency(payOrder.discount_amount)}</span>
           </div>
         )}
         <div className="flex justify-between gap-4">
-          <span className="text-muted-foreground">Service</span>
+          <span className="text-muted-foreground">
+            Service Charges
+            {paymentTotals?.serviceRate ? ` (${formatRatePct(paymentTotals.serviceRate)})` : ''}
+          </span>
           <span className="font-medium tabular-nums">
             {formatCurrency(payOrder.service_charge_amount ?? paymentTotals?.service ?? 0)}
           </span>
         </div>
         <div className="flex justify-between gap-4">
           <span className="text-muted-foreground">
-            Tax ({paymentTotals ? (paymentTotals.taxRate * 100).toFixed(0) : '—'}%)
+            Sales Tax
+            {paymentTotals?.taxRate ? ` (${formatRatePct(paymentTotals.taxRate)})` : ''}
           </span>
           <span className="font-medium tabular-nums">{formatCurrency(payOrder.tax_amount)}</span>
         </div>

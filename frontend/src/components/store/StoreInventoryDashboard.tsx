@@ -312,8 +312,8 @@ export function StoreInventoryDashboard() {
     <div className="p-6 max-w-[1400px] mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Store Inventory</h1>
-          <p className="text-muted-foreground text-sm">Manage supplies, purchases, and issues</p>
+          <h1 className="text-3xl font-bold tracking-tight">Store Inventory</h1>
+          <p className="text-muted-foreground">Manage supplies, purchases, and issues</p>
         </div>
         <div className="flex gap-2">
           <Button onClick={() => setModal({ kind: 'addItem' })} size="sm">

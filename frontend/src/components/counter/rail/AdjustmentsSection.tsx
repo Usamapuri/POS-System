@@ -2,10 +2,20 @@ export interface AdjustmentTotals {
   subtotal: number
   /** Optional discount amount (compose mode typically 0). */
   discount?: number
+  /** Discount percent (0–100) when the discount was entered as a percentage. */
+  discountPercent?: number | null
   service: number
   tax: number
   taxRate: number
+  /** Service-charge fraction (0.10 == 10%); optional so legacy callers keep working. */
+  serviceRate?: number
   total: number
+}
+
+function formatRatePct(fraction: number): string {
+  if (!Number.isFinite(fraction) || fraction <= 0) return ''
+  const rounded = Math.round(fraction * 10000) / 100
+  return `${rounded}%`
 }
 
 export interface AdjustmentsSectionProps {
@@ -38,17 +48,24 @@ export function AdjustmentsSection({
         </div>
         {typeof totals.discount === 'number' && totals.discount > 0 && (
           <div className="flex justify-between gap-4 text-primary">
-            <span>Discount</span>
+            <span>
+              Discount
+              {typeof totals.discountPercent === 'number' && totals.discountPercent > 0
+                ? ` (${formatRatePct(totals.discountPercent / 100)})`
+                : ''}
+            </span>
             <span className="font-medium tabular-nums">−{formatCurrency(totals.discount)}</span>
           </div>
         )}
         <div className="flex justify-between gap-4">
-          <span className="text-muted-foreground">Service charge</span>
+          <span className="text-muted-foreground">
+            Service Charges{totals.serviceRate ? ` (${formatRatePct(totals.serviceRate)})` : ''}
+          </span>
           <span className="font-medium tabular-nums">{formatCurrency(totals.service)}</span>
         </div>
         <div className="flex justify-between gap-4">
           <span className="text-muted-foreground">
-            Tax ({(totals.taxRate * 100).toFixed(0)}%)
+            Sales Tax{totals.taxRate ? ` (${formatRatePct(totals.taxRate)})` : ''}
           </span>
           <span className="font-medium tabular-nums">{formatCurrency(totals.tax)}</span>
         </div>

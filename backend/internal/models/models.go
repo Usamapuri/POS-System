@@ -95,6 +95,10 @@ type Order struct {
 	Subtotal             float64  `json:"subtotal"`
 	TaxAmount            float64  `json:"tax_amount"`
 	DiscountAmount       float64  `json:"discount_amount"`
+	// DiscountPercent is NULL when the discount was entered as a flat amount
+	// (or there is no discount); 0-100 when entered as a percentage of
+	// Subtotal. Frontends use this to render "Discount (10%)" on receipts.
+	DiscountPercent      *float64 `json:"discount_percent,omitempty"`
 	ServiceChargeAmount  float64  `json:"service_charge_amount"`
 	TotalAmount          float64  `json:"total_amount"`
 	CheckoutPaymentMethod *string `json:"checkout_payment_method,omitempty"`

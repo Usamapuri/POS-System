@@ -1,7 +1,7 @@
 # POS System - Development Makefile
 # Usage: make <command>
 
-.PHONY: help dev prod up down build logs clean backup restore create-admin remove-data db-shell db-migrate-counter-pricing db-migrate-currency db-migrate-store-purchasing db-migrate-user-profile db-migrate-expense-categories db-migrate-inventory-activity test lint format
+.PHONY: help dev prod up down build logs clean backup restore create-admin remove-data db-shell db-migrate-counter-pricing db-migrate-currency db-migrate-store-purchasing db-migrate-user-profile db-migrate-expense-categories db-migrate-inventory-activity db-migrate-orders-discount-percent test lint format
 
 # Default target
 .DEFAULT_GOAL := help
@@ -44,6 +44,7 @@ help:
 	@echo "  make db-migrate-user-profile     - Add users.profile_image_url + demo avatar URLs"
 	@echo "  make db-migrate-expense-categories - Expense category defs + expenses.recorded_at (existing DBs)"
 	@echo "  make db-migrate-inventory-activity - Activity log table + void columns (fixes adjust/purchase errors on old DBs)"
+	@echo "  make db-migrate-orders-discount-percent - Add orders.discount_percent (receipt shows % for % discounts)"
 	@echo "  make db-reset          - Reset database with fresh schema and seed data"
 	@echo ""
 	@echo "$(GREEN)Utility Commands:$(NC)"
@@ -258,6 +259,17 @@ db-migrate-inventory-activity:
 	@docker exec -i pos-postgres-dev psql -U postgres -d pos_system < database/migrations/004_inventory_activity_log.sql 2>/dev/null || \
 	 docker exec -i pos-postgres psql -U postgres -d pos_system < database/migrations/004_inventory_activity_log.sql
 	@echo "$(GREEN)✅ Inventory activity migration applied. Restart the backend if it was already running.$(NC)"
+
+# Orders.discount_percent column (so receipts can render "Discount (10%)" for % discounts)
+db-migrate-orders-discount-percent:
+	@echo "$(GREEN)📦 Applying orders.discount_percent migration...$(NC)"
+	@if [ -z "$$(docker ps -q -f name=pos-postgres)" ]; then \
+		echo "$(RED)❌ Database container is not running. Start the stack first (e.g. make up).$(NC)"; \
+		exit 1; \
+	fi
+	@docker exec -i pos-postgres-dev psql -U postgres -d pos_system < database/migrations/006_orders_discount_percent.sql 2>/dev/null || \
+	 docker exec -i pos-postgres psql -U postgres -d pos_system < database/migrations/006_orders_discount_percent.sql
+	@echo "$(GREEN)✅ Orders discount_percent migration applied. Restart the backend if it was already running.$(NC)"
 
 # Reset database with fresh schema and seed data
 db-reset:

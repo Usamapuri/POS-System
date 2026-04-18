@@ -32,5 +32,8 @@ export function computeCartTotals(
     intent === 'card' ? p.tax_rate_card : intent === 'online' ? p.tax_rate_online : p.tax_rate_cash
   const tax = round2(taxable * tr)
   const total = round2(taxable + service + tax)
-  return { taxable, service, tax, total, taxRate: tr }
+  // `taxRate` and `serviceRate` are returned as fractions (0.15 == 15%) so
+  // the caller can render a consistent "Sales Tax (15%)" / "Service Charges
+  // (10%)" label alongside the money amount.
+  return { taxable, service, tax, total, taxRate: tr, serviceRate: p.service_charge_rate }
 }

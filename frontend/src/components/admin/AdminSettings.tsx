@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -17,11 +17,20 @@ import {
   Monitor,
   Palette,
   Loader2,
+  Upload,
+  Trash2,
+  Plus,
+  ArrowUp,
+  ArrowDown,
+  Image as ImageIcon,
+  Link2,
 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { useToast } from '@/hooks/use-toast'
 import { useTheme } from '@/contexts/ThemeContext'
 import { DEFAULT_DISPLAY_CURRENCY, parseCurrencyFromSettings, setDisplayCurrency } from '@/lib/currency'
+import { ReceiptPreview } from '@/components/admin/ReceiptPreview'
+import { parseReceiptSettings, type ReceiptCustomField } from '@/lib/printCustomerReceipt'
 
 interface OrderTypeConfig {
   id: string
@@ -121,19 +130,60 @@ export function AdminSettings() {
   })
 
   // ── Receipt ──
-  const [customerReceipt, setCustomerReceipt] = useState({
+  type ReceiptFormState = {
+    business_name: string
+    address: string
+    ntn: string
+    pos_number: string
+    logo_url: string
+    logo_width_percent: string
+    phone: string
+    email: string
+    website: string
+    accent_color: string
+    thank_you: string
+    custom_fields: ReceiptCustomField[]
+  }
+
+  const EMPTY_RECEIPT_FORM: ReceiptFormState = {
     business_name: '',
     address: '',
     ntn: '',
     pos_number: '',
     logo_url: '',
     logo_width_percent: '75',
-  })
+    phone: '',
+    email: '',
+    website: '',
+    accent_color: '#111827',
+    thank_you: 'Thank you for your visit!',
+    custom_fields: [],
+  }
+
+  const [customerReceipt, setCustomerReceipt] = useState<ReceiptFormState>(EMPTY_RECEIPT_FORM)
 
   useEffect(() => {
     const d = allSettingsRes?.data as Record<string, unknown> | undefined
     if (!d) return
     const str = (k: string) => (typeof d[k] === 'string' ? (d[k] as string) : '')
+    const parsedCustom = Array.isArray(d.receipt_custom_fields)
+      ? (d.receipt_custom_fields as unknown[])
+          .map((r, idx): ReceiptCustomField | null => {
+            if (!r || typeof r !== 'object') return null
+            const rec = r as Record<string, unknown>
+            const label = typeof rec.label === 'string' ? rec.label : ''
+            const value = typeof rec.value === 'string' ? rec.value : ''
+            if (!label && !value) return null
+            return {
+              id: typeof rec.id === 'string' && rec.id ? rec.id : `cf-${Date.now()}-${idx}`,
+              label,
+              value,
+              position: rec.position === 'header' ? 'header' : 'footer',
+              style: rec.style === 'bold' || rec.style === 'muted' ? rec.style : 'normal',
+            }
+          })
+          .filter((v): v is ReceiptCustomField => v !== null)
+      : []
     setCustomerReceipt({
       business_name: str('receipt_business_name') || (typeof d.restaurant_name === 'string' ? d.restaurant_name : ''),
       address: str('receipt_address'),
@@ -144,6 +194,14 @@ export function AdminSettings() {
         typeof d.receipt_logo_width_percent === 'number'
           ? String(Math.round(d.receipt_logo_width_percent))
           : str('receipt_logo_width_percent') || '75',
+      phone: str('receipt_phone'),
+      email: str('receipt_email'),
+      website: str('receipt_website'),
+      accent_color: /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(str('receipt_accent_color'))
+        ? str('receipt_accent_color')
+        : '#111827',
+      thank_you: str('receipt_thank_you') || 'Thank you for your visit!',
+      custom_fields: parsedCustom,
     })
   }, [allSettingsRes])
 
@@ -156,6 +214,21 @@ export function AdminSettings() {
       await apiClient.updateSetting('receipt_pos_number', customerReceipt.pos_number)
       await apiClient.updateSetting('receipt_logo_url', customerReceipt.logo_url)
       await apiClient.updateSetting('receipt_logo_width_percent', logoWidth)
+      await apiClient.updateSetting('receipt_phone', customerReceipt.phone)
+      await apiClient.updateSetting('receipt_email', customerReceipt.email)
+      await apiClient.updateSetting('receipt_website', customerReceipt.website)
+      await apiClient.updateSetting('receipt_accent_color', customerReceipt.accent_color)
+      await apiClient.updateSetting('receipt_thank_you', customerReceipt.thank_you)
+      await apiClient.updateSetting(
+        'receipt_custom_fields',
+        customerReceipt.custom_fields.map((f) => ({
+          id: f.id,
+          label: f.label,
+          value: f.value,
+          position: f.position,
+          style: f.style ?? 'normal',
+        })),
+      )
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'all'] })
@@ -165,6 +238,87 @@ export function AdminSettings() {
       toast({ title: 'Save failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' })
     },
   })
+
+  // Custom fields helpers
+  const addCustomField = (position: 'header' | 'footer') => {
+    setCustomerReceipt((prev) => ({
+      ...prev,
+      custom_fields: [
+        ...prev.custom_fields,
+        { id: `cf-${Date.now()}`, label: '', value: '', position, style: 'normal' },
+      ],
+    }))
+  }
+  const updateCustomField = (id: string, patch: Partial<ReceiptCustomField>) => {
+    setCustomerReceipt((prev) => ({
+      ...prev,
+      custom_fields: prev.custom_fields.map((f) => (f.id === id ? { ...f, ...patch } : f)),
+    }))
+  }
+  const removeCustomField = (id: string) => {
+    setCustomerReceipt((prev) => ({
+      ...prev,
+      custom_fields: prev.custom_fields.filter((f) => f.id !== id),
+    }))
+  }
+  const moveCustomField = (id: string, dir: -1 | 1) => {
+    setCustomerReceipt((prev) => {
+      const idx = prev.custom_fields.findIndex((f) => f.id === id)
+      if (idx < 0) return prev
+      const target = idx + dir
+      if (target < 0 || target >= prev.custom_fields.length) return prev
+      const next = [...prev.custom_fields]
+      ;[next[idx], next[target]] = [next[target], next[idx]]
+      return { ...prev, custom_fields: next }
+    })
+  }
+
+  // Logo uploader — downscale client-side to keep app_settings payload small.
+  const logoFileInputRef = useRef<HTMLInputElement | null>(null)
+  const handleLogoFile = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast({ title: 'Invalid file', description: 'Please choose an image file (PNG, JPG, SVG).', variant: 'destructive' })
+      return
+    }
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, 400, 0.92)
+      setCustomerReceipt((p) => ({ ...p, logo_url: dataUrl }))
+      toast({ title: 'Logo loaded', description: 'Preview updated. Click Save to persist.' })
+    } catch (e) {
+      toast({ title: 'Upload failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' })
+    }
+  }
+
+  // Derive a live CustomerReceiptSettings object for the preview that also
+  // includes the current tax/service rates the admin is editing in-session.
+  const previewSettings = useMemo(() => {
+    const raw = (allSettingsRes?.data as Record<string, unknown> | undefined) ?? {}
+    const toFrac = (s: string) => {
+      const n = parseFloat(s)
+      return Number.isFinite(n) ? n / 100 : 0
+    }
+    const merged: Record<string, unknown> = {
+      ...raw,
+      receipt_business_name: customerReceipt.business_name,
+      receipt_address: customerReceipt.address,
+      receipt_ntn: customerReceipt.ntn,
+      receipt_pos_number: customerReceipt.pos_number,
+      receipt_logo_url: customerReceipt.logo_url,
+      receipt_logo_width_percent:
+        Math.min(80, Math.max(70, Number(customerReceipt.logo_width_percent || '75') || 75)),
+      receipt_phone: customerReceipt.phone,
+      receipt_email: customerReceipt.email,
+      receipt_website: customerReceipt.website,
+      receipt_accent_color: customerReceipt.accent_color,
+      receipt_thank_you: customerReceipt.thank_you,
+      receipt_custom_fields: customerReceipt.custom_fields,
+      tax_rate_cash: toFrac(checkoutRates.tax_cash_pct),
+      tax_rate_card: toFrac(checkoutRates.tax_card_pct),
+      tax_rate_online: toFrac(checkoutRates.tax_online_pct),
+      service_charge_rate: toFrac(checkoutRates.service_pct),
+    }
+    return parseReceiptSettings(merged)
+  }, [allSettingsRes, customerReceipt, checkoutRates])
 
   // ── Order Types ──
   // Fixed, non-extensible list of supported order types. Only these three are
@@ -326,122 +480,277 @@ export function AdminSettings() {
     </div>
   )
 
-  const renderReceipt = () => (
-    <div className="space-y-6">
-      <SectionHeader
-        title="Receipt & Printing"
-        description="Customize the thermal receipt printed after payment. Invoice number, payment mode, and cashier name are added automatically."
-      />
+  const renderReceipt = () => {
+    const headerFields = customerReceipt.custom_fields.filter((f) => f.position === 'header')
+    const footerFields = customerReceipt.custom_fields.filter((f) => f.position === 'footer')
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <Card className="lg:col-span-3">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-base">Business Details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <FieldGroup label="Business Name" hint="Printed as the receipt header.">
-              <Input
-                value={customerReceipt.business_name}
-                onChange={(e) => setCustomerReceipt({ ...customerReceipt, business_name: e.target.value })}
-                placeholder="e.g. chaayé khana"
-              />
-            </FieldGroup>
+    return (
+      <div className="space-y-6">
+        <SectionHeader
+          title="Receipt & Printing"
+          description="Customize the thermal receipt printed after payment. Invoice number, date, time, payment mode, cashier, and server name are added automatically from each order."
+        />
 
-            <FieldGroup label="Address" hint="Street, area, city (multiple lines OK).">
-              <Textarea
-                rows={3}
-                value={customerReceipt.address}
-                onChange={(e) => setCustomerReceipt({ ...customerReceipt, address: e.target.value })}
-                placeholder="Street, area, city"
-                className="resize-y min-h-[72px]"
-              />
-            </FieldGroup>
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+          {/* ── Left column: editable settings ─────────────────────────── */}
+          <div className="xl:col-span-3 space-y-6">
+            {/* Brand */}
+            <Card>
+              <CardHeader className="pb-4">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4" /> Brand
+                </CardTitle>
+                <CardDescription>Logo and business name printed at the top of every receipt.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <FieldGroup label="Business Name" hint="Printed as the receipt header.">
+                  <Input
+                    value={customerReceipt.business_name}
+                    onChange={(e) => setCustomerReceipt({ ...customerReceipt, business_name: e.target.value })}
+                    placeholder="e.g. COVA Cafe"
+                  />
+                </FieldGroup>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FieldGroup label="NTN / STRN">
-                <Input
-                  value={customerReceipt.ntn}
-                  onChange={(e) => setCustomerReceipt({ ...customerReceipt, ntn: e.target.value })}
-                  placeholder="Tax registration"
+                <FieldGroup label="Logo" hint="Upload an image (auto-resized) or paste a public URL.">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => logoFileInputRef.current?.click()}
+                        className="gap-2"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        Upload Image
+                      </Button>
+                      <input
+                        ref={logoFileInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) handleLogoFile(file)
+                          e.target.value = ''
+                        }}
+                      />
+                      {customerReceipt.logo_url && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setCustomerReceipt({ ...customerReceipt, logo_url: '' })}
+                          className="gap-2 text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <Link2 className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={customerReceipt.logo_url.startsWith('data:') ? '' : customerReceipt.logo_url}
+                        onChange={(e) => setCustomerReceipt({ ...customerReceipt, logo_url: e.target.value })}
+                        placeholder={customerReceipt.logo_url.startsWith('data:')
+                          ? 'Using uploaded image (clear to switch to URL)'
+                          : 'https://yourcdn.com/logo.png'}
+                        className="pl-8"
+                        disabled={customerReceipt.logo_url.startsWith('data:')}
+                      />
+                    </div>
+                  </div>
+                </FieldGroup>
+
+                <FieldGroup label="Logo Width (%)" hint="Recommended: 70–80.">
+                  <Input
+                    type="number"
+                    min={70}
+                    max={80}
+                    value={customerReceipt.logo_width_percent}
+                    onChange={(e) => setCustomerReceipt({ ...customerReceipt, logo_width_percent: e.target.value })}
+                    placeholder="75"
+                    className="max-w-[140px]"
+                  />
+                </FieldGroup>
+              </CardContent>
+            </Card>
+
+            {/* Contact */}
+            <Card>
+              <CardHeader className="pb-4">
+                <CardTitle className="text-base">Contact</CardTitle>
+                <CardDescription>Address and reach-out details. All contact lines are optional.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <FieldGroup label="Address" hint="Street, area, city (multiple lines OK).">
+                  <Textarea
+                    rows={3}
+                    value={customerReceipt.address}
+                    onChange={(e) => setCustomerReceipt({ ...customerReceipt, address: e.target.value })}
+                    placeholder={'Street address\nArea, City'}
+                    className="resize-y min-h-[72px]"
+                  />
+                </FieldGroup>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FieldGroup label="Phone">
+                    <Input
+                      value={customerReceipt.phone}
+                      onChange={(e) => setCustomerReceipt({ ...customerReceipt, phone: e.target.value })}
+                      placeholder="e.g. +92 300 1234567"
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="Email">
+                    <Input
+                      type="email"
+                      value={customerReceipt.email}
+                      onChange={(e) => setCustomerReceipt({ ...customerReceipt, email: e.target.value })}
+                      placeholder="hello@yourrestaurant.com"
+                    />
+                  </FieldGroup>
+                </div>
+                <FieldGroup label="Website">
+                  <Input
+                    value={customerReceipt.website}
+                    onChange={(e) => setCustomerReceipt({ ...customerReceipt, website: e.target.value })}
+                    placeholder="www.yourrestaurant.com"
+                  />
+                </FieldGroup>
+              </CardContent>
+            </Card>
+
+            {/* Legal / Tax */}
+            <Card>
+              <CardHeader className="pb-4">
+                <CardTitle className="text-base">Legal &amp; Tax</CardTitle>
+                <CardDescription>Regulatory identifiers printed below the header.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FieldGroup label="NTN / STRN">
+                    <Input
+                      value={customerReceipt.ntn}
+                      onChange={(e) => setCustomerReceipt({ ...customerReceipt, ntn: e.target.value })}
+                      placeholder="Tax registration"
+                    />
+                  </FieldGroup>
+                  <FieldGroup label="POS / Counter Number">
+                    <Input
+                      value={customerReceipt.pos_number}
+                      onChange={(e) => setCustomerReceipt({ ...customerReceipt, pos_number: e.target.value })}
+                      placeholder="e.g. 176709"
+                    />
+                  </FieldGroup>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Custom lines */}
+            <Card>
+              <CardHeader className="pb-4">
+                <CardTitle className="text-base">Custom Lines</CardTitle>
+                <CardDescription>
+                  Add your own labeled lines — useful for tag lines, terms, promotions, or social handles.
+                  Choose whether each line appears above the items (Header) or below the totals (Footer).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <CustomFieldsEditor
+                  title="Header lines"
+                  hint="Shown above the items table, right after NTN/STRN."
+                  fields={headerFields}
+                  allFields={customerReceipt.custom_fields}
+                  onAdd={() => addCustomField('header')}
+                  onUpdate={updateCustomField}
+                  onRemove={removeCustomField}
+                  onMove={moveCustomField}
                 />
-              </FieldGroup>
-              <FieldGroup label="POS / Counter Number">
-                <Input
-                  value={customerReceipt.pos_number}
-                  onChange={(e) => setCustomerReceipt({ ...customerReceipt, pos_number: e.target.value })}
-                  placeholder="e.g. 176709"
+                <CustomFieldsEditor
+                  title="Footer lines"
+                  hint="Shown below the Payable row — great for 'Thank you' variants, FBR notes, or policy."
+                  fields={footerFields}
+                  allFields={customerReceipt.custom_fields}
+                  onAdd={() => addCustomField('footer')}
+                  onUpdate={updateCustomField}
+                  onRemove={removeCustomField}
+                  onMove={moveCustomField}
                 />
-              </FieldGroup>
-            </div>
+              </CardContent>
+            </Card>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FieldGroup label="Logo URL" hint="Public URL (PNG/SVG). Prints above business name.">
-                <Input
-                  value={customerReceipt.logo_url}
-                  onChange={(e) => setCustomerReceipt({ ...customerReceipt, logo_url: e.target.value })}
-                  placeholder="https://yourcdn.com/logo.png"
-                />
-              </FieldGroup>
-              <FieldGroup label="Logo Width (%)" hint="Recommended: 70 to 80.">
-                <Input
-                  type="number"
-                  min={70}
-                  max={80}
-                  value={customerReceipt.logo_width_percent}
-                  onChange={(e) => setCustomerReceipt({ ...customerReceipt, logo_width_percent: e.target.value })}
-                  placeholder="75"
-                />
-              </FieldGroup>
-            </div>
+            {/* Appearance */}
+            <Card>
+              <CardHeader className="pb-4">
+                <CardTitle className="text-base">Appearance</CardTitle>
+                <CardDescription>Accent color and closing message.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FieldGroup label="Accent Color" hint="Used for section rules, business name, and Payable row.">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={customerReceipt.accent_color}
+                        onChange={(e) => setCustomerReceipt({ ...customerReceipt, accent_color: e.target.value })}
+                        className="w-10 h-10 rounded border border-input cursor-pointer bg-transparent"
+                        aria-label="Accent color"
+                      />
+                      <Input
+                        value={customerReceipt.accent_color}
+                        onChange={(e) => setCustomerReceipt({ ...customerReceipt, accent_color: e.target.value })}
+                        placeholder="#111827"
+                        className="font-mono uppercase"
+                      />
+                    </div>
+                  </FieldGroup>
+                  <FieldGroup label="Thank-You Message" hint="Shown just above the attribution footer.">
+                    <Input
+                      value={customerReceipt.thank_you}
+                      onChange={(e) => setCustomerReceipt({ ...customerReceipt, thank_you: e.target.value })}
+                      placeholder="Thank you for your visit!"
+                    />
+                  </FieldGroup>
+                </div>
+              </CardContent>
+            </Card>
 
-            <div className="flex justify-end pt-2">
-              <Button onClick={() => saveCustomerReceipt.mutate()} disabled={saveCustomerReceipt.isPending}>
-                {saveCustomerReceipt.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+            <div className="flex justify-end">
+              <Button
+                size="lg"
+                onClick={() => saveCustomerReceipt.mutate()}
+                disabled={saveCustomerReceipt.isPending}
+              >
+                {saveCustomerReceipt.isPending
+                  ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  : <Save className="w-4 h-4 mr-2" />}
                 Save Receipt Settings
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
 
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-base">Preview</CardTitle>
-            <CardDescription>Live preview of the receipt header.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
-              <div className="mx-auto w-full max-w-[240px] bg-background border border-border rounded-md px-4 py-3 text-center shadow-sm">
-                {customerReceipt.logo_url && (
-                  <img
-                    src={customerReceipt.logo_url}
-                    alt="Receipt logo preview"
-                    className="mx-auto mb-2 h-12 max-w-full object-contain"
-                    style={{ width: `${Math.min(80, Math.max(70, Number(customerReceipt.logo_width_percent) || 75))}%` }}
-                  />
-                )}
-                <div className="text-sm font-semibold">
-                  {customerReceipt.business_name || 'Business name'}
-                </div>
-                {customerReceipt.address && (
-                  <div className="text-[11px] text-muted-foreground whitespace-pre-line mt-0.5">{customerReceipt.address}</div>
-                )}
-                {customerReceipt.ntn && (
-                  <div className="text-[11px] text-muted-foreground mt-0.5">NTN / STRN: {customerReceipt.ntn}</div>
-                )}
-                {customerReceipt.pos_number && (
-                  <div className="text-[11px] text-muted-foreground mt-0.5">POS #: {customerReceipt.pos_number}</div>
-                )}
-                <div className="mt-2 border-t border-dashed border-border pt-2">
-                  <div className="text-[10px] text-muted-foreground">INV-000001 &middot; Cash &middot; 12:00 PM</div>
-                  <div className="text-[10px] text-muted-foreground">Cashier: Admin</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          {/* ── Right column: live preview ─────────────────────────────── */}
+          <div className="xl:col-span-2">
+            <Card className="xl:sticky xl:top-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-base">Live Preview</CardTitle>
+                <CardDescription>
+                  Exact 1:1 preview of the printed receipt with sample items and totals.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ReceiptPreview settings={previewSettings} paymentMethod="cash" />
+                <p className="mt-3 text-[11px] text-muted-foreground leading-snug">
+                  Preview uses your current tax and service rates from the Financial tab, plus any
+                  unsaved edits above. The footer attribution is hardcoded and cannot be removed.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   const renderOrderTypes = () => (
     <div className="space-y-6">
@@ -594,7 +903,7 @@ export function AdminSettings() {
 
       {/* Content panel */}
       <main className="flex-1 overflow-y-auto p-6 md:p-8 md:pt-6 mt-12 md:mt-0">
-        <div className="max-w-3xl">
+        <div className={activeSection === 'receipt' ? 'max-w-6xl' : 'max-w-3xl'}>
           {sectionRenderers[activeSection]()}
         </div>
       </main>
@@ -607,8 +916,8 @@ export function AdminSettings() {
 function SectionHeader({ title, description }: { title: string; description: string }) {
   return (
     <div className="mb-2">
-      <h3 className="text-xl font-semibold tracking-tight">{title}</h3>
-      <p className="text-sm text-muted-foreground mt-1">{description}</p>
+      <h2 className="text-3xl font-bold tracking-tight">{title}</h2>
+      <p className="text-muted-foreground mt-1">{description}</p>
     </div>
   )
 }
@@ -629,4 +938,190 @@ function FieldGroup({
       {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
     </div>
   )
+}
+
+// ── Custom fields editor ───────────────────────────────────────────────
+
+function CustomFieldsEditor({
+  title,
+  hint,
+  fields,
+  allFields,
+  onAdd,
+  onUpdate,
+  onRemove,
+  onMove,
+}: {
+  title: string
+  hint: string
+  fields: ReceiptCustomField[]
+  allFields: ReceiptCustomField[]
+  onAdd: () => void
+  onUpdate: (id: string, patch: Partial<ReceiptCustomField>) => void
+  onRemove: (id: string) => void
+  onMove: (id: string, dir: -1 | 1) => void
+}) {
+  // Position-within-group helpers: we only allow moves within the same group
+  // so the preview order stays predictable.
+  const indexInGroup = (id: string) => fields.findIndex((f) => f.id === id)
+  const indexInAll = (id: string) => allFields.findIndex((f) => f.id === id)
+
+  // Translate an in-group move into an all-fields move (swap with the
+  // previous / next field of the same position).
+  const moveWithinGroup = (id: string, dir: -1 | 1) => {
+    const groupIdx = indexInGroup(id)
+    const target = groupIdx + dir
+    if (target < 0 || target >= fields.length) return
+    const myAllIdx = indexInAll(id)
+    const neighborAllIdx = indexInAll(fields[target].id)
+    const distance = neighborAllIdx - myAllIdx
+    if (distance === 0) return
+    const step: -1 | 1 = distance > 0 ? 1 : -1
+    for (let i = 0; i < Math.abs(distance); i++) onMove(id, step)
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold">{title}</h4>
+          <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={onAdd} className="gap-1.5 shrink-0">
+          <Plus className="w-3.5 h-3.5" />
+          Add line
+        </Button>
+      </div>
+
+      {fields.length === 0 ? (
+        <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-4 text-xs text-muted-foreground text-center">
+          No lines yet. Click <span className="font-medium">Add line</span> to create one.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {fields.map((f, i) => (
+            <div
+              key={f.id}
+              className="rounded-md border border-border bg-background p-3 space-y-2"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_1.5fr_auto] gap-2">
+                <Input
+                  value={f.label}
+                  onChange={(e) => onUpdate(f.id, { label: e.target.value })}
+                  placeholder="Label (optional)"
+                  className="h-9"
+                />
+                <Input
+                  value={f.value}
+                  onChange={(e) => onUpdate(f.id, { value: e.target.value })}
+                  placeholder="Value — e.g. Follow us @covacafe"
+                  className="h-9"
+                />
+                <select
+                  value={f.style ?? 'normal'}
+                  onChange={(e) =>
+                    onUpdate(f.id, {
+                      style: e.target.value as 'normal' | 'bold' | 'muted',
+                    })
+                  }
+                  className="h-9 px-2 rounded-md border border-input bg-background text-xs"
+                >
+                  <option value="normal">Normal</option>
+                  <option value="bold">Bold</option>
+                  <option value="muted">Muted</option>
+                </select>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    disabled={i === 0}
+                    onClick={() => moveWithinGroup(f.id, -1)}
+                    aria-label="Move up"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    disabled={i === fields.length - 1}
+                    onClick={() => moveWithinGroup(f.id, 1)}
+                    aria-label="Move down"
+                  >
+                    <ArrowDown className="w-3.5 h-3.5" />
+                  </Button>
+                  <Badge variant="secondary" className="ml-1 text-[10px] uppercase tracking-wide">
+                    {f.position}
+                  </Badge>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onRemove(f.id)}
+                  className="h-7 gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Remove
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Image helpers ──────────────────────────────────────────────────────
+
+/**
+ * Read an image file, scale it down to `maxWidth` (preserving aspect ratio),
+ * and return a JPEG/PNG data URL. SVGs are returned as-is (data URL), since
+ * rasterizing them loses quality.
+ */
+async function resizeImageToDataUrl(file: File, maxWidth: number, quality: number): Promise<string> {
+  // SVG: read as text and encode as data URL directly — stays crisp.
+  if (file.type === 'image/svg+xml') {
+    const text = await file.text()
+    const encoded = window.btoa(unescape(encodeURIComponent(text)))
+    return `data:image/svg+xml;base64,${encoded}`
+  }
+
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Could not read file'))
+    reader.onload = () => resolve(String(reader.result))
+    reader.readAsDataURL(file)
+  })
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image()
+    el.onload = () => resolve(el)
+    el.onerror = () => reject(new Error('Could not decode image'))
+    el.src = dataUrl
+  })
+
+  const ratio = img.width > maxWidth ? maxWidth / img.width : 1
+  const w = Math.round(img.width * ratio)
+  const h = Math.round(img.height * ratio)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas not supported')
+  // Transparent PNG support: preserve alpha when the source has it.
+  const hasAlpha = file.type === 'image/png' || file.type === 'image/webp'
+  if (!hasAlpha) {
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, w, h)
+  }
+  ctx.drawImage(img, 0, 0, w, h)
+  return hasAlpha ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', quality)
 }

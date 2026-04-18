@@ -60,7 +60,7 @@ const adminSections = [
   },
   {
     id: 'counter',
-    label: 'Counter/Checkout',
+    label: 'Checkout Counter',
     icon: <CreditCard className="w-5 h-5" />,
     description: 'Payment processing'
   },

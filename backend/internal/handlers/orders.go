@@ -51,7 +51,7 @@ func (h *OrderHandler) GetOrders(c *gin.Context) {
 	queryBuilder := `
 		SELECT DISTINCT o.id, o.order_number, o.table_id, o.user_id, o.customer_id::text, o.customer_name,
 		       o.customer_email, o.customer_phone, o.guest_birthday, o.table_opened_at, COALESCE(o.is_open_tab, false),
-		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount,
+		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount, o.discount_percent,
 		       o.service_charge_amount, o.total_amount, o.checkout_payment_method, o.guest_count, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
 		       t.table_number, t.location,
 		       u.username, u.first_name, u.last_name
@@ -130,11 +130,12 @@ func (h *OrderHandler) GetOrders(c *gin.Context) {
 		var custIDns, custEmail, custPhone sql.NullString
 		var guestBD sql.NullTime
 		var tableOpened sql.NullTime
+		var discountPct sql.NullFloat64
 
 		err := rows.Scan(
 			&order.ID, &order.OrderNumber, &order.TableID, &order.UserID, &custIDns, &order.CustomerName,
 			&custEmail, &custPhone, &guestBD, &tableOpened, &order.IsOpenTab,
-			&order.OrderType, &order.Status, &order.Subtotal, &order.TaxAmount, &order.DiscountAmount,
+			&order.OrderType, &order.Status, &order.Subtotal, &order.TaxAmount, &order.DiscountAmount, &discountPct,
 			&order.ServiceChargeAmount, &order.TotalAmount, &checkoutMethod, &order.GuestCount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
 			&tableNumber, &tableLocation,
 			&username, &firstName, &lastName,
@@ -150,6 +151,10 @@ func (h *OrderHandler) GetOrders(c *gin.Context) {
 		if checkoutMethod.Valid {
 			s := checkoutMethod.String
 			order.CheckoutPaymentMethod = &s
+		}
+		if discountPct.Valid {
+			v := discountPct.Float64
+			order.DiscountPercent = &v
 		}
 		if custIDns.Valid && custIDns.String != "" {
 			if uid, e := uuid.Parse(custIDns.String); e == nil {
@@ -644,12 +649,18 @@ func (h *OrderHandler) ApplyOrderDiscount(c *gin.Context) {
 	}
 
 	finalDiscount := req.DiscountAmount
+	// persistedPct is what we store in orders.discount_percent. It's a pointer
+	// so we can write SQL NULL when the caller provided a flat amount (or
+	// cleared the discount entirely). Only a positive explicit percent from
+	// the request survives as a non-NULL value.
+	var persistedPct *float64
 	if req.DiscountPercent != nil && *req.DiscountPercent > 0 {
 		p := *req.DiscountPercent
 		if p > 100 {
 			p = 100
 		}
 		finalDiscount = subtotal * (p / 100)
+		persistedPct = &p
 	}
 	if finalDiscount < 0 {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid discount", Error: stringPtr("invalid_discount")})
@@ -665,7 +676,10 @@ func (h *OrderHandler) ApplyOrderDiscount(c *gin.Context) {
 		intent = checkout.String
 	}
 
-	if _, err := tx.Exec(`UPDATE orders SET discount_amount = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, finalDiscount, orderID); err != nil {
+	if _, err := tx.Exec(
+		`UPDATE orders SET discount_amount = $1, discount_percent = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+		finalDiscount, persistedPct, orderID,
+	); err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to update discount", Error: stringPtr(err.Error())})
 		return
 	}
@@ -977,7 +991,7 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 	query := `
 		SELECT o.id, o.order_number, o.table_id, o.user_id, o.customer_id::text, o.customer_name,
 		       o.customer_email, o.customer_phone, o.guest_birthday, o.table_opened_at, COALESCE(o.is_open_tab, false),
-		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount,
+		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount, o.discount_percent,
 		       o.service_charge_amount, o.total_amount, o.checkout_payment_method, o.guest_count, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
 		       t.table_number, t.location,
 		       u.username, u.first_name, u.last_name
@@ -991,10 +1005,11 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 	var custIDns, custEmail, custPhone sql.NullString
 	var guestBD sql.NullTime
 	var tableOpened sql.NullTime
+	var discountPct sql.NullFloat64
 	err := h.db.QueryRow(query, orderID).Scan(
 		&order.ID, &order.OrderNumber, &order.TableID, &order.UserID, &custIDns, &order.CustomerName,
 		&custEmail, &custPhone, &guestBD, &tableOpened, &order.IsOpenTab,
-		&order.OrderType, &order.Status, &order.Subtotal, &order.TaxAmount, &order.DiscountAmount,
+		&order.OrderType, &order.Status, &order.Subtotal, &order.TaxAmount, &order.DiscountAmount, &discountPct,
 		&order.ServiceChargeAmount, &order.TotalAmount, &checkoutMethod, &order.GuestCount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
 		&tableNumber, &tableLocation,
 		&username, &firstName, &lastName,
@@ -1007,6 +1022,10 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 	if checkoutMethod.Valid {
 		s := checkoutMethod.String
 		order.CheckoutPaymentMethod = &s
+	}
+	if discountPct.Valid {
+		v := discountPct.Float64
+		order.DiscountPercent = &v
 	}
 	if custIDns.Valid && custIDns.String != "" {
 		if uid, e := uuid.Parse(custIDns.String); e == nil {

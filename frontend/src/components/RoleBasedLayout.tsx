@@ -140,7 +140,7 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
         { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
         { id: 'pos', label: 'General POS', icon: <ShoppingCart className="w-4 h-4" /> },
         { id: 'server', label: 'Server Interface', icon: <Users className="w-4 h-4" /> },
-        { id: 'counter', label: 'Counter/Checkout', icon: <CreditCard className="w-4 h-4" /> },
+        { id: 'counter', label: 'Checkout Counter', icon: <CreditCard className="w-4 h-4" /> },
         { id: 'kitchen', label: 'Kitchen Display', icon: <ChefHat className="w-4 h-4" /> },
         { id: 'expenses', label: 'Expenses', icon: <Receipt className="w-4 h-4" /> }
       )
@@ -155,7 +155,7 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
     // Counter gets counter interface and general POS  
     else if (role === 'counter') {
       views.push(
-        { id: 'counter', label: 'Counter/Checkout', icon: <CreditCard className="w-4 h-4" /> },
+        { id: 'counter', label: 'Checkout Counter', icon: <CreditCard className="w-4 h-4" /> },
         { id: 'pos', label: 'General POS', icon: <ShoppingCart className="w-4 h-4" /> }
       )
     }

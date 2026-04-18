@@ -50,8 +50,8 @@ export function VoidLog() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900">Void Log</h2>
-        <p className="text-gray-500 mt-1">Audit trail of all voided order items</p>
+        <h2 className="text-3xl font-bold tracking-tight">Void Log</h2>
+        <p className="text-muted-foreground mt-1">Audit trail of all voided order items</p>
       </div>
 
       {/* Filters */}

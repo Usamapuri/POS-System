@@ -114,6 +114,10 @@ CREATE TABLE orders (
     subtotal DECIMAL(10,2) NOT NULL DEFAULT 0,
     tax_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
     discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+    -- NULL when the discount was entered as a flat amount (or there's no discount);
+    -- 0–100 when the discount was entered as a percentage of `subtotal`.
+    -- Retained so receipts / UI can render "Discount (10%)" faithfully.
+    discount_percent DECIMAL(5,2) CHECK (discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 100)),
     service_charge_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
     total_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
     checkout_payment_method VARCHAR(20) CHECK (checkout_payment_method IS NULL OR checkout_payment_method IN ('cash', 'card', 'online')),

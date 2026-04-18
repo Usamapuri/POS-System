@@ -117,7 +117,7 @@ export function StationManagement() {
   if (stationsError) {
     return (
       <div className="p-6 space-y-2">
-        <h2 className="text-2xl font-bold text-gray-900">Kitchen Stations</h2>
+        <h2 className="text-3xl font-bold tracking-tight">Kitchen Stations</h2>
         <p className="text-destructive text-sm">
           Could not load stations. {stationsErrorDetail instanceof Error ? stationsErrorDetail.message : 'Check that the API is running and the database has the kitchen_stations migration applied.'}
         </p>
@@ -129,8 +129,8 @@ export function StationManagement() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Kitchen Stations</h2>
-          <p className="text-gray-500 mt-1">Configure KOT routing destinations and assign menu categories</p>
+          <h2 className="text-3xl font-bold tracking-tight">Kitchen Stations</h2>
+          <p className="text-muted-foreground mt-1">Configure KOT routing destinations and assign menu categories</p>
         </div>
         <Button onClick={() => { resetForm(); setShowCreate(true) }}>
           <Plus className="w-4 h-4 mr-2" /> Add Station

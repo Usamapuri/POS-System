@@ -1221,8 +1221,8 @@ export function CounterInterface() {
         >
         <div className="shrink-0 border-b border-border bg-card/95 px-4 py-3 backdrop-blur-sm sm:px-5 sm:py-4">
           <div className="mb-3">
-            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Counter / Checkout</h1>
-            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
+            <h1 className="text-3xl font-bold tracking-tight">Checkout Counter</h1>
+            <p className="mt-1 max-w-3xl leading-relaxed text-muted-foreground">
               Choose order type, then add items from the menu. Checkout opens from the table session or from orders
               to close.
             </p>
@@ -1686,6 +1686,7 @@ export function CounterInterface() {
                         service: cartTotals.service,
                         tax: cartTotals.tax,
                         taxRate: cartTotals.taxRate,
+                        serviceRate: cartTotals.serviceRate,
                         total: cartTotals.total,
                       }
                 }

@@ -118,6 +118,12 @@ export interface Order {
   subtotal: number;
   tax_amount: number;
   discount_amount: number;
+  /**
+   * Discount percent (0–100) when the discount was entered as a percentage of
+   * the subtotal; null/undefined when it was entered as a flat amount or
+   * there is no discount. Receipts render "Discount (10%)" when this is set.
+   */
+  discount_percent?: number | null;
   service_charge_amount?: number;
   total_amount: number;
   checkout_payment_method?: 'cash' | 'card' | 'online';

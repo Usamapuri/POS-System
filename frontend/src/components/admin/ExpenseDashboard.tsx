@@ -169,8 +169,8 @@ export function ExpenseDashboard() {
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Expense dashboard</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <h1 className="text-3xl font-bold tracking-tight">Expense Dashboard</h1>
+        <p className="mt-1 text-muted-foreground">
           Track expenses, close days, and view P&amp;L — revenue aligns with completed orders (same basis as daily
           closing).
         </p>
