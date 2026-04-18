@@ -119,6 +119,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		counter.PATCH("/orders/:id/guest", orderHandler.UpdateCounterOrderGuest)
 		counter.PATCH("/orders/:id/service", orderHandler.UpdateCounterOrderService)
 		counter.POST("/orders/:id/payments", paymentHandler.ProcessPayment) // Process payments
+		counter.POST("/orders/:id/pra-invoice", orderHandler.MarkPraInvoicePrinted)
 	}
 
 	// Admin routes (admin/manager only)
@@ -158,6 +159,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		// Advanced order management
 		admin.POST("/orders", orderHandler.CreateOrder)                   // Admins can create any type of order
 		admin.POST("/orders/:id/payments", paymentHandler.ProcessPayment) // Admins can process payments
+		admin.POST("/orders/:id/pra-invoice", orderHandler.MarkPraInvoicePrinted)
 
 		// Expense management
 		admin.GET("/expenses", expenseHandler.GetExpenses)

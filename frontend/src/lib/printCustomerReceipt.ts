@@ -43,6 +43,17 @@ export type CustomerReceiptSettings = {
   customFields: ReceiptCustomField[]
   // Paper
   paperWidthMm: number
+  // PRA (Punjab Revenue Authority) tax invoice — optional second slip
+  // printed only when the cashier confirms the customer requested it.
+  praInvoiceEnabled: boolean
+  /**
+   * Template for the QR payload printed on the PRA slip. May contain the
+   * placeholders `{invoice_number}` and `{order_number}`; unrecognised tokens
+   * are left intact for future PRA API wiring.
+   */
+  praInvoiceQrUrlTemplate: string
+  /** Optional small line rendered above the PRA logo block. */
+  praInvoiceFooterNote: string
 }
 
 // ── Parsing ───────────────────────────────────────────────────────────
@@ -117,6 +128,9 @@ export function parseReceiptSettings(
     thankYouMessage: DEFAULT_THANK_YOU,
     customFields: [],
     paperWidthMm: 80,
+    praInvoiceEnabled: false,
+    praInvoiceQrUrlTemplate: '',
+    praInvoiceFooterNote: '',
   }
 
   if (!all) return empty
@@ -144,6 +158,9 @@ export function parseReceiptSettings(
     thankYouMessage: thankYouRaw || DEFAULT_THANK_YOU,
     customFields: parseCustomFields(all['receipt_custom_fields']),
     paperWidthMm: 80,
+    praInvoiceEnabled: all['pra_invoice_enabled'] === true,
+    praInvoiceQrUrlTemplate: s('pra_invoice_qr_url_template'),
+    praInvoiceFooterNote: s('pra_invoice_footer_note'),
   }
 }
 

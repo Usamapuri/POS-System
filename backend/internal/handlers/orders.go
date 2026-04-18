@@ -1288,3 +1288,69 @@ func (h *OrderHandler) allocDailyOrderNumber(tx *sql.Tx) (string, error) {
 	return fmt.Sprintf("%s-%03d", compact, n), nil
 }
 
+// MarkPraInvoicePrinted records that a PRA (Punjab Revenue Authority) tax
+// invoice slip was printed for an order. The invoice number is optional —
+// callers that don't yet have a real PRA-issued number may omit it; the
+// printed_at timestamp always reflects the most recent print.
+//
+// Only the flag, number and timestamp are updated; no monetary fields change.
+// This is safe to call multiple times (e.g. reprints) and will refresh the
+// timestamp + number each time.
+func (h *OrderHandler) MarkPraInvoicePrinted(c *gin.Context) {
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Message: "Invalid order ID",
+			Error:   stringPtr(err.Error()),
+		})
+		return
+	}
+
+	var body struct {
+		PraInvoiceNumber *string `json:"pra_invoice_number,omitempty"`
+	}
+	// Body is optional — accept empty POSTs gracefully.
+	_ = c.ShouldBindJSON(&body)
+
+	var invoiceNum interface{}
+	if body.PraInvoiceNumber != nil {
+		trimmed := strings.TrimSpace(*body.PraInvoiceNumber)
+		if trimmed != "" {
+			if len(trimmed) > 64 {
+				trimmed = trimmed[:64]
+			}
+			invoiceNum = trimmed
+		}
+	}
+
+	res, err := h.db.Exec(`
+		UPDATE orders
+		SET pra_invoice_printed = true,
+		    pra_invoice_number = COALESCE($2, pra_invoice_number),
+		    pra_invoice_printed_at = CURRENT_TIMESTAMP,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+	`, orderID, invoiceNum)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Message: "Failed to mark PRA invoice printed",
+			Error:   stringPtr(err.Error()),
+		})
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		c.JSON(http.StatusNotFound, models.APIResponse{
+			Success: false,
+			Message: "Order not found",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Message: "PRA invoice marked as printed",
+	})
+}
+

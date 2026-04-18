@@ -426,6 +426,31 @@ class APIClient {
     });
   }
 
+  /**
+   * Marks an order as having had its optional PRA (Punjab Revenue Authority)
+   * tax invoice slip printed. Safe to call multiple times — the backend
+   * refreshes the `pra_invoice_printed_at` timestamp and preserves the
+   * existing `pra_invoice_number` when the caller doesn't supply a new one.
+   *
+   * `invoiceNumber` is optional so the current rollout (which prints the slip
+   * with a blank number field) can still log the print event; once a real
+   * PRA-issued number is wired up, pass it here.
+   */
+  async markPraInvoicePrinted(
+    orderId: string,
+    invoiceNumber?: string,
+  ): Promise<APIResponse<null>> {
+    const body: { pra_invoice_number?: string } = {};
+    if (invoiceNumber && invoiceNumber.trim() !== '') {
+      body.pra_invoice_number = invoiceNumber.trim();
+    }
+    return this.request({
+      method: 'POST',
+      url: `/counter/orders/${orderId}/pra-invoice`,
+      data: body,
+    });
+  }
+
   async getCounterServers(q?: string): Promise<APIResponse<CounterServer[]>> {
     return this.request({
       method: 'GET',

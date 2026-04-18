@@ -135,6 +135,12 @@ export interface Order {
   updated_at: string;
   served_at?: string;
   completed_at?: string;
+  /** True once a PRA tax invoice slip has been printed for this order. */
+  pra_invoice_printed?: boolean;
+  /** Invoice number printed on the PRA slip, if any; typically empty during rollout. */
+  pra_invoice_number?: string | null;
+  /** Timestamp (ISO) when the PRA slip was last printed. */
+  pra_invoice_printed_at?: string;
   table?: DiningTable;
   user?: User;
   items?: OrderItem[];
