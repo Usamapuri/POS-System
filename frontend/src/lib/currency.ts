@@ -62,6 +62,22 @@ export function formatMoney(amount: number, currencyCode?: string): string {
   }).format(amount)
 }
 
+/**
+ * Format a money amount as a bare number (e.g. "852.15", "1,000") using the
+ * same locale and decimal rules as `formatMoney` — but without the currency
+ * symbol or code. Useful inside dense tables (e.g. the printed receipt's
+ * items table) where the currency is already implied by surrounding totals
+ * and repeating "Rs" on every row adds visual clutter.
+ */
+export function formatMoneyPlain(amount: number, currencyCode?: string): string {
+  const code = currencyCode ?? getDisplayCurrency()
+  return new Intl.NumberFormat(localeForCurrency(code), {
+    style: 'decimal',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(amount)
+}
+
 /** Short prefix for price inputs (matches active ISO currency). */
 export function getCurrencySymbolPrefix(): string {
   switch (getDisplayCurrency()) {

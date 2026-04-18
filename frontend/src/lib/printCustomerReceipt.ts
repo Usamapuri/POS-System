@@ -1,5 +1,5 @@
 import type { Order } from '@/types'
-import { formatMoney } from '@/lib/currency'
+import { formatMoney, formatMoneyPlain } from '@/lib/currency'
 
 // ── Hardcoded attribution ─────────────────────────────────────────────
 // Intentionally NOT configurable from the Settings UI. Only changeable here.
@@ -227,8 +227,14 @@ export function printCustomerReceipt(
     paidAt: Date
     /** Optional override; otherwise derived from order.user */
     serverName?: string
-    /** Defaults to PKR / RS via formatMoney when omitted. */
+    /** Defaults to PKR / RS via formatMoney when omitted. Used for totals. */
     formatAmount?: (n: number) => string
+    /**
+     * Number-only formatter for the items table (no currency symbol). Keeps
+     * locale grouping identical to `formatAmount`. Defaults to
+     * `formatMoneyPlain` when omitted.
+     */
+    formatAmountPlain?: (n: number) => string
   },
 ): void {
   const html = buildReceiptHtml(order, cfg, {
@@ -237,6 +243,7 @@ export function printCustomerReceipt(
     paidAt: opts.paidAt,
     serverName: opts.serverName ?? getServerNameFromOrder(order),
     formatAmount: opts.formatAmount,
+    formatAmountPlain: opts.formatAmountPlain,
     forPrint: true,
   })
 
@@ -278,7 +285,14 @@ export type BuildReceiptOptions = {
   paymentMethod: string
   paidAt: Date
   serverName?: string
+  /** Currency-aware formatter used for totals (Subtotal, Tax, Payable, etc). */
   formatAmount?: (n: number) => string
+  /**
+   * Plain-number formatter used for the items table (no currency symbol).
+   * Defaults to `formatMoneyPlain` so locale grouping stays consistent with
+   * `formatAmount` / `formatMoney`.
+   */
+  formatAmountPlain?: (n: number) => string
   /** When true, emits a fully-styled document for window.print(); when false,
    *  emits a fragment suitable for embedding in the admin preview. */
   forPrint: boolean
@@ -290,6 +304,11 @@ export function buildReceiptHtml(
   opts: BuildReceiptOptions,
 ): string {
   const fmt = opts.formatAmount ?? ((n: number) => formatMoney(n))
+  // Bare-number formatter for the items table. Intentionally omits the
+  // currency symbol — the currency is already implied by Subtotal / Payable
+  // directly below the table, and repeating "Rs" on every row makes the
+  // tight 80mm layout clunky.
+  const fmtPlain = opts.formatAmountPlain ?? ((n: number) => formatMoneyPlain(n))
   const items = (order.items ?? []).filter((i) => i.status !== 'voided')
   const totalQty = items.reduce((s, i) => s + i.quantity, 0)
   const inv = order.order_number
@@ -315,9 +334,9 @@ export function buildReceiptHtml(
       return `<tr class="item-row">
         <td class="num-col">${idx + 1}</td>
         <td class="desc">${escapeHtml(name)}</td>
-        <td class="num">${fmt(i.unit_price)}</td>
+        <td class="num">${fmtPlain(i.unit_price)}</td>
         <td class="num qty">${i.quantity}</td>
-        <td class="num">${fmt(i.total_price)}</td>
+        <td class="num">${fmtPlain(i.total_price)}</td>
       </tr>${noteLine}`
     })
     .join('')
