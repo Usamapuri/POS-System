@@ -217,10 +217,10 @@ export function CounterInterface() {
     },
   })
 
-  const ordersToCloseStrip = useMemo(() => {
-    if (orderType === 'dine_in') return []
-    return pendingOrders.filter((o) => o.order_type === orderType)
-  }, [orderType, pendingOrders])
+  const ordersToCloseStrip = useMemo(
+    () => pendingOrders.filter((o) => o.order_type === orderType),
+    [orderType, pendingOrders]
+  )
 
   const { data: paymentOrderDetail, isFetching: paymentOrderFetching } = useQuery({
     queryKey: ['order', selectedOrder?.id, 'payment-panel'],
