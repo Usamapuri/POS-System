@@ -1,12 +1,16 @@
 /**
  * Central read for the four `kitchen.*` app_settings that drive KDS behavior:
- *   - kitchen.mode                (kds | kot_only | hybrid)
+ *   - kitchen.mode                (kds | kot_only; legacy 'hybrid' parsed as KDS)
  *   - kitchen.urgency_minutes
  *   - kitchen.stale_minutes
  *   - kitchen.recall_window_seconds
  *
  * All components should read from this hook rather than rolling their own
  * parse, so mode changes land everywhere consistently (nav, KDS, fire flow).
+ *
+ * Note: 'hybrid' is preserved in the union for backward-compatibility with
+ * any rows persisted before the admin UI was simplified to KDS / KOT-only.
+ * It behaves identically to 'kds' (see `isKDSEnabled`).
  */
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'

@@ -39,7 +39,7 @@ export function KitchenDisabledScreen({ userRole }: KitchenDisabledScreenProps) 
           <div className="space-y-3">
             <p className="text-sm text-slate-600 dark:text-slate-400">
               To re-enable the KDS, go to <strong>Admin → Settings → Kitchen</strong> and change the
-              Kitchen Mode to <em>KDS</em> or <em>Hybrid</em>.
+              Kitchen Mode to <em>KDS</em>.
             </p>
             <Button
               className="w-full"

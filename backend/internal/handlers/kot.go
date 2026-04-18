@@ -143,13 +143,18 @@ func (h *KOTHandler) FireKOT(c *gin.Context) {
 			stationName = "Main Kitchen"
 			outputType = "kds"
 			printLocation = "kitchen"
+			// Deterministic fallback: prefer a station literally named "Main Kitchen",
+			// then the lowest sort_order, then the oldest. Only consider active rows.
 			err2 := h.db.QueryRow(`
-				SELECT id, COALESCE(NULLIF(TRIM(print_location), ''), 'kitchen')
-				FROM kitchen_stations WHERE name = 'Main Kitchen' OR sort_order = 1 ORDER BY sort_order LIMIT 1`).Scan(&stationID, &printLocation)
+				SELECT id, name, output_type, COALESCE(NULLIF(TRIM(print_location), ''), 'kitchen')
+				FROM kitchen_stations
+				WHERE is_active = true
+				ORDER BY (name = 'Main Kitchen') DESC, sort_order ASC, created_at ASC
+				LIMIT 1`).Scan(&stationID, &stationName, &outputType, &printLocation)
 			if err2 != nil {
-				_ = h.db.QueryRow(`
-					SELECT id, COALESCE(NULLIF(TRIM(print_location), ''), 'kitchen')
-					FROM kitchen_stations WHERE is_active = true ORDER BY sort_order LIMIT 1`).Scan(&stationID, &printLocation)
+				// No active stations at all — leave the synthetic defaults so the
+				// caller still gets a meaningful, predictable response.
+				stationID = uuid.Nil
 			}
 		}
 		// KOT-only venue: force every station to printer behavior. This
@@ -379,6 +384,11 @@ func (h *KOTHandler) VoidItem(c *gin.Context) {
 		JOIN kitchen_stations ks ON csm.station_id = ks.id
 		WHERE csm.category_id = $1 AND ks.is_active = true LIMIT 1
 	`, categoryID).Scan(&stationID, &stationName, &outputType)
+	// Match FireKOT semantics: in KOT-only mode, every station behaves as a printer
+	// — including when emitting the VOID slip for a previously KDS-routed item.
+	if sErr == nil && config.LoadKitchen(h.db).ForcePrinterOnly() {
+		outputType = "printer"
+	}
 	if sErr == nil {
 		var orderNumber, tableNumber, voidServer string
 		var voidOrderCreated time.Time

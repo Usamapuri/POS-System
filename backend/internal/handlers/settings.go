@@ -80,7 +80,10 @@ func validateKitchenSetting(key string, raw json.RawMessage) error {
 			return errBadValue("kitchen.mode must be a JSON string")
 		}
 		if !config.IsValidMode(s) {
-			return errBadValue("kitchen.mode must be 'kds', 'kot_only', or 'hybrid'")
+			// Note: backend still accepts the legacy 'hybrid' value for
+			// back-compat with rows persisted before the UI was simplified,
+			// but we no longer advertise it in error messages.
+			return errBadValue("kitchen.mode must be 'kds' or 'kot_only'")
 		}
 	case "kitchen.urgency_minutes", "kitchen.stale_minutes", "kitchen.recall_window_seconds":
 		var n float64

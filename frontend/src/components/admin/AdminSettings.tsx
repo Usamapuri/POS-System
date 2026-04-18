@@ -57,18 +57,17 @@ const NAV_ITEMS: { id: SettingsSection; label: string; icon: typeof Globe; descr
   { id: 'appearance', label: 'Appearance', icon: Palette, description: 'Theme and display preferences' },
 ]
 
-type KitchenModeChoice = 'kds' | 'kot_only' | 'hybrid'
+// Hybrid was previously exposed in the UI but was behaviorally identical to
+// KDS in the backend. It has been removed; values persisted as 'hybrid' are
+// migrated to 'kds' on load. The backend still parses the legacy alias for
+// backward-compat with any existing rows.
+type KitchenModeChoice = 'kds' | 'kot_only'
 
 const KITCHEN_MODE_COPY: Record<KitchenModeChoice, { title: string; description: string }> = {
   kds: {
     title: 'KDS',
     description:
       'Digital kitchen display is primary. Stations configured as "KDS" send tickets to the screen; stations configured as "Printer" still print.',
-  },
-  hybrid: {
-    title: 'Hybrid',
-    description:
-      'Some stations use the KDS, others print. Routing follows each station\'s output_type. Good for venues with a bar printer + kitchen screen.',
   },
   kot_only: {
     title: 'KOT only',
@@ -468,8 +467,9 @@ export function AdminSettings() {
     const d = allSettingsRes?.data as Record<string, unknown> | undefined
     if (!d) return
     const modeRaw = typeof d['kitchen.mode'] === 'string' ? (d['kitchen.mode'] as string) : 'kds'
-    const mode: KitchenModeChoice =
-      modeRaw === 'kot_only' || modeRaw === 'hybrid' || modeRaw === 'kds' ? modeRaw : 'kds'
+    // Migrate legacy 'hybrid' (now removed from the UI) to 'kds' since the
+    // two were behaviorally identical server-side.
+    const mode: KitchenModeChoice = modeRaw === 'kot_only' ? 'kot_only' : 'kds'
     const num = (k: string, fallback: string) => {
       const v = d[k]
       if (typeof v === 'number') return String(v)
@@ -964,24 +964,18 @@ export function AdminSettings() {
           text: 'All stations already print. The KDS screen will be hidden for everyone.',
         }
       }
-      if (mode === 'kds') {
-        if (kdsStationCount === 0) {
-          return {
-            tone: 'warn' as const,
-            icon: AlertTriangle,
-            text: 'No stations are configured as KDS yet. Add at least one in Admin → Kitchen Stations so tickets appear on the screen.',
-          }
-        }
+      // mode === 'kds'
+      if (kdsStationCount === 0) {
         return {
-          tone: 'info' as const,
-          icon: Info,
-          text: `${kdsStationCount} station${kdsStationCount === 1 ? '' : 's'} on the screen${printerStationCount > 0 ? `, ${printerStationCount} still printing` : ''}.`,
+          tone: 'warn' as const,
+          icon: AlertTriangle,
+          text: 'No stations are configured as KDS yet. Add at least one in Admin → Kitchen Stations so tickets appear on the screen.',
         }
       }
       return {
         tone: 'info' as const,
         icon: Info,
-        text: `${kdsStationCount} station${kdsStationCount === 1 ? '' : 's'} on the screen, ${printerStationCount} printing. Routing follows each station's output type.`,
+        text: `${kdsStationCount} station${kdsStationCount === 1 ? '' : 's'} on the screen${printerStationCount > 0 ? `, ${printerStationCount} still printing` : ''}.`,
       }
     })()
 
@@ -996,13 +990,13 @@ export function AdminSettings() {
           <CardHeader className="pb-4">
             <CardTitle className="text-base">Kitchen Mode</CardTitle>
             <CardDescription>
-              Controls routing and whether the Kitchen Display screen is visible. Per-station
-              output types still apply in <em>KDS</em> and <em>Hybrid</em>.
+              Controls routing and whether the Kitchen Display screen is visible. In <em>KDS</em>{' '}
+              mode, each station's per-station output type (KDS vs Printer) is honored.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
-              {(['kds', 'hybrid', 'kot_only'] as const).map((m) => {
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(['kds', 'kot_only'] as const).map((m) => {
                 const copy = KITCHEN_MODE_COPY[m]
                 const active = kitchenForm.mode === m
                 return (

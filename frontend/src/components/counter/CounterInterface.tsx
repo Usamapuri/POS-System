@@ -376,7 +376,7 @@ export function CounterInterface() {
       try {
         const fr = await apiClient.fireKOT(result.orderId)
         if (!fr.success) {
-          toastHelpers.error('Kitchen (KOT)', fr.message || 'Could not send order to the kitchen display.')
+          toastHelpers.error('Kitchen (KOT)', fr.message || 'Could not send order to the kitchen.')
         } else {
           // Inline affirmation in the ticket header instead of a floating toast
           // that would overlap the Totals + primary CTA on the checkout rail.

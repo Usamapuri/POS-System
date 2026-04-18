@@ -166,6 +166,30 @@ export function KOTServerInterface() {
     setKotPrintOpen(true)
   }
 
+  // Compose a mode-accurate success toast from the actual KOTs the backend
+  // returned, instead of always claiming "Order is on the kitchen display."
+  // — which is misleading in KOT-only venues or when every station printed.
+  const fireKotSuccessToast = (kots: StationKOT[] | undefined) => {
+    const list = kots ?? []
+    const printerCount = list.filter((k) => k.output_type === 'printer').length
+    const kdsCount = list.filter((k) => k.output_type === 'kds').length
+    if (kdsCount > 0 && printerCount > 0) {
+      toastHelpers.success(
+        'KOT sent',
+        `On the kitchen display (${kdsCount}) and printing at ${printerCount} station${printerCount === 1 ? '' : 's'}.`,
+      )
+    } else if (kdsCount > 0) {
+      toastHelpers.success('KOT sent', 'Order is on the kitchen display.')
+    } else if (printerCount > 0) {
+      toastHelpers.success(
+        'KOT sent',
+        `Printing at ${printerCount} station${printerCount === 1 ? '' : 's'}.`,
+      )
+    } else {
+      toastHelpers.success('KOT sent', 'Order routed to the kitchen.')
+    }
+  }
+
   useEffect(() => {
     return subscribeOrderReady((e) => {
       toastHelpers.success(
@@ -395,7 +419,7 @@ export function KOTServerInterface() {
           toastHelpers.error('Fire KOT failed', fireRes.message || 'Could not send to kitchen')
           return
         }
-        toastHelpers.success('KOT sent', 'Order is on the kitchen display.')
+        fireKotSuccessToast(fireRes.data?.kots)
         openKotPrint(fireRes.data?.kots)
         const orderRes = await apiClient.getOrder(order.id)
         if (orderRes.success && orderRes.data) {
@@ -433,7 +457,7 @@ export function KOTServerInterface() {
         toastHelpers.error('Fire KOT failed', fireRes.message || 'Could not send to kitchen')
         return
       }
-      toastHelpers.success('KOT sent', 'Order is on the kitchen display.')
+      fireKotSuccessToast(fireRes.data?.kots)
       openKotPrint(fireRes.data?.kots)
       await refreshOrder()
       queryClient.invalidateQueries({ queryKey: ['newEnhancedKitchenOrders'] })

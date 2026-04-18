@@ -1204,6 +1204,11 @@ class APIClient {
     return this.request({ method: 'GET', url: `/admin/stations/${stationId}/categories` });
   }
 
+  /** Generate a canned KOT for a station so admins can verify wiring. */
+  async testStationKOT(stationId: string): Promise<APIResponse<FireKOTResponse>> {
+    return this.request({ method: 'POST', url: `/admin/stations/${stationId}/test-kot` });
+  }
+
   /** Assign category to exactly one kitchen station (or clear with null). */
   async setCategoryKitchenStation(categoryId: string, stationId: string | null): Promise<APIResponse> {
     return this.request({

@@ -217,6 +217,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		admin.DELETE("/stations/:id", stationHandler.DeleteStation)
 		admin.POST("/stations/:id/categories", stationHandler.SetStationCategories)
 		admin.GET("/stations/:id/categories", stationHandler.GetStationCategories)
+		admin.POST("/stations/:id/test-kot", stationHandler.TestKOT)
 
 		// PIN management
 		admin.PUT("/users/:id/pin", pinHandler.SetPin)

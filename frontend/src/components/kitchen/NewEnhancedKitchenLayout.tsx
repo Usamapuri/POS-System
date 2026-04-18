@@ -110,8 +110,11 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
     queryFn: () => apiClient.getKitchenStations(),
     staleTime: 60_000,
   })
+  // Only KDS-output stations make sense as filters here — printer-only
+  // stations never produce KDS items, so a chip for them would always
+  // return an empty list and confuse the cooks.
   const stations = ((stationsRes?.data ?? []) as KitchenStation[])
-    .filter((s) => s.is_active)
+    .filter((s) => s.is_active && s.output_type !== 'printer')
     .sort((a, b) => a.sort_order - b.sort_order)
 
   // ── SSE: event-driven cache invalidation ──
