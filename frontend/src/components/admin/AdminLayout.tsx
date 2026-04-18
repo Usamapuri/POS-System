@@ -30,8 +30,6 @@ import { POSLayout } from '@/components/pos/POSLayout'
 import { KOTServerInterface } from '@/components/server/KOTServerInterface'
 import { CounterInterface } from '@/components/counter/CounterInterface'
 import { NewEnhancedKitchenLayout } from '@/components/kitchen/NewEnhancedKitchenLayout'
-import { ToastDemo } from '@/components/ui/demo-toast'
-import { FormDemo } from '@/components/forms/FormDemo'
 import { AdminStaffManagement } from './AdminStaffManagement'
 import { AdminSettings } from './AdminSettings'
 import { AdminMenuManagement } from './AdminMenuManagement'
@@ -176,13 +174,7 @@ export function AdminLayout({ user }: AdminLayoutProps) {
       case 'kitchen':
         return <NewEnhancedKitchenLayout user={user} />
       case 'settings':
-        return (
-          <div className="space-y-8">
-            <AdminSettings />
-            <ToastDemo />
-            <FormDemo />
-          </div>
-        )
+        return <AdminSettings />
       case 'staff':
         return <AdminStaffManagement />
       case 'menu':

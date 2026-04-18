@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import type { CounterOrderType } from '@/components/counter/counterOrderTypes'
 import { CounterOrderTypeGlyph } from '@/components/counter/CounterOrderTypeAnimatedIcons'
@@ -53,10 +53,22 @@ const motionHoverLift =
 type CounterOrderTypeToggleProps = {
   value: CounterOrderType
   onChange: (next: CounterOrderType) => void
+  /**
+   * Optional allow-list of enabled order types. When provided, only matching
+   * tabs render and participate in keyboard navigation. When omitted, all
+   * built-in types render (legacy behavior, also used as a safe fallback
+   * when settings have not yet loaded).
+   */
+  enabledIds?: ReadonlySet<CounterOrderType>
 }
 
-export function CounterOrderTypeToggle({ value, onChange }: CounterOrderTypeToggleProps) {
+export function CounterOrderTypeToggle({ value, onChange, enabledIds }: CounterOrderTypeToggleProps) {
   const groupRef = useRef<HTMLDivElement>(null)
+
+  const visibleOptions = useMemo(
+    () => (enabledIds ? OPTIONS.filter((o) => enabledIds.has(o.value)) : OPTIONS),
+    [enabledIds]
+  )
 
   const focusValue = useCallback((v: CounterOrderType) => {
     const root = groupRef.current
@@ -67,32 +79,45 @@ export function CounterOrderTypeToggle({ value, onChange }: CounterOrderTypeTogg
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
-      const idx = OPTIONS.findIndex((o) => o.value === value)
+      if (visibleOptions.length === 0) return
+      const idx = visibleOptions.findIndex((o) => o.value === value)
       if (idx < 0) return
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
         e.preventDefault()
-        const next = OPTIONS[(idx + 1) % OPTIONS.length].value
+        const next = visibleOptions[(idx + 1) % visibleOptions.length].value
         onChange(next)
         focusValue(next)
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
         e.preventDefault()
-        const next = OPTIONS[(idx - 1 + OPTIONS.length) % OPTIONS.length].value
+        const next = visibleOptions[(idx - 1 + visibleOptions.length) % visibleOptions.length].value
         onChange(next)
         focusValue(next)
       } else if (e.key === 'Home') {
         e.preventDefault()
-        const next = OPTIONS[0].value
+        const next = visibleOptions[0].value
         onChange(next)
         focusValue(next)
       } else if (e.key === 'End') {
         e.preventDefault()
-        const next = OPTIONS[OPTIONS.length - 1].value
+        const next = visibleOptions[visibleOptions.length - 1].value
         onChange(next)
         focusValue(next)
       }
     },
-    [focusValue, onChange, value]
+    [focusValue, onChange, value, visibleOptions]
   )
+
+  if (visibleOptions.length === 0) return null
+
+  // Responsive columns so 1 or 2 enabled tabs stretch naturally instead of
+  // leaving empty grid slots. Tailwind needs literal class names to survive
+  // purge, so we map explicitly rather than interpolate.
+  const gridColsClass =
+    visibleOptions.length === 1
+      ? 'grid-cols-1'
+      : visibleOptions.length === 2
+      ? 'grid-cols-2'
+      : 'grid-cols-3'
 
   return (
     <div
@@ -102,8 +127,8 @@ export function CounterOrderTypeToggle({ value, onChange }: CounterOrderTypeTogg
       onKeyDown={onKeyDown}
       className="rounded-2xl border border-border/80 bg-muted/30 p-1 shadow-inner dark:bg-muted/15"
     >
-      <div className="grid grid-cols-3 gap-1 sm:gap-1.5">
-        {OPTIONS.map((opt) => {
+      <div className={cn('grid gap-1 sm:gap-1.5', gridColsClass)}>
+        {visibleOptions.map((opt) => {
           const selected = value === opt.value
           return (
             <button

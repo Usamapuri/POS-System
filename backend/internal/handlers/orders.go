@@ -344,6 +344,25 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
+	// Reject creation if this order_type has been disabled by admin. Safe
+	// fallbacks in isOrderTypeEnabled keep the POS usable when the setting
+	// is missing, malformed, or names an unknown id.
+	if enabled, err := isOrderTypeEnabled(h.db, req.OrderType); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Message: "Failed to validate order type",
+			Error:   stringPtr(err.Error()),
+		})
+		return
+	} else if !enabled {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Message: "This order type is currently disabled. Enable it under Settings → Order Types.",
+			Error:   stringPtr("order_type_disabled"),
+		})
+		return
+	}
+
 	// Daily order number in its own transaction so counter failures cannot abort the order tx (pq: current transaction is aborted).
 	orderNumber, err := h.allocDailyOrderNumberStandalone(h.db)
 	if err != nil {

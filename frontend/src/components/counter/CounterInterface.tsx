@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/dialog'
 import { Link } from '@tanstack/react-router'
 import { useCounterHotkeys } from '@/hooks/useCounterHotkeys'
+import { useEnabledOrderTypes } from '@/hooks/useEnabledOrderTypes'
 import { computeCartTotals, mergePricingSettings } from '@/lib/counterPricing'
 import { subscribeOrderReady } from '@/lib/kdsRealtime'
 import { cn } from '@/lib/utils'
@@ -152,6 +153,30 @@ export function CounterInterface() {
   const queryClient = useQueryClient()
   const { formatCurrency } = useCurrency()
 
+  const { enabledIds: enabledOrderTypeIds } = useEnabledOrderTypes()
+
+  // If an admin disables the currently-selected order type mid-session,
+  // auto-switch to the first enabled type and clear transient session state
+  // (table, customer, checkout) so the cashier isn't stuck on a hidden tab.
+  // Mirrors the reset logic in CounterOrderTypeToggle's onChange handler below.
+  useEffect(() => {
+    if (enabledOrderTypeIds.size === 0) return
+    if (enabledOrderTypeIds.has(orderType)) return
+    const fallback = (['dine_in', 'takeout', 'delivery'] as const).find((t) =>
+      enabledOrderTypeIds.has(t)
+    )
+    if (!fallback) return
+    setOrderType(fallback)
+    setDineInSession(null)
+    setSelectedTable(null)
+    setCheckoutOpen(false)
+    setSelectedOrder(null)
+    setCustomerName('')
+    setCustomerEmail('')
+    setCustomerPhone('')
+    setGuestBirthday('')
+  }, [enabledOrderTypeIds, orderType])
+
   const dismissCheckoutCelebration = useCallback(() => {
     setCheckoutCelebration(null)
   }, [])
@@ -213,7 +238,18 @@ export function CounterInterface() {
     queryFn: async () => {
       const r = await apiClient.getOrders({ per_page: 100 })
       const list = Array.isArray(r.data) ? r.data : []
-      return list.filter((o) => o.status === 'ready' || o.status === 'served')
+      // Include any non-terminal order with a payable balance so the
+      // "Orders to close" strip is meaningful for all order types:
+      //  - dine_in tabs that are still open and owe money
+      //  - takeout orders ready/served waiting to be rung out
+      //  - delivery orders pending close-out
+      // Terminal states (completed, cancelled) are excluded; fully-paid
+      // tickets are filtered out via orderPayableRemaining so the strip
+      // only shows tickets that genuinely need to be closed.
+      const OPEN_STATUSES = new Set(['pending', 'confirmed', 'preparing', 'ready', 'served'])
+      return list.filter(
+        (o) => OPEN_STATUSES.has(o.status) && orderPayableRemaining(o) > 0
+      )
     },
   })
 
@@ -1136,20 +1172,28 @@ export function CounterInterface() {
           </div>
 
           <div className="mb-4">
-            <CounterOrderTypeToggle
-              value={orderType}
-              onChange={(next) => {
-                setOrderType(next)
-                setDineInSession(null)
-                setSelectedTable(null)
-                setCheckoutOpen(false)
-                setSelectedOrder(null)
-                setCustomerName('')
-                setCustomerEmail('')
-                setCustomerPhone('')
-                setGuestBirthday('')
-              }}
-            />
+            {enabledOrderTypeIds.size === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                No order types are currently enabled. Ask an admin to enable at least one
+                order type under Settings &rarr; Order Types.
+              </div>
+            ) : (
+              <CounterOrderTypeToggle
+                value={orderType}
+                enabledIds={enabledOrderTypeIds}
+                onChange={(next) => {
+                  setOrderType(next)
+                  setDineInSession(null)
+                  setSelectedTable(null)
+                  setCheckoutOpen(false)
+                  setSelectedOrder(null)
+                  setCustomerName('')
+                  setCustomerEmail('')
+                  setCustomerPhone('')
+                  setGuestBirthday('')
+                }}
+              />
+            )}
           </div>
 
           {ordersToCloseStrip.length > 0 && (

@@ -37,6 +37,17 @@ func (h *OrderHandler) OpenCounterTableTab(c *gin.Context) {
 		return
 	}
 
+	// Opening a counter table tab always creates a dine_in order; reject if
+	// dine_in has been disabled by admin. Safe fallbacks in isOrderTypeEnabled
+	// keep the POS usable when the setting is missing or malformed.
+	if enabled, err := isOrderTypeEnabled(h.db, "dine_in"); err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to validate order type", Error: stringPtr(err.Error())})
+		return
+	} else if !enabled {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Dine-in is currently disabled. Enable it under Settings → Order Types.", Error: stringPtr("order_type_disabled")})
+		return
+	}
+
 	var activeCount int
 	if err := h.db.QueryRow(`
 		SELECT COUNT(*) FROM orders
