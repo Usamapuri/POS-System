@@ -128,7 +128,12 @@ CREATE TABLE orders (
     served_at TIMESTAMP WITH TIME ZONE,
     completed_at TIMESTAMP WITH TIME ZONE,
     kot_first_sent_at TIMESTAMP WITH TIME ZONE,
-    kitchen_bumped_at TIMESTAMP WITH TIME ZONE
+    kitchen_bumped_at TIMESTAMP WITH TIME ZONE,
+    -- PRA (Punjab Revenue Authority) optional tax invoice — printed only when
+    -- the customer explicitly requests one at checkout. See printPraTaxInvoice.ts.
+    pra_invoice_printed BOOLEAN NOT NULL DEFAULT false,
+    pra_invoice_number VARCHAR(64),
+    pra_invoice_printed_at TIMESTAMP WITH TIME ZONE
 );
 
 -- Order Items table

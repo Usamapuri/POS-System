@@ -110,6 +110,10 @@ type Order struct {
 	UpdatedAt      time.Time    `json:"updated_at"`
 	ServedAt       *time.Time   `json:"served_at"`
 	CompletedAt    *time.Time   `json:"completed_at"`
+	// PRA tax invoice metadata — set only when a second PRA slip is printed.
+	PraInvoicePrinted   bool       `json:"pra_invoice_printed"`
+	PraInvoiceNumber    *string    `json:"pra_invoice_number,omitempty"`
+	PraInvoicePrintedAt *time.Time `json:"pra_invoice_printed_at,omitempty"`
 	Table          *DiningTable `json:"table,omitempty"`
 	User           *User        `json:"user,omitempty"`
 	Items          []OrderItem  `json:"items,omitempty"`

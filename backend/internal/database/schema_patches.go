@@ -37,6 +37,11 @@ func ApplySchemaPatches(db *sql.DB) {
 		`ALTER TABLE dining_tables ADD COLUMN IF NOT EXISTS map_h DOUBLE PRECISION`,
 		`ALTER TABLE dining_tables ADD COLUMN IF NOT EXISTS map_rotation INTEGER`,
 		`ALTER TABLE dining_tables ADD COLUMN IF NOT EXISTS shape VARCHAR(20)`,
+		// PRA tax invoice — optional second receipt slip. Columns nullable with
+		// safe defaults so existing rows remain valid.
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pra_invoice_printed BOOLEAN NOT NULL DEFAULT false`,
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pra_invoice_number VARCHAR(64)`,
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pra_invoice_printed_at TIMESTAMP WITH TIME ZONE`,
 	}
 	for _, q := range stmts {
 		if _, err := db.Exec(q); err != nil {
