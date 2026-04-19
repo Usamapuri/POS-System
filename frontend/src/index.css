@@ -436,6 +436,175 @@
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Phookly Landing Page
+ * Scoped under .bhookly-landing so it never bleeds into the app shell.
+ * Uses the same warm ember/saffron/cream design tokens as the login page.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+.bhookly-landing {
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --phk-ink:     #1a1410;
+  --phk-cream:   #fdf8f1;
+  --phk-saffron: #f59e0b;
+  --phk-ember:   #ea580c;
+  --phk-rose:    #e11d48;
+  scroll-behavior: smooth;
+}
+
+.bhookly-landing .phk-serif {
+  font-family: 'Instrument Serif', 'Iowan Old Style', 'Apple Garamond', Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+/* Hero gradient — exact match to login brand panel */
+.bhookly-landing .phk-hero-bg {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255, 200, 120, 0.55) 0%, transparent 42%),
+    radial-gradient(circle at 88% 6%,  rgba(244, 63,  94, 0.45) 0%, transparent 38%),
+    radial-gradient(circle at 50% 110%, rgba(180, 83,  9,  0.50) 0%, transparent 55%),
+    linear-gradient(140deg, #2a1407 0%, #4a1d05 45%, #7c2d12 100%);
+}
+
+/* Dark section gradient — receipt spotlight */
+.bhookly-landing .phk-dark-bg {
+  background:
+    radial-gradient(circle at 8% 85%,  rgba(255, 200, 120, 0.30) 0%, transparent 50%),
+    radial-gradient(circle at 92% 15%, rgba(244, 63,  94, 0.22) 0%, transparent 45%),
+    linear-gradient(148deg, #2a1407 0%, #3d1805 55%, #5c1d08 100%);
+}
+
+/* Film grain overlay */
+.bhookly-landing .phk-grain {
+  background-image:
+    radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    radial-gradient(rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+  background-size: 3px 3px, 5px 5px;
+  background-position: 0 0, 1px 2px;
+  opacity: 0.18;
+  mix-blend-mode: overlay;
+}
+
+/* Light-side ambient wash */
+.bhookly-landing .phk-light-wash {
+  background:
+    radial-gradient(700px 400px at 100% 0%,   rgba(251, 191, 36, 0.10), transparent 60%),
+    radial-gradient(500px 300px at 0%   100%, rgba(244, 63,  94, 0.06), transparent 60%);
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+
+/* Sticky navigation */
+.bhookly-landing .phk-nav {
+  background: transparent;
+  transition: background 0.35s ease, box-shadow 0.35s ease, border-color 0.35s ease;
+}
+.bhookly-landing .phk-nav-scrolled {
+  background: #fdf8f1;
+  border-bottom: 1px solid rgba(120, 53, 15, 0.12);
+  box-shadow: 0 1px 20px rgba(0, 0, 0, 0.06);
+}
+
+/* Primary CTA button */
+.bhookly-landing .phk-cta {
+  background: linear-gradient(180deg, #f97316 0%, #ea580c 60%, #c2410c 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 0 0 1px rgba(124, 45, 18, 0.4),
+    0 12px 24px -8px rgba(234, 88, 12, 0.55);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+.bhookly-landing .phk-cta:hover {
+  filter: brightness(1.04);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 0 0 1px rgba(124, 45, 18, 0.5),
+    0 18px 32px -10px rgba(234, 88, 12, 0.65);
+}
+.bhookly-landing .phk-cta:active { transform: translateY(1px); }
+
+/* Form input shell */
+.bhookly-landing .phk-input {
+  background: #ffffff;
+  border: 1px solid rgba(120, 53, 15, 0.18);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 1px 2px rgba(120, 53, 15, 0.04);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.bhookly-landing .phk-input:focus-within {
+  border-color: rgba(234, 88, 12, 0.5);
+  box-shadow:
+    0 0 0 4px rgba(249, 115, 22, 0.15),
+    0 1px 0 rgba(255, 255, 255, 0.6) inset;
+}
+
+/* Feature cards */
+.bhookly-landing .phk-feature-card {
+  background: #ffffff;
+  border: 1px solid rgba(120, 53, 15, 0.10);
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+.bhookly-landing .phk-feature-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(234, 88, 12, 0.28);
+  box-shadow:
+    0 20px 48px -12px rgba(234, 88, 12, 0.18),
+    0 4px 16px -4px rgba(0, 0, 0, 0.06);
+}
+
+/* Floating hero card keyframes */
+@keyframes phk-float-a {
+  0%, 100% { transform: translateY(0px) rotate(-3deg); }
+  50%       { transform: translateY(-8px) rotate(-3deg); }
+}
+@keyframes phk-float-b {
+  0%, 100% { transform: translateY(0px) rotate(2.5deg); }
+  50%       { transform: translateY(-6px) rotate(2.5deg); }
+}
+@keyframes phk-float-c {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-10px); }
+}
+
+/* Hero text entrance */
+@keyframes phk-fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bhookly-landing .phk-card-a { animation: phk-float-a 6s ease-in-out infinite; }
+  .bhookly-landing .phk-card-b { animation: phk-float-b 8.5s ease-in-out infinite 1.2s; }
+  .bhookly-landing .phk-card-c { animation: phk-float-c 7s ease-in-out infinite 0.6s; }
+
+  .bhookly-landing .phk-hero-badge { animation: phk-fade-up 0.7s ease-out 0.05s both; }
+  .bhookly-landing .phk-hero-title { animation: phk-fade-up 0.8s ease-out 0.18s both; }
+  .bhookly-landing .phk-hero-body  { animation: phk-fade-up 0.8s ease-out 0.32s both; }
+  .bhookly-landing .phk-hero-cta   { animation: phk-fade-up 0.8s ease-out 0.46s both; }
+  .bhookly-landing .phk-hero-stats { animation: phk-fade-up 0.8s ease-out 0.60s both; }
+}
+
+/* Footer credit easter egg — same as login */
+.bhookly-landing .phk-credit { position: relative; }
+.bhookly-landing .phk-credit-emoji {
+  display: inline-block;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+  transform: translateY(4px) scale(0.8);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.bhookly-landing .phk-credit:hover .phk-credit-emoji { opacity: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .bhookly-landing .phk-credit:hover .phk-credit-emoji {
+    animation: bhk-emoji-hop 700ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  }
+}
+
 /*
  * Counter route — top-center toast viewport.
  * The global shadcn viewport renders at bottom-right on desktop, which overlaps
