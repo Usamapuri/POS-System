@@ -167,10 +167,41 @@
   0%, 100% { opacity: 1; transform: scale(1); }
   50%      { opacity: 0.5; transform: scale(1.4); }
 }
+
+/* "Product of Artyreal" hover — small emojis hop up just above the line.
+   Kept intentionally small (text-[13px]) and a short travel distance so it
+   feels playful without dominating the footer. Each emoji has its own
+   stagger via inline animation-delay. */
+.bhookly-login .bhk-emoji {
+  display: inline-block;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0;
+  transform: translateY(6px) scale(0.8);
+  transition: opacity 180ms ease, transform 180ms ease;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35))
+          saturate(1.35)
+          contrast(1.08);
+}
+.bhookly-login .bhk-credit:hover .bhk-emoji,
+.bhookly-login .bhk-credit:focus-within .bhk-emoji {
+  opacity: 1;
+}
+@keyframes bhk-emoji-hop {
+  0%   { transform: translateY(6px) scale(0.8) rotate(-6deg); }
+  45%  { transform: translateY(-10px) scale(1.05) rotate(4deg); }
+  70%  { transform: translateY(-4px) scale(1) rotate(-2deg); }
+  100% { transform: translateY(-6px) scale(1) rotate(0deg); }
+}
 @media (prefers-reduced-motion: no-preference) {
   .bhookly-login .bhk-ticket-1 { animation: bhk-ticket-float 6s ease-in-out infinite; }
   .bhookly-login .bhk-ticket-2 { animation: bhk-ticket-float-2 7.5s ease-in-out infinite; }
   .bhookly-login .bhk-pulse    { animation: bhk-pulse-dot 1.6s ease-in-out infinite; }
+
+  .bhookly-login .bhk-credit:hover .bhk-emoji,
+  .bhookly-login .bhk-credit:focus-within .bhk-emoji {
+    animation: bhk-emoji-hop 700ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  }
 }
 
 @layer utilities {

@@ -216,9 +216,47 @@ function BrandPanel() {
           <ShieldCheck className="h-3.5 w-3.5" />
           PCI-aware · End-to-end encrypted
         </div>
-        <div>© {new Date().getFullYear()} Bhookly Labs · v2.4</div>
+        <FooterCredit tone="light" />
       </div>
     </aside>
+  )
+}
+
+// Footer credit line: "© YEAR Bhookly Labs · v2.4 · Product of Artyreal".
+// Hovering anywhere on the line releases a small flock of emojis that hop
+// just above the text — playful but small enough not to dominate the footer.
+function FooterCredit({ tone = 'light' as 'light' | 'dark' }) {
+  const linkClass =
+    tone === 'light'
+      ? 'font-medium text-amber-200/90 underline-offset-2 hover:text-amber-100 hover:underline'
+      : 'font-medium text-orange-600 underline-offset-2 hover:text-orange-700 hover:underline'
+
+  return (
+    <div className="bhk-credit relative inline-flex items-center gap-1 whitespace-nowrap">
+      {/* Emojis hover above the line. Pointer-events disabled so they never
+          steal hover from the text underneath. */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute -top-3 right-0 flex select-none gap-1.5"
+      >
+        <span className="bhk-emoji" style={{ animationDelay: '0ms' }}>🎨</span>
+        <span className="bhk-emoji" style={{ animationDelay: '70ms' }}>✨</span>
+        <span className="bhk-emoji" style={{ animationDelay: '140ms' }}>🍴</span>
+        <span className="bhk-emoji" style={{ animationDelay: '210ms' }}>💫</span>
+      </span>
+
+      <span>
+        Built with <span aria-label="love">🤍</span> by{' '}
+        <a
+          href="https://artyreal.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={linkClass}
+        >
+          Artyreal
+        </a>
+      </span>
+    </div>
   )
 }
 
@@ -486,9 +524,8 @@ function FormPanel({
       </div>
 
       {/* footer (mobile) */}
-      <div className="relative z-10 mt-8 flex items-center justify-between text-[11px] text-zinc-400 lg:hidden">
-        <span>© {new Date().getFullYear()} Bhookly</span>
-        <span>v2.4</span>
+      <div className="relative z-10 mt-8 flex items-center justify-center text-[11px] text-zinc-400 lg:hidden">
+        <FooterCredit tone="dark" />
       </div>
     </section>
   )
