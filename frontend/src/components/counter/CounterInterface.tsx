@@ -1367,12 +1367,11 @@ export function CounterInterface() {
           aria-label="Counter workspace"
           className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-border bg-background"
         >
-        <div className="shrink-0 border-b border-border bg-card/95 px-4 py-3 backdrop-blur-sm sm:px-5 sm:py-4">
+        <div className="shrink-0 border-b border-border bg-card/95 px-6 py-6 backdrop-blur-sm">
           <div className="mb-3">
             <h1 className="text-3xl font-bold tracking-tight">Checkout Counter</h1>
-            <p className="mt-1 max-w-3xl leading-relaxed text-muted-foreground">
-              Choose order type, then add items from the menu. Checkout opens from the table session or from orders
-              to close.
+            <p className="mt-1 text-muted-foreground">
+              Choose order type, then add items from the menu
             </p>
           </div>
 

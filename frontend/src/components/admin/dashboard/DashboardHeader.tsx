@@ -32,10 +32,10 @@ export function DashboardHeader({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-3">
-            <h1 className="truncate text-2xl font-bold tracking-tight">Admin Dashboard</h1>
+            <h1 className="truncate text-3xl font-bold tracking-tight">Admin Dashboard</h1>
             <LiveBadge status={streamStatus} />
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="mt-1 text-muted-foreground">
             {fromLabel && toLabel
               ? fromLabel === toLabel
                 ? `Showing ${fromLabel}`
