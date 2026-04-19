@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import apiClient from '@/api/client'
 import { useReportRange } from '@/hooks/useReportRange'
 import { DateRangeFilter } from './DateRangeFilter'
+import { DayFilter } from './DayFilter'
 import { OverviewTab } from './OverviewTab'
 import { DailySalesTab } from './DailySalesTab'
 import { HoursTab } from './HoursTab'
@@ -39,14 +40,26 @@ const TABS: { id: TabId; label: string; icon: ReactNode }[] = [
  * (mirrored to URL state) and the tab navigation. Each tab is a small,
  * data-loading sibling that uses the same range hook.
  *
- * The Orders Browser tab intentionally manages its own per-day picker —
- * it's a day-scoped workflow (find a past order to reprint a PRA invoice)
- * and decoupling it from the global range avoids confusion when someone
- * has the rest of the page set to "Last 30 days".
+ * Date controls live in the page header on every tab so their position
+ * stays stable as the operator switches between tabs. The Orders Browser
+ * tab is the one exception in *kind*, not in *position*: it's a per-day
+ * workflow (find a past order to reprint a PRA invoice), so the header
+ * swaps the range filter for a single-day picker. Range presets like
+ * "Last 30 days" are deliberately omitted on that tab — the orders
+ * table renders one day at a time.
+ *
+ * The Orders Browser day defaults to today and persists across tab
+ * switches within a session, so an operator who picked a specific day
+ * doesn't lose it just by peeking at another tab.
  */
 export function ReportsShell() {
   const range = useReportRange()
   const [tab, setTab] = useState<TabId>('overview')
+  const [orderBrowserDay, setOrderBrowserDay] = useState<Date>(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d
+  })
 
   // Pull the venue display name from Admin → Settings (receipt_business_name).
   // Same queryKey as AdminSidebar so the React Query cache is shared and we
@@ -76,11 +89,13 @@ export function ReportsShell() {
             <h1 className="text-3xl font-bold tracking-tight">Reports &amp; Analytics</h1>
             <p className="mt-1 text-muted-foreground">{subtitle}</p>
           </div>
-          {tab !== 'orders' && (
-            <div className="lg:pt-1">
+          <div className="lg:pt-1">
+            {tab === 'orders' ? (
+              <DayFilter day={orderBrowserDay} onChange={setOrderBrowserDay} />
+            ) : (
               <DateRangeFilter range={range} />
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Tabs row + export outlet share one horizontal band. The outlet
@@ -113,7 +128,7 @@ export function ReportsShell() {
         {tab === 'hours' && <HoursTab range={range} />}
         {tab === 'items' && <ItemsTab range={range} />}
         {tab === 'tables' && <TablesTab range={range} />}
-        {tab === 'orders' && <OrdersBrowserTab />}
+        {tab === 'orders' && <OrdersBrowserTab day={orderBrowserDay} />}
       </div>
     </ReportsExportSlotProvider>
   )

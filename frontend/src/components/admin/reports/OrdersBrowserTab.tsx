@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  CalendarRange,
   CheckCircle2,
   Clock,
   Loader2,
@@ -15,8 +14,6 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Calendar } from '@/components/ui/calendar'
 import {
   Tooltip,
   TooltipContent,
@@ -29,7 +26,6 @@ import { useCurrency } from '@/contexts/CurrencyContext'
 import {
   formatDateDDMMYYYY,
   formatDateTimeDDMMYYYY,
-  parseDDMMYYYY,
   toIsoDate,
   cn,
 } from '@/lib/utils'
@@ -49,17 +45,19 @@ const PRA_FILTERS: { id: PraFilter; label: string; hint: string }[] = [
   { id: 'eligible', label: 'Eligible to print', hint: 'You can issue / reissue a PRA invoice now' },
 ]
 
-export function OrdersBrowserTab() {
+interface Props {
+  /**
+   * The day to render orders for. Owned by `ReportsShell` so the picker
+   * can live in the page header alongside the other tabs' date controls.
+   */
+  day: Date
+}
+
+export function OrdersBrowserTab({ day }: Props) {
   const { toast } = useToast()
   const { formatCurrency } = useCurrency()
   const queryClient = useQueryClient()
 
-  const [day, setDay] = useState<Date>(() => {
-    const d = new Date()
-    d.setHours(0, 0, 0, 0)
-    return d
-  })
-  const [calOpen, setCalOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [praFilter, setPraFilter] = useState<PraFilter>('all')
   const [printingId, setPrintingId] = useState<string | null>(null)
@@ -153,60 +151,10 @@ export function OrdersBrowserTab() {
 
   return (
     <div className="space-y-4">
-      {/* Filter bar */}
+      {/* Filter bar — date picker lives in the page header (see ReportsShell).
+          This card is now focused on the per-day search and PRA filters. */}
       <Card>
         <CardContent className="p-4 flex flex-wrap items-center gap-3">
-          <Popover open={calOpen} onOpenChange={setCalOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2">
-                <CalendarRange className="w-3.5 h-3.5" />
-                <span className="text-xs">Day: {formatDateDDMMYYYY(day)}</span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-auto p-0">
-              <Calendar
-                mode="single"
-                selected={day}
-                onSelect={(d) => {
-                  if (d) {
-                    const norm = new Date(d)
-                    norm.setHours(0, 0, 0, 0)
-                    setDay(norm)
-                    setCalOpen(false)
-                  }
-                }}
-                disabled={{ after: new Date() }}
-              />
-              <div className="flex items-center justify-between p-3 border-t bg-muted/30">
-                <div className="text-xs text-muted-foreground">
-                  Type a date in DD-MM-YYYY:
-                </div>
-                <Input
-                  placeholder="DD-MM-YYYY"
-                  defaultValue={formatDateDDMMYYYY(day)}
-                  className="w-32 h-8 text-xs"
-                  onBlur={(e) => {
-                    const parsed = parseDDMMYYYY(e.target.value)
-                    if (parsed) {
-                      parsed.setHours(0, 0, 0, 0)
-                      setDay(parsed)
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      const parsed = parseDDMMYYYY((e.target as HTMLInputElement).value)
-                      if (parsed) {
-                        parsed.setHours(0, 0, 0, 0)
-                        setDay(parsed)
-                        setCalOpen(false)
-                      }
-                    }
-                  }}
-                />
-              </div>
-            </PopoverContent>
-          </Popover>
-
           <div className="relative w-64">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
