@@ -340,6 +340,61 @@ cd frontend && npm run dev
 
 ---
 
+## ☁️ **Deploying to Railway**
+
+The repo ships with per-service Railway config so deploys are deterministic and reviewable in git instead of dashboard checkboxes:
+
+- [`backend/railway.json`](backend/railway.json) — builds the Go service from [`backend/Dockerfile`](backend/Dockerfile), health-checks `/health`, and watches `backend/**`, `database/migrations/**`, and `database/init/**`.
+- [`frontend/railway.json`](frontend/railway.json) — builds the React/nginx image from [`frontend/Dockerfile`](frontend/Dockerfile), health-checks `/health`, and watches `frontend/**`.
+
+### **One-time Railway project setup (per restaurant)**
+
+1. **Create two services** in your Railway project pointing at this GitHub repo: one for `backend`, one for `frontend`.
+2. For **each service** open *Settings → Source* and set **Root Directory** to either `backend` or `frontend`. This is what makes Railway pick up the per-service `railway.json`.
+3. Leave **Watch Paths** in the dashboard *empty* — `railway.json`'s `build.watchPatterns` overrides it and is the single source of truth.
+4. Add a **Postgres plugin** to the project; Railway will inject `DATABASE_URL` into the backend service automatically.
+5. On the backend service set the required env vars: `JWT_SECRET`, `CORS_ORIGINS` (e.g. `https://your-frontend-domain`), `GIN_MODE=release`.
+6. On the frontend service set `BACKEND_URL` to the backend service's internal URL (e.g. `http://backend.railway.internal:8080`).
+
+### **How migrations actually run on every push**
+
+There is no separate "run migrations" step — schema changes are applied automatically on backend boot:
+
+1. **First boot of an empty DB** — [`backend/internal/database/bootstrap.go`](backend/internal/database/bootstrap.go) detects the missing `public.users` table and runs the embedded full schema from [`embedded_railway_init.sql`](backend/internal/database/embedded_railway_init.sql) inside a single transaction.
+2. **Every boot** — [`backend/internal/database/schema_patches.go`](backend/internal/database/schema_patches.go) runs idempotent DDL (`ADD COLUMN IF NOT EXISTS`, `CREATE TABLE IF NOT EXISTS`, etc.) that mirrors every file in [`database/migrations/`](database/migrations/). Re-running on an already-up-to-date DB is a no-op.
+
+So a `git push` to `main` works like this:
+
+```
+git push → Railway watchPatterns match → service rebuilds → container restarts
+        → BootstrapIfEmpty()        (no-op on existing DB)
+        → ApplySchemaPatches()      (runs every new migration block idempotently)
+        → backend serves traffic with the new schema
+```
+
+Adding a new SQL file under `database/migrations/` is enough to trigger a backend redeploy on the next push, even if no Go code changed.
+
+> **Mirror invariant** — every new `database/migrations/NNN_*.sql` you add MUST also be added as idempotent DDL in `schema_patches.go` in the same PR. The SQL files are a human-readable history; `schema_patches.go` is what production actually executes. See the comment at the top of that file for the rules.
+
+### **Adding a new migration end-to-end**
+
+1. Create `database/migrations/NNN_short_description.sql` with the canonical SQL (uses `IF NOT EXISTS` etc.).
+2. Mirror those statements at the bottom of `ApplySchemaPatches()` in [`backend/internal/database/schema_patches.go`](backend/internal/database/schema_patches.go).
+3. Run locally with `make dev` and confirm logs show `Applying idempotent schema patches…` followed by `Schema patches finished`.
+4. Push. Railway rebuilds the backend (because `database/migrations/**` is in `watchPatterns`). The first request after deploy hits the new schema.
+
+### **Brand-new restaurant deploy (TL;DR)**
+
+```text
+1. Connect repo to a new Railway project
+2. Add Postgres plugin
+3. Create backend service → Root Directory = backend → set JWT_SECRET, CORS_ORIGINS, GIN_MODE=release
+4. Create frontend service → Root Directory = frontend → set BACKEND_URL
+5. Push to main — first backend boot bootstraps the schema and seeds a default Main Kitchen station
+```
+
+---
+
 ## 🔧 **Troubleshooting**
 
 ### **Docker Build Issues**

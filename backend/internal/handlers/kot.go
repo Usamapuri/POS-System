@@ -152,9 +152,17 @@ func (h *KOTHandler) FireKOT(c *gin.Context) {
 				ORDER BY (name = 'Main Kitchen') DESC, sort_order ASC, created_at ASC
 				LIMIT 1`).Scan(&stationID, &stationName, &outputType, &printLocation)
 			if err2 != nil {
-				// No active stations at all — leave the synthetic defaults so the
-				// caller still gets a meaningful, predictable response.
-				stationID = uuid.Nil
+				// No active station exists at all (schema_patches.go's default
+				// seed should prevent this on every boot — if we land here, an
+				// admin has deactivated every station). Bail out with an
+				// actionable 400 instead of silently inserting uuid.Nil and
+				// tripping kitchen_events_station_id_fkey downstream.
+				c.JSON(http.StatusBadRequest, models.APIResponse{
+					Success: false,
+					Message: "No active kitchen station configured. Add or re-activate a station in Admin → Kitchen Stations before firing KOTs.",
+					Error:   strPtr(err2.Error()),
+				})
+				return
 			}
 		}
 		// KOT-only venue: force every station to printer behavior. This
@@ -814,8 +822,12 @@ func insertKitchenEventTx(
 	if orderItemID != nil && *orderItemID != "" {
 		itemParam = *orderItemID
 	}
+	// Treat uuid.Nil ("00000000-…") the same as nil — otherwise its String()
+	// form sneaks past the NULLIF in the SQL below and trips the
+	// kitchen_events_station_id_fkey foreign-key constraint. Belt-and-suspenders
+	// against schema_patches.go's default-station seed ever being absent.
 	var stationParam interface{}
-	if stationID != nil {
+	if stationID != nil && *stationID != uuid.Nil {
 		stationParam = stationID.String()
 	}
 	var userParam interface{}
