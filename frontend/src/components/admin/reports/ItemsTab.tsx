@@ -27,6 +27,7 @@ import { useCurrency } from '@/contexts/CurrencyContext'
 import type { UseReportRange } from '@/hooks/useReportRange'
 import type { Category, ItemSalesRow } from '@/types'
 import { ExportButton } from './ExportButton'
+import { ReportsExportSlot } from './ReportsExportSlot'
 import { openPrintableReport, escapeHtml } from '@/lib/printReport'
 import { formatDateDDMMYYYY } from '@/lib/utils'
 
@@ -85,44 +86,44 @@ export function ItemsTab({ range }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3 justify-between">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-64">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search item name…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <Select value={categoryId} onValueChange={setCategoryId}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="All categories" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All categories</SelectItem>
-              {categories.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="flex items-center rounded-md bg-muted p-1">
-            {(['net', 'gross', 'qty'] as SortKey[]).map((k) => (
-              <Button
-                key={k}
-                size="sm"
-                variant={sortKey === k ? 'default' : 'ghost'}
-                className="h-7 px-3 text-xs"
-                onClick={() => setSortKey(k)}
-              >
-                Sort: {k === 'qty' ? 'Quantity' : k === 'gross' ? 'Gross' : 'Net'}
-              </Button>
-            ))}
-          </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-64">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search item name…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
         </div>
+        <Select value={categoryId} onValueChange={setCategoryId}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="All categories" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All categories</SelectItem>
+            {categories.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex items-center rounded-md bg-muted p-1">
+          {(['net', 'gross', 'qty'] as SortKey[]).map((k) => (
+            <Button
+              key={k}
+              size="sm"
+              variant={sortKey === k ? 'default' : 'ghost'}
+              className="h-7 px-3 text-xs"
+              onClick={() => setSortKey(k)}
+            >
+              Sort: {k === 'qty' ? 'Quantity' : k === 'gross' ? 'Gross' : 'Net'}
+            </Button>
+          ))}
+        </div>
+      </div>
+      <ReportsExportSlot>
         <ExportButton
           report="items"
           reportLabel="Item sales"
@@ -131,7 +132,7 @@ export function ItemsTab({ range }: Props) {
           extraParams={exportExtraParams}
           onPrintPdf={handlePrintPdf}
         />
-      </div>
+      </ReportsExportSlot>
 
       <Card>
         <CardHeader>

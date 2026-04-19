@@ -97,6 +97,14 @@ func (h *ExpenseHandler) GetExpenses(c *gin.Context) {
 		orderCol = "e.amount"
 	case "category":
 		orderCol = "e.category"
+	case "description":
+		// LOWER() so "apple" and "Apple" sit next to each other
+		orderCol = "LOWER(COALESCE(e.description, ''))"
+	case "created_by":
+		orderCol = "LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, ''))"
+	case "type":
+		// reference_type IS NULL → manual; manual rows sort one way, auto-linked the other
+		orderCol = "(e.reference_type IS NULL)"
 	case "created_at":
 		orderCol = "e.created_at"
 	}

@@ -23,17 +23,17 @@ function Calendar({ className, classNames, showOutsideDays = true, ...props }: C
       className={cn('p-3', className)}
       classNames={{
         months: 'flex flex-col sm:flex-row gap-4',
-        month: 'space-y-4',
-        month_caption: 'flex justify-center pt-1 relative items-center',
+        month: 'relative space-y-4',
+        month_caption: 'flex justify-center pt-1 items-center h-7',
         caption_label: 'text-sm font-medium',
-        nav: 'flex items-center gap-1',
+        nav: 'absolute inset-x-1 top-1 flex items-center justify-between pointer-events-none',
         button_previous: cn(
           buttonVariants({ variant: 'outline' }),
-          'h-7 w-7 bg-transparent p-0 opacity-70 hover:opacity-100',
+          'h-7 w-7 bg-transparent p-0 opacity-70 hover:opacity-100 pointer-events-auto',
         ),
         button_next: cn(
           buttonVariants({ variant: 'outline' }),
-          'h-7 w-7 bg-transparent p-0 opacity-70 hover:opacity-100',
+          'h-7 w-7 bg-transparent p-0 opacity-70 hover:opacity-100 pointer-events-auto',
         ),
         month_grid: 'w-full border-collapse space-y-1',
         weekdays: 'flex',

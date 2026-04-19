@@ -32,6 +32,7 @@ import type { UseReportRange } from '@/hooks/useReportRange'
 import type { OverviewReport, DailySalesRow } from '@/types'
 import { MetricTile } from './MetricTile'
 import { ExportButton } from './ExportButton'
+import { ReportsExportSlot } from './ReportsExportSlot'
 import { openPrintableReport, escapeHtml } from '@/lib/printReport'
 import { formatDateDDMMYYYY } from '@/lib/utils'
 
@@ -118,7 +119,7 @@ export function OverviewTab({ range }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
+      <ReportsExportSlot>
         <ExportButton
           report="overview"
           reportLabel="Overview"
@@ -126,7 +127,7 @@ export function OverviewTab({ range }: Props) {
           toISO={range.toISO}
           onPrintPdf={handlePrintPdf}
         />
-      </div>
+      </ReportsExportSlot>
 
       {overviewQuery.isError && (
         <Card className="border-destructive/50">

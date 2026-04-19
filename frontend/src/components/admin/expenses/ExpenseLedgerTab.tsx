@@ -14,7 +14,19 @@ import type { Expense, MetaData } from '@/types'
 import { formatRecordedAtForLedger, getCategoryBadge } from './expense-constants'
 import { useExpenseCategoryDefs } from './use-expense-category-defs'
 import { toastHelpers } from '@/lib/toast-helpers'
-import { Search, X, ChevronLeft, ChevronRight, Plus, Lock, Download } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import {
+  Search,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Lock,
+  Download,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+} from 'lucide-react'
 
 function csvEscape(value: string | number | undefined | null): string {
   const s = value === undefined || value === null ? '' : String(value)
@@ -52,7 +64,14 @@ function downloadCurrentPageExpensesCsv(rows: Expense[], page: number) {
   URL.revokeObjectURL(url)
 }
 
-export type ExpenseLedgerSortKey = 'expense_date' | 'amount' | 'category' | 'created_at'
+export type ExpenseLedgerSortKey =
+  | 'expense_date'
+  | 'amount'
+  | 'category'
+  | 'description'
+  | 'created_by'
+  | 'type'
+  | 'created_at'
 
 type Props = {
   expenses?: Expense[]
@@ -104,6 +123,55 @@ export function ExpenseLedgerTab({
   const filterCategories = [...categoryDefs]
     .filter(d => d.is_active)
     .sort((a, b) => a.sort_order - b.sort_order || a.label.localeCompare(b.label))
+
+  // Toggle sort like the Staff Management table: clicking the active column flips
+  // direction, clicking a new column switches to it and starts ascending. Resets
+  // the page so users always see the first slice of the new ordering.
+  const handleSort = (key: ExpenseLedgerSortKey) => {
+    if (sortBy === key) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(key)
+      setSortDir('asc')
+    }
+    setPage(1)
+  }
+
+  const renderSortIcon = (key: ExpenseLedgerSortKey) => {
+    if (sortBy !== key) return <ArrowUpDown className="ml-2 h-3.5 w-3.5 opacity-50" />
+    return sortDir === 'asc' ? (
+      <ArrowUp className="ml-2 h-3.5 w-3.5" />
+    ) : (
+      <ArrowDown className="ml-2 h-3.5 w-3.5" />
+    )
+  }
+
+  const SortableHeader = ({
+    label,
+    sortKey,
+    align = 'left',
+  }: {
+    label: string
+    sortKey: ExpenseLedgerSortKey
+    align?: 'left' | 'right'
+  }) => {
+    const isActive = sortBy === sortKey
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => handleSort(sortKey)}
+        className={cn(
+          'h-8 -mx-2 px-2 font-medium hover:bg-transparent',
+          isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+          align === 'right' && 'ml-auto',
+        )}
+      >
+        {label}
+        {renderSortIcon(sortKey)}
+      </Button>
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -160,32 +228,6 @@ export function ExpenseLedgerTab({
             }}
           />
         </div>
-        <Select value={sortBy} onValueChange={v => setSortBy(v as ExpenseLedgerSortKey)}>
-          <SelectTrigger className="w-[170px]">
-            <SelectValue placeholder="Sort by" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="expense_date">Date</SelectItem>
-            <SelectItem value="amount">Amount</SelectItem>
-            <SelectItem value="category">Category</SelectItem>
-            <SelectItem value="created_at">Created</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select
-          value={sortDir}
-          onValueChange={v => {
-            setSortDir(v as 'asc' | 'desc')
-            setPage(1)
-          }}
-        >
-          <SelectTrigger className="w-[120px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="desc">Desc</SelectItem>
-            <SelectItem value="asc">Asc</SelectItem>
-          </SelectContent>
-        </Select>
         {(category || from || to || searchInput.trim()) && (
           <Button
             variant="ghost"
@@ -229,12 +271,26 @@ export function ExpenseLedgerTab({
           <table className="w-full min-w-[860px] text-sm">
             <thead className="sticky top-0 z-30 border-b bg-muted/95 backdrop-blur supports-[backdrop-filter]:bg-muted/75">
               <tr>
-                <th className="p-3 text-left font-medium text-muted-foreground">Date &amp; time</th>
-                <th className="p-3 text-left font-medium text-muted-foreground">Category</th>
-                <th className="p-3 text-left font-medium text-muted-foreground">Description</th>
-                <th className="p-3 text-right font-medium text-muted-foreground">Amount</th>
-                <th className="p-3 text-left font-medium text-muted-foreground">Created by</th>
-                <th className="p-3 text-left font-medium text-muted-foreground">Type</th>
+                <th className="p-3 text-left font-medium">
+                  <SortableHeader label="Date & time" sortKey="expense_date" />
+                </th>
+                <th className="p-3 text-left font-medium">
+                  <SortableHeader label="Category" sortKey="category" />
+                </th>
+                <th className="p-3 text-left font-medium">
+                  <SortableHeader label="Description" sortKey="description" />
+                </th>
+                <th className="p-3 text-right font-medium">
+                  <div className="flex justify-end">
+                    <SortableHeader label="Amount" sortKey="amount" align="right" />
+                  </div>
+                </th>
+                <th className="p-3 text-left font-medium">
+                  <SortableHeader label="Created by" sortKey="created_by" />
+                </th>
+                <th className="p-3 text-left font-medium">
+                  <SortableHeader label="Type" sortKey="type" />
+                </th>
                 <th className="sticky right-0 z-20 min-w-[148px] border-l bg-muted/95 p-3 text-right font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-muted/75">
                   Actions
                 </th>

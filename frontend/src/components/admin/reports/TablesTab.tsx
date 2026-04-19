@@ -18,6 +18,7 @@ import { useCurrency } from '@/contexts/CurrencyContext'
 import type { UseReportRange } from '@/hooks/useReportRange'
 import type { PartySizeRow, TableSalesRow } from '@/types'
 import { ExportButton } from './ExportButton'
+import { ReportsExportSlot } from './ReportsExportSlot'
 import { openPrintableReport, escapeHtml } from '@/lib/printReport'
 import { formatDateDDMMYYYY } from '@/lib/utils'
 
@@ -66,7 +67,7 @@ export function TablesTab({ range }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end gap-2">
+      <ReportsExportSlot>
         <ExportButton
           report="tables"
           reportLabel="Tables"
@@ -80,7 +81,7 @@ export function TablesTab({ range }: Props) {
           fromISO={range.fromISO}
           toISO={range.toISO}
         />
-      </div>
+      </ReportsExportSlot>
 
       <Card>
         <CardHeader>

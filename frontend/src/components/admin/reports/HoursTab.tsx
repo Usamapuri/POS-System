@@ -18,6 +18,7 @@ import { useCurrency } from '@/contexts/CurrencyContext'
 import type { UseReportRange } from '@/hooks/useReportRange'
 import type { HourlyHeatmapCell } from '@/types'
 import { ExportButton } from './ExportButton'
+import { ReportsExportSlot } from './ReportsExportSlot'
 import { openPrintableReport, escapeHtml } from '@/lib/printReport'
 import { cn, formatDateDDMMYYYY } from '@/lib/utils'
 
@@ -91,30 +92,30 @@ export function HoursTab({ range }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground uppercase tracking-wide">Metric</span>
-          <div className="flex items-center rounded-md bg-muted p-1">
-            <Button
-              type="button"
-              size="sm"
-              variant={metric === 'net' ? 'default' : 'ghost'}
-              className="h-7 px-3 text-xs"
-              onClick={() => setMetric('net')}
-            >
-              Net sales
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={metric === 'orders' ? 'default' : 'ghost'}
-              className="h-7 px-3 text-xs"
-              onClick={() => setMetric('orders')}
-            >
-              Orders
-            </Button>
-          </div>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground uppercase tracking-wide">Metric</span>
+        <div className="flex items-center rounded-md bg-muted p-1">
+          <Button
+            type="button"
+            size="sm"
+            variant={metric === 'net' ? 'default' : 'ghost'}
+            className="h-7 px-3 text-xs"
+            onClick={() => setMetric('net')}
+          >
+            Net sales
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={metric === 'orders' ? 'default' : 'ghost'}
+            className="h-7 px-3 text-xs"
+            onClick={() => setMetric('orders')}
+          >
+            Orders
+          </Button>
         </div>
+      </div>
+      <ReportsExportSlot>
         <ExportButton
           report="hourly"
           reportLabel="Hourly sales"
@@ -122,7 +123,7 @@ export function HoursTab({ range }: Props) {
           toISO={range.toISO}
           onPrintPdf={handlePrintPdf}
         />
-      </div>
+      </ReportsExportSlot>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">

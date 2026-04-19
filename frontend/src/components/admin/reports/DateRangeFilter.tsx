@@ -53,26 +53,31 @@ export function DateRangeFilter({ range }: Props) {
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      {/* Preset quick-buttons (visible on desktop). */}
-      <div className="hidden md:flex items-center gap-1 rounded-md bg-muted p-1">
+      {/* Preset quick-buttons (visible on wide desktops). On narrower screens
+          the presets collapse into the dropdown trigger below to avoid
+          crowding the page header. */}
+      <div className="hidden xl:flex items-center gap-1 rounded-lg bg-muted/60 p-1">
         {PRESET_ORDER.map((p) => (
-          <Button
+          <button
             key={p}
             type="button"
-            size="sm"
-            variant={range.preset === p ? 'default' : 'ghost'}
-            className={cn('h-8 px-3 text-xs', range.preset === p ? '' : 'hover:bg-background')}
             onClick={() => range.setPreset(p)}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+              range.preset === p
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
           >
             {PRESET_LABELS[p]}
-          </Button>
+          </button>
         ))}
       </div>
 
       {/* Mobile preset dropdown */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="md:hidden">
+          <Button variant="outline" size="sm" className="xl:hidden h-9">
             {PRESET_LABELS[range.preset]} <ChevronDown className="w-3.5 h-3.5 ml-1" />
           </Button>
         </DropdownMenuTrigger>
@@ -109,9 +114,9 @@ export function DateRangeFilter({ range }: Props) {
         }}
       >
         <PopoverTrigger asChild>
-          <Button variant="outline" size="sm" className="gap-2">
-            <CalendarRange className="w-3.5 h-3.5" />
-            <span className="text-xs font-normal">{triggerLabel}</span>
+          <Button variant="outline" size="sm" className="h-9 gap-2">
+            <CalendarRange className="w-4 h-4" />
+            <span className="text-sm font-normal">{triggerLabel}</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-auto p-0">

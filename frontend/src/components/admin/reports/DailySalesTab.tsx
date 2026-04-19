@@ -10,6 +10,7 @@ import type { UseReportRange } from '@/hooks/useReportRange'
 import type { DailySalesRow } from '@/types'
 import { useCurrency } from '@/contexts/CurrencyContext'
 import { ExportButton } from './ExportButton'
+import { ReportsExportSlot } from './ReportsExportSlot'
 import { openPrintableReport, escapeHtml } from '@/lib/printReport'
 import { formatDateDDMMYYYY } from '@/lib/utils'
 
@@ -100,16 +101,16 @@ export function DailySalesTab({ range }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3 flex-wrap justify-between">
-        <div className="relative max-w-xs w-full">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search a day (e.g. 18-04-2026)"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
+      <div className="relative max-w-xs w-full">
+        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Search a day (e.g. 18-04-2026)"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-9"
+        />
+      </div>
+      <ReportsExportSlot>
         <ExportButton
           report="daily_sales"
           reportLabel="Daily sales"
@@ -117,7 +118,7 @@ export function DailySalesTab({ range }: Props) {
           toISO={range.toISO}
           onPrintPdf={handlePrintPdf}
         />
-      </div>
+      </ReportsExportSlot>
 
       <Card>
         <CardHeader>

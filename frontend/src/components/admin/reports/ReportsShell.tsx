@@ -1,14 +1,13 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   BarChart3,
   ClipboardList,
   CalendarDays,
   Clock,
   Package,
-  Receipt,
   Users,
 } from 'lucide-react'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
 import { useReportRange } from '@/hooks/useReportRange'
 import { DateRangeFilter } from './DateRangeFilter'
 import { OverviewTab } from './OverviewTab'
@@ -17,16 +16,20 @@ import { HoursTab } from './HoursTab'
 import { ItemsTab } from './ItemsTab'
 import { TablesTab } from './TablesTab'
 import { OrdersBrowserTab } from './OrdersBrowserTab'
+import {
+  ReportsExportOutlet,
+  ReportsExportSlotProvider,
+} from './ReportsExportSlot'
 
 type TabId = 'overview' | 'daily' | 'hours' | 'items' | 'tables' | 'orders'
 
-const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: 'overview', label: 'Overview', icon: BarChart3 },
-  { id: 'daily', label: 'Daily Sales', icon: CalendarDays },
-  { id: 'hours', label: 'Hours', icon: Clock },
-  { id: 'items', label: 'Items', icon: Package },
-  { id: 'tables', label: 'Tables & Parties', icon: Users },
-  { id: 'orders', label: 'Orders Browser', icon: ClipboardList },
+const TABS: { id: TabId; label: string; icon: ReactNode }[] = [
+  { id: 'overview', label: 'Overview', icon: <BarChart3 className="h-4 w-4" /> },
+  { id: 'daily', label: 'Daily Sales', icon: <CalendarDays className="h-4 w-4" /> },
+  { id: 'hours', label: 'Hours', icon: <Clock className="h-4 w-4" /> },
+  { id: 'items', label: 'Items', icon: <Package className="h-4 w-4" /> },
+  { id: 'tables', label: 'Tables & Parties', icon: <Users className="h-4 w-4" /> },
+  { id: 'orders', label: 'Orders Browser', icon: <ClipboardList className="h-4 w-4" /> },
 ]
 
 /**
@@ -44,54 +47,54 @@ export function ReportsShell() {
   const [tab, setTab] = useState<TabId>('overview')
 
   return (
-    <div className="p-6 space-y-6">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground inline-flex items-center gap-2">
-            <Receipt className="w-3.5 h-3.5" /> Reports & Analytics
-          </p>
-          <h1 className="text-2xl font-semibold mt-1">Sales, items, tables & more</h1>
-          <p className="text-sm text-muted-foreground">
-            Granular insights for Café Cova. Date math runs in Asia/Karachi local time; every
-            comparison metric is computed against the same-length previous period.
-          </p>
+    <ReportsExportSlotProvider>
+      <div className="mx-auto max-w-[1400px] space-y-6 p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Reports &amp; Analytics</h1>
+            <p className="mt-1 text-muted-foreground">
+              Sales, items, tables and more for Café Cova.
+            </p>
+          </div>
+          {tab !== 'orders' && (
+            <div className="lg:pt-1">
+              <DateRangeFilter range={range} />
+            </div>
+          )}
         </div>
-        {tab !== 'orders' && <DateRangeFilter range={range} />}
-      </header>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as TabId)}>
-        <TabsList className="flex flex-wrap gap-1 h-auto bg-muted/40 p-1">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <TabsTrigger
-              key={id}
-              value={id}
-              className="text-xs gap-1.5 px-3 data-[state=active]:bg-background"
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        {/* Tabs row + export outlet share one horizontal band. The outlet
+            renders OUTSIDE the muted tab container so the Export button
+            visually reads as a page action, not as another tab. */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-1 rounded-lg bg-muted/60 p-1">
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={cn(
+                  'flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors',
+                  tab === t.id
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t.icon}
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <ReportsExportOutlet />
+        </div>
 
-        <TabsContent value="overview" className="mt-6">
-          <OverviewTab range={range} />
-        </TabsContent>
-        <TabsContent value="daily" className="mt-6">
-          <DailySalesTab range={range} />
-        </TabsContent>
-        <TabsContent value="hours" className="mt-6">
-          <HoursTab range={range} />
-        </TabsContent>
-        <TabsContent value="items" className="mt-6">
-          <ItemsTab range={range} />
-        </TabsContent>
-        <TabsContent value="tables" className="mt-6">
-          <TablesTab range={range} />
-        </TabsContent>
-        <TabsContent value="orders" className="mt-6">
-          <OrdersBrowserTab />
-        </TabsContent>
-      </Tabs>
-    </div>
+        {tab === 'overview' && <OverviewTab range={range} />}
+        {tab === 'daily' && <DailySalesTab range={range} />}
+        {tab === 'hours' && <HoursTab range={range} />}
+        {tab === 'items' && <ItemsTab range={range} />}
+        {tab === 'tables' && <TablesTab range={range} />}
+        {tab === 'orders' && <OrdersBrowserTab />}
+      </div>
+    </ReportsExportSlotProvider>
   )
 }
