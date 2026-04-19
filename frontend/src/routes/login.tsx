@@ -102,7 +102,7 @@ function LoginPage() {
   }
 
   return (
-    <div className="bhookly-login min-h-screen w-full bg-[#fdf8f1] text-[#1a1410] lg:grid lg:grid-cols-[1.05fr_1fr]">
+    <div className="bhookly-login min-h-screen w-full bg-[#fdf8f1] text-[#1a1410] lg:grid lg:grid-cols-[3fr_2fr]">
       <BrandPanel />
       <FormPanel
         formData={formData}
@@ -165,7 +165,11 @@ function BrandPanel() {
 
       {/* hero copy */}
       <div className="relative z-10 flex flex-1 flex-col justify-center px-10 xl:px-16">
-        <div className="max-w-xl">
+        {/* scale-[1.15] grows the entire hero (pill, headline, body, stats)
+            by exactly 15% — text, spacing, icons, all together. origin-left
+            anchors growth to the left padding edge so the block doesn't
+            collide with the panel's left side. */}
+        <div className="max-w-xl origin-left scale-[1.15]">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-amber-200 ring-1 ring-white/15">
             <Sparkles className="h-3 w-3" />
             Restaurant POS, reimagined
@@ -191,8 +195,17 @@ function BrandPanel() {
           </dl>
         </div>
 
-        {/* floating product mocks */}
-        <div className="pointer-events-none absolute right-[-40px] top-1/2 hidden -translate-y-1/2 xl:block">
+        {/* Floating product mocks. The `right` offset is calc'd against the
+            viewport so the tickets stay pinned to roughly the same VIEWPORT
+            position regardless of how wide the brand column gets. The
+            original layout had brand ≈ 51.2vw with tickets at right:-40px
+            (i.e. 40px past the panel's right edge). At brand = 60vw the
+            panel grew by ~8.8vw, so we pull the tickets back inward by that
+            much (~9vw) to land at the same screen x.
+            scale-[1.15] grows the cards and their inner text in lockstep
+            with the hero copy. Default origin (center) keeps the visual
+            midpoint of the cards at the same vertical center. */}
+        <div className="pointer-events-none absolute right-[calc(9vw_-_40px)] top-1/2 hidden -translate-y-1/2 scale-[1.15] xl:block">
           <FloatingTickets />
         </div>
       </div>
