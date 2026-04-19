@@ -1,4 +1,3 @@
-import * as React from "react"
 import { User, LogOut } from "lucide-react"
 import {
   DropdownMenu,
