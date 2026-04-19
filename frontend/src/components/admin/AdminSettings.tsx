@@ -519,7 +519,7 @@ export function AdminSettings() {
     <div className="space-y-6">
       <SectionHeader
         title="General"
-        description="Core restaurant identity and regional preferences."
+        description="Core restaurant identity and regional preferences"
       />
       <Card>
         <CardContent className="pt-6 space-y-5">
@@ -559,7 +559,7 @@ export function AdminSettings() {
     <div className="space-y-6">
       <SectionHeader
         title="Financial"
-        description="Tax rates and service charges applied during checkout. These values are used across all counter and payment flows."
+        description="Tax rates and service charges applied during checkout. These values are used across all counter and payment flows"
       />
       <Card>
         <CardHeader className="pb-4">
@@ -601,7 +601,7 @@ export function AdminSettings() {
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="text-base">Service Charge</CardTitle>
-          <CardDescription>Applied to all orders during checkout.</CardDescription>
+          <CardDescription>Applied to all orders during checkout</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <FieldGroup label="Service Charge (%)">
@@ -633,7 +633,7 @@ export function AdminSettings() {
       <div className="space-y-6">
         <SectionHeader
           title="Receipt & Printing"
-          description="Customize the thermal receipt printed after payment. Invoice number, date, time, payment mode, cashier, and server name are added automatically from each order."
+          description="Customize the thermal receipt printed after payment. Invoice number, date, time, payment mode, cashier, and server name are added automatically from each order"
         />
 
         <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
@@ -645,7 +645,7 @@ export function AdminSettings() {
                 <CardTitle className="text-base flex items-center gap-2">
                   <ImageIcon className="w-4 h-4" /> Brand
                 </CardTitle>
-                <CardDescription>Logo and business name printed at the top of every receipt.</CardDescription>
+                <CardDescription>Logo and business name printed at the top of every receipt</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <FieldGroup label="Business Name" hint="Printed as the receipt header.">
@@ -726,7 +726,7 @@ export function AdminSettings() {
             <Card>
               <CardHeader className="pb-4">
                 <CardTitle className="text-base">Contact</CardTitle>
-                <CardDescription>Address and reach-out details. All contact lines are optional.</CardDescription>
+                <CardDescription>Address and reach-out details. All contact lines are optional</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <FieldGroup label="Address" hint="Street, area, city (multiple lines OK).">
@@ -769,7 +769,7 @@ export function AdminSettings() {
             <Card>
               <CardHeader className="pb-4">
                 <CardTitle className="text-base">Legal &amp; Tax</CardTitle>
-                <CardDescription>Regulatory identifiers printed below the header.</CardDescription>
+                <CardDescription>Regulatory identifiers printed below the header</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -828,7 +828,7 @@ export function AdminSettings() {
             <Card>
               <CardHeader className="pb-4">
                 <CardTitle className="text-base">Appearance</CardTitle>
-                <CardDescription>Accent color and closing message.</CardDescription>
+                <CardDescription>Accent color and closing message</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -901,7 +901,7 @@ export function AdminSettings() {
     <div className="space-y-6">
       <SectionHeader
         title="Order Types"
-        description="Control which order types are available in the POS interface. Only enabled types will appear for servers and counter staff."
+        description="Control which order types are available in the POS interface. Only enabled types will appear for servers and counter staff"
       />
       <Card>
         <CardContent className="pt-6 space-y-5">
@@ -983,7 +983,7 @@ export function AdminSettings() {
       <div className="space-y-6">
         <SectionHeader
           title="Kitchen"
-          description="Choose how orders reach the kitchen and tune KDS urgency/stale thresholds."
+          description="Choose how orders reach the kitchen and tune KDS urgency/stale thresholds"
         />
 
         <Card>
@@ -1093,7 +1093,7 @@ export function AdminSettings() {
     <div className="space-y-6">
       <SectionHeader
         title="PRA Tax Invoice"
-        description="Optional second receipt for Punjab Revenue Authority tax compliance. The standard customer receipt is always printed; this slip is only produced when the customer asks for it."
+        description="Optional second receipt for Punjab Revenue Authority tax compliance. The standard customer receipt is always printed; this slip is only produced when the customer asks for it"
       />
 
       <Card>
@@ -1226,12 +1226,12 @@ export function AdminSettings() {
     <div className="space-y-6">
       <SectionHeader
         title="Appearance"
-        description="Customize the visual look and feel of the POS interface."
+        description="Customize the visual look and feel of the POS interface"
       />
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="text-base">Theme</CardTitle>
-          <CardDescription>Choose how the application looks across all screens.</CardDescription>
+          <CardDescription>Choose how the application looks across all screens</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-3 gap-3 max-w-md">

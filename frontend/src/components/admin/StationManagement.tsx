@@ -420,7 +420,7 @@ export function StationManagement() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Kitchen Stations</h2>
           <p className="text-muted-foreground mt-1">
-            Configure where each menu category is sent when staff fire a KOT.
+            Configure where each menu category is sent when staff fire a KOT
           </p>
         </div>
         <Button onClick={startCreate}>

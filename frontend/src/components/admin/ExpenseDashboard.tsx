@@ -172,7 +172,7 @@ export function ExpenseDashboard() {
         <h1 className="text-3xl font-bold tracking-tight">Expense Dashboard</h1>
         <p className="mt-1 text-muted-foreground">
           Track expenses, close days, and view P&amp;L — revenue aligns with completed orders (same basis as daily
-          closing).
+          closing)
         </p>
       </div>
 

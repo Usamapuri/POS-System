@@ -267,7 +267,7 @@ export function AdminTableManagement() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold tracking-tight">Table Management</h2>
-            <p className="text-muted-foreground">Build a visual floor map and arrange table positions.</p>
+            <p className="text-muted-foreground">Build a visual floor map and arrange table positions</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setViewMode('list')} className="gap-2">

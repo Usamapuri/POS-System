@@ -32,7 +32,7 @@ export function KitchenDisabledScreen({ userRole }: KitchenDisabledScreenProps) 
         </h1>
         <p className="text-center text-slate-600 dark:text-slate-400 mb-6">
           This venue is operating in <strong>KOT-only mode</strong>. Orders are routed directly to
-          station printers — the digital kitchen display is not in use.
+          station printers — the digital kitchen display is not in use
         </p>
 
         {isAdmin ? (

@@ -316,7 +316,7 @@ export function VoidLog() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Void Log</h2>
           <p className="text-muted-foreground mt-1">
-            Audit trail of all kitchen-fired items voided with manager authorization.
+            Audit trail of all kitchen-fired items voided with manager authorization
           </p>
         </div>
         <div className="flex items-center gap-2">
