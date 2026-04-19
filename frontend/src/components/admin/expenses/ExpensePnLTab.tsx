@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -83,11 +83,11 @@ export function ExpensePnLTab({ pnl, period, setPeriod, from, setFrom, to, setTo
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">From</Label>
-          <Input type="date" className="w-[160px]" value={from} onChange={e => setFrom(e.target.value)} />
+          <DatePicker className="w-[180px]" value={from} onChange={setFrom} max={to || undefined} />
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">To</Label>
-          <Input type="date" className="w-[160px]" value={to} onChange={e => setTo(e.target.value)} />
+          <DatePicker className="w-[180px]" value={to} onChange={setTo} min={from || undefined} />
         </div>
         <p className="max-w-md text-xs text-muted-foreground">
           Revenue uses <strong>completed order</strong> dates (aligned with daily closing). Expenses use expense date.

@@ -5,6 +5,7 @@ import type { StockCategory, StockItem, StockMovement, StockAlert, UserBrief, Ad
 import { useCurrency } from '@/contexts/CurrencyContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -1149,9 +1150,19 @@ function ActivityTab({
           }}
           className="border rounded-md px-3 py-2 text-sm bg-background min-w-[220px]"
         />
-        <input type="date" value={from} onChange={e => { setFrom(e.target.value); setPage(1) }} className="border rounded-md px-3 py-2 text-sm bg-background" />
+        <DatePicker
+          className="w-[180px]"
+          value={from}
+          onChange={v => { setFrom(v); setPage(1) }}
+          max={to || undefined}
+        />
         <span className="text-sm text-muted-foreground">to</span>
-        <input type="date" value={to} onChange={e => { setTo(e.target.value); setPage(1) }} className="border rounded-md px-3 py-2 text-sm bg-background" />
+        <DatePicker
+          className="w-[180px]"
+          value={to}
+          onChange={v => { setTo(v); setPage(1) }}
+          min={from || undefined}
+        />
       </div>
 
       <div className="border rounded-lg overflow-hidden">
@@ -1301,9 +1312,19 @@ function MovementsTab({
           <option value="issue">Issue</option>
           <option value="adjustment">Adjustment</option>
         </select>
-        <input type="date" value={movFrom} onChange={e => { setMovFrom(e.target.value); setPage(1) }} className="border rounded-md px-3 py-2 text-sm bg-background" />
+        <DatePicker
+          className="w-[180px]"
+          value={movFrom}
+          onChange={v => { setMovFrom(v); setPage(1) }}
+          max={movTo || undefined}
+        />
         <span className="text-sm text-muted-foreground">to</span>
-        <input type="date" value={movTo} onChange={e => { setMovTo(e.target.value); setPage(1) }} className="border rounded-md px-3 py-2 text-sm bg-background" />
+        <DatePicker
+          className="w-[180px]"
+          value={movTo}
+          onChange={v => { setMovTo(v); setPage(1) }}
+          min={movFrom || undefined}
+        />
       </div>
 
       <div className="border rounded-lg overflow-hidden overflow-x-auto">
@@ -2112,7 +2133,7 @@ function PurchaseForm({ item, onClose, qc, showToast }: { item: StockItem; onClo
       </div>
       {form.quantity > 0 && form.unit_cost > 0 && <p className="text-sm font-medium">Total cost: {formatCurrency(form.quantity * form.unit_cost)}</p>}
       <FormField label="Expiry (optional)">
-        <input type="date" value={form.expiry_date} onChange={e => setForm(f => ({ ...f, expiry_date: e.target.value }))} />
+        <DatePicker value={form.expiry_date} onChange={v => setForm(f => ({ ...f, expiry_date: v }))} />
       </FormField>
       <FormField label="Note"><input value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="e.g. Weekly supplier order" /></FormField>
       <Button type="submit" className="w-full" disabled={mut.isPending || form.quantity <= 0}>{mut.isPending ? 'Recording...' : 'Record Purchase'}</Button>

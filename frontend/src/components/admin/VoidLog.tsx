@@ -4,6 +4,7 @@ import apiClient from '@/api/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
@@ -369,18 +370,16 @@ export function VoidLog() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <FilterField label="From date">
-              <Input
-                type="date"
+              <DatePicker
                 value={fromDate}
-                onChange={(e) => onFilterChange(setFromDate)(e.target.value)}
+                onChange={onFilterChange(setFromDate)}
                 max={toDate || undefined}
               />
             </FilterField>
             <FilterField label="To date">
-              <Input
-                type="date"
+              <DatePicker
                 value={toDate}
-                onChange={(e) => onFilterChange(setToDate)(e.target.value)}
+                onChange={onFilterChange(setToDate)}
                 min={fromDate || undefined}
               />
             </FilterField>

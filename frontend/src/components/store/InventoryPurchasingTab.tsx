@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -681,7 +682,12 @@ export function InventoryPurchasingTab({ stockItems, showToast }: { stockItems: 
             </div>
             <div className="space-y-2">
               <Label htmlFor="po-expected" className="text-base">Expected date</Label>
-              <Input id="po-expected" type="date" className="h-11 text-base" value={poForm.expected_date} onChange={(e) => setPoForm((f) => ({ ...f, expected_date: e.target.value }))} />
+              <DatePicker
+                id="po-expected"
+                className="h-11 text-base"
+                value={poForm.expected_date}
+                onChange={(v) => setPoForm((f) => ({ ...f, expected_date: v }))}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="po-notes" className="text-base">Notes</Label>
@@ -857,14 +863,13 @@ export function InventoryPurchasingTab({ stockItems, showToast }: { stockItems: 
                       </div>
                       <div className="space-y-2">
                         <Label className="text-base">Expiry</Label>
-                        <Input
-                          type="date"
+                        <DatePicker
                           className="h-11 text-base"
                           value={r.expiry}
-                          onChange={(e) =>
+                          onChange={(v) =>
                             setReceiveLines((m) => ({
                               ...m,
-                              [ln.id]: { ...r, expiry: e.target.value },
+                              [ln.id]: { ...r, expiry: v },
                             }))
                           }
                         />

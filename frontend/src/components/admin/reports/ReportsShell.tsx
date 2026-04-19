@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   BarChart3,
   ClipboardList,
@@ -8,6 +9,7 @@ import {
   Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import apiClient from '@/api/client'
 import { useReportRange } from '@/hooks/useReportRange'
 import { DateRangeFilter } from './DateRangeFilter'
 import { OverviewTab } from './OverviewTab'
@@ -46,15 +48,33 @@ export function ReportsShell() {
   const range = useReportRange()
   const [tab, setTab] = useState<TabId>('overview')
 
+  // Pull the venue display name from Admin → Settings (receipt_business_name).
+  // Same queryKey as AdminSidebar so the React Query cache is shared and we
+  // don't double-fetch. Five-minute staleTime mirrors AdminSidebar's window.
+  const { data: settingsRes } = useQuery({
+    queryKey: ['settings', 'all'],
+    queryFn: () => apiClient.getAllSettings(),
+    staleTime: 1000 * 60 * 5,
+  })
+  const businessName = (
+    (settingsRes?.data as Record<string, unknown> | undefined)?.receipt_business_name as
+      | string
+      | undefined
+  )?.trim()
+
+  // If the operator hasn't set a venue name yet, drop the trailing "for X"
+  // entirely rather than rendering an awkward placeholder or trailing period.
+  const subtitle = businessName
+    ? `Sales, items, tables and more for ${businessName}.`
+    : 'Sales, items, tables and more.'
+
   return (
     <ReportsExportSlotProvider>
       <div className="mx-auto max-w-[1400px] space-y-6 p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Reports &amp; Analytics</h1>
-            <p className="mt-1 text-muted-foreground">
-              Sales, items, tables and more for Café Cova.
-            </p>
+            <p className="mt-1 text-muted-foreground">{subtitle}</p>
           </div>
           {tab !== 'orders' && (
             <div className="lg:pt-1">

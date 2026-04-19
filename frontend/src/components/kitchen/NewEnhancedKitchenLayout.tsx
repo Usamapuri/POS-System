@@ -281,18 +281,20 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-100 dark:bg-gray-900">
-      {/* Top bar — slim, scannable */}
-      <header className="shrink-0 border-b border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2.5 shadow-sm sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-orange-500 to-amber-600 shadow">
-              <ChefHat className="h-5 w-5 text-white" />
+      {/* Top bar — same heading scale as the rest of the admin app
+          (Staff Management, Reports, Expenses) for consistency. The chrome
+          stays compact below so the KOT board still owns the screen. */}
+      <header className="shrink-0 border-b border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-4 shadow-sm sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 shadow">
+              <ChefHat className="h-6 w-6 text-white" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
                 Kitchen Display
               </h1>
-              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
                 <span className="truncate">
                   {user.first_name} {user.last_name}
                 </span>
@@ -303,7 +305,7 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
               <RefreshCw className={cn('h-4 w-4', (isLoading || isFetching) && 'animate-spin')} />
             </Button>
@@ -326,7 +328,7 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
         </div>
 
         {/* Filter row — type chips + station chips */}
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <FilterChip
             active={liveFilter === 'all'}
             onClick={() => setLiveFilter('all')}
@@ -340,16 +342,16 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
             label="Urgent"
             count={urgentCount}
             tone="red"
-            icon={<Flame className="h-3 w-3" />}
+            icon={<Flame className="h-3.5 w-3.5" />}
           />
-          <span className="mx-1 h-4 w-px bg-slate-300 dark:bg-gray-700" aria-hidden />
+          <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-gray-700" aria-hidden />
           <FilterChip
             active={liveFilter === 'dine_in'}
             onClick={() => setLiveFilter('dine_in')}
             label="Dine-in"
             count={typeCounts.dine_in || 0}
             tone="sky"
-            icon={<Home className="h-3 w-3" />}
+            icon={<Home className="h-3.5 w-3.5" />}
           />
           <FilterChip
             active={liveFilter === 'takeout'}
@@ -357,7 +359,7 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
             label="Takeaway"
             count={typeCounts.takeout || 0}
             tone="violet"
-            icon={<ShoppingBag className="h-3 w-3" />}
+            icon={<ShoppingBag className="h-3.5 w-3.5" />}
           />
           <FilterChip
             active={liveFilter === 'delivery'}
@@ -365,13 +367,13 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
             label="Delivery"
             count={typeCounts.delivery || 0}
             tone="indigo"
-            icon={<Truck className="h-3 w-3" />}
+            icon={<Truck className="h-3.5 w-3.5" />}
           />
           {stations.length > 0 && (
             <>
-              <span className="mx-1 h-4 w-px bg-slate-300 dark:bg-gray-700" aria-hidden />
-              <span className="flex items-center gap-1 text-[11px] text-muted-foreground mr-1">
-                <Filter className="h-3 w-3" />
+              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-gray-700" aria-hidden />
+              <span className="flex items-center gap-1.5 text-sm text-muted-foreground mr-1">
+                <Filter className="h-3.5 w-3.5" />
                 Station:
               </span>
               <FilterChip
@@ -387,14 +389,14 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
                   onClick={() => setStationFilter(s.id)}
                   label={s.name}
                   tone={s.output_type === 'kds' ? 'teal' : 'amber'}
-                  icon={<Radio className="h-3 w-3" />}
+                  icon={<Radio className="h-3.5 w-3.5" />}
                 />
               ))}
             </>
           )}
           {atPassCount > 0 && (
-            <Badge className="ml-auto bg-emerald-600 text-white gap-1">
-              <Package className="h-3 w-3" />
+            <Badge className="ml-auto bg-emerald-600 text-white gap-1.5 px-3 py-1 text-sm">
+              <Package className="h-3.5 w-3.5" />
               {atPassCount} at pass
             </Badge>
           )}
@@ -419,7 +421,7 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
             {isLoading ? (
               <div className="flex h-64 flex-col items-center justify-center gap-3">
                 <RefreshCw className="h-10 w-10 animate-spin text-orange-600" />
-                <p className="text-sm text-slate-500">Loading kitchen queue…</p>
+                <p className="text-base text-slate-600 dark:text-slate-400">Loading kitchen queue…</p>
               </div>
             ) : (
               <>
@@ -430,7 +432,7 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
                   >
                     <AlertCircle className="h-8 w-8 shrink-0 text-red-600" />
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-red-900">Could not load orders</p>
+                      <p className="text-base font-semibold text-red-900">Could not load orders</p>
                       <p className="mt-1 break-words text-sm text-red-800">{errorMessage}</p>
                     </div>
                     <Button className="shrink-0" onClick={() => refetch()}>
@@ -475,8 +477,8 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
                     burn screen real estate on an empty section */}
                 {takeawayReady.length > 0 && liveFilter !== 'dine_in' && (
                   <div className="mt-6 border-t border-dashed border-slate-300 dark:border-gray-700 pt-4">
-                    <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
-                      <Package className="h-4 w-4" />
+                    <h2 className="mb-3 flex items-center gap-2 text-base font-semibold text-slate-800 dark:text-slate-200">
+                      <Package className="h-5 w-5" />
                       Takeaway — ready for pickup
                     </h2>
                     <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">
@@ -497,9 +499,9 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
 
           {/* Recall strip — anchored to the bottom of the board; hidden when empty. */}
           {recentBumped.length > 0 && kitchen.recallWindowSeconds > 0 && (
-            <div className="shrink-0 border-t border-slate-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur px-3 py-2">
+            <div className="shrink-0 border-t border-slate-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur px-3 py-2.5">
               <div className="flex items-center gap-2 overflow-x-auto">
-                <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+                <span className="shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
                   <Undo2 className="h-3.5 w-3.5" />
                   Recall ({kitchen.recallWindowSeconds}s window)
                 </span>
@@ -511,14 +513,14 @@ export function NewEnhancedKitchenLayout({ user }: NewEnhancedKitchenLayoutProps
                       size="sm"
                       disabled={recallMutation.isPending && recallMutation.variables === b.id}
                       onClick={() => recallMutation.mutate(b.id)}
-                      className="h-8 text-xs gap-1.5 border-slate-300 dark:border-gray-600 hover:border-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+                      className="h-8 text-sm gap-1.5 border-slate-300 dark:border-gray-600 hover:border-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20"
                       title={
                         b.table_number
                           ? `Table ${b.table_number}`
                           : b.customer_name || 'Takeaway'
                       }
                     >
-                      <Undo2 className="h-3 w-3" />
+                      <Undo2 className="h-3.5 w-3.5" />
                       {displayTicketNo(b.order_number)}
                     </Button>
                   ))}
@@ -588,7 +590,7 @@ function FilterChip({ active, onClick, label, count, tone, icon }: FilterChipPro
       type="button"
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors dark:bg-gray-900 dark:border-gray-600',
+        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors dark:bg-gray-900 dark:border-gray-600',
         active ? styles.active : styles.idle,
       )}
     >
@@ -597,7 +599,7 @@ function FilterChip({ active, onClick, label, count, tone, icon }: FilterChipPro
       {typeof count === 'number' && count > 0 && (
         <span
           className={cn(
-            'ml-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums',
+            'ml-0.5 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-xs font-bold tabular-nums',
             active ? 'bg-white/25' : 'bg-slate-100 text-slate-700 dark:bg-gray-700 dark:text-slate-300',
           )}
         >
@@ -632,13 +634,13 @@ function StreamStatusDot({
 function EmptyState() {
   return (
     <div className="flex h-[50vh] flex-col items-center justify-center text-center">
-      <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-slate-200 dark:bg-gray-800">
-        <ChefHat className="h-8 w-8 text-slate-500" />
+      <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-slate-200 dark:bg-gray-800">
+        <ChefHat className="h-10 w-10 text-slate-500" />
       </div>
-      <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+      <p className="text-lg font-semibold text-slate-800 dark:text-slate-200">
         No tickets on the line
       </p>
-      <p className="mt-1 text-xs text-muted-foreground max-w-xs">
+      <p className="mt-1.5 text-sm text-muted-foreground max-w-md">
         Fired KOTs will appear here as cards sorted by urgency. You can filter by order type or station above.
       </p>
     </div>
@@ -658,18 +660,18 @@ function TakeawayReadyCard({
   return (
     <Card className="border-emerald-400 bg-emerald-50/70 dark:bg-emerald-900/20 dark:border-emerald-700">
       <CardContent className="p-3 text-center">
-        <div className="text-xl font-black text-emerald-900 dark:text-emerald-200">
+        <div className="text-2xl font-black text-emerald-900 dark:text-emerald-200">
           {displayTicketNo(order.order_number)}
         </div>
         <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
           {order.customer_name || 'Guest'}
         </div>
-        <div className="text-[11px] text-muted-foreground mb-2">
+        <div className="text-xs text-muted-foreground mb-2">
           {waitTime <= 0 ? 'Just ready' : `Ready ${waitTime}m ago`}
         </div>
         <Button
           size="sm"
-          className="w-full h-8 bg-slate-800 hover:bg-slate-900 text-xs"
+          className="w-full h-9 bg-slate-800 hover:bg-slate-900 text-sm"
           disabled={loading}
           onClick={onPickedUp}
         >

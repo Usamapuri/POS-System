@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Badge } from '@/components/ui/badge'
 import {
   Select,
@@ -206,26 +207,26 @@ export function ExpenseLedgerTab({
         </Select>
         <div className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">From</span>
-          <Input
-            type="date"
-            className="w-[160px]"
+          <DatePicker
+            className="w-[180px]"
             value={from}
-            onChange={e => {
-              setFrom(e.target.value)
+            onChange={v => {
+              setFrom(v)
               setPage(1)
             }}
+            max={to || undefined}
           />
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">To</span>
-          <Input
-            type="date"
-            className="w-[160px]"
+          <DatePicker
+            className="w-[180px]"
             value={to}
-            onChange={e => {
-              setTo(e.target.value)
+            onChange={v => {
+              setTo(v)
               setPage(1)
             }}
+            min={from || undefined}
           />
         </div>
         {(category || from || to || searchInput.trim()) && (

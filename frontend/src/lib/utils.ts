@@ -59,6 +59,33 @@ export function toIsoDate(input: Date | string | number | null | undefined): str
 }
 
 /**
+ * Parses an ISO YYYY-MM-DD string into a *local* Date at midnight. Required
+ * because `new Date('2026-04-19')` is interpreted as UTC midnight by the JS
+ * spec, which becomes the previous calendar day in negative-offset
+ * timezones — a classic off-by-one trap for date pickers.
+ *
+ * Returns null for empty / malformed / invalid-calendar-day input.
+ */
+export function parseIsoDate(input: string | null | undefined): Date | null {
+  if (!input) return null
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input.trim())
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(year, month - 1, day)
+  // Reject dates that overflowed (e.g. "2026-02-31" silently becomes March 3)
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null
+  }
+  return isValidDateFns(date) ? date : null
+}
+
+/**
  * Backwards-compatible: legacy callers pass an ISO timestamp string and
  * expect a "date + time" label. Now returns DD-MM-YYYY HH:mm.
  */

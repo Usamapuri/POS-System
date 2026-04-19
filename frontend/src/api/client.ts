@@ -1069,7 +1069,7 @@ class APIClient {
     from?: string;
     to?: string;
     search?: string;
-    sort_by?: 'expense_date' | 'amount' | 'category' | 'created_at';
+    sort_by?: 'expense_date' | 'amount' | 'category' | 'description' | 'created_by' | 'type' | 'created_at';
     sort_dir?: 'asc' | 'desc';
   }): Promise<PaginatedResponse<Expense[]>> {
     return this.request({ method: 'GET', url: '/admin/expenses', params });

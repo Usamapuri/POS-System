@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import {
   DropdownMenu,
@@ -278,7 +279,7 @@ export function TableSessionModal({ open, table, onOpenChange, onConfirm }: Prop
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Birthday (hospitality)</Label>
-            <Input type="date" className="h-10" value={guestBirthday} onChange={(e) => setGuestBirthday(e.target.value)} />
+            <DatePicker value={guestBirthday} onChange={setGuestBirthday} placeholder="Optional" />
           </div>
         </div>
 

@@ -5,6 +5,7 @@ import type { Expense, CurrentDayStatus } from '@/types'
 import { useCurrency } from '@/contexts/CurrencyContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateTimePicker } from '@/components/ui/date-time-picker'
 import { Label } from '@/components/ui/label'
 import {
   Dialog,
@@ -142,10 +143,9 @@ export function AddExpenseDialog({
           </div>
           <div className="grid gap-2">
             <Label>Date &amp; time</Label>
-            <Input
-              type="datetime-local"
+            <DateTimePicker
               value={form.recorded_at_local}
-              onChange={e => setForm({ ...form, recorded_at_local: e.target.value })}
+              onChange={v => setForm({ ...form, recorded_at_local: v })}
             />
           </div>
         </div>
@@ -261,10 +261,9 @@ export function EditExpenseDialog({
               </div>
               <div className="grid gap-2">
                 <Label>Date &amp; time</Label>
-                <Input
-                  type="datetime-local"
+                <DateTimePicker
                   value={form.recorded_at_local}
-                  onChange={e => setForm({ ...form, recorded_at_local: e.target.value })}
+                  onChange={v => setForm({ ...form, recorded_at_local: v })}
                 />
               </div>
             </div>
