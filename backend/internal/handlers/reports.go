@@ -293,7 +293,9 @@ func (h *ReportsHandler) loadTenderMix(from, to string) ([]models.TenderMixRow, 
 	}
 	defer rows.Close()
 
-	var out []models.TenderMixRow
+	// Use make() so an empty result serializes as `[]`, not `null`.
+	// The frontend reads `overview.tender_mix.length`, which crashes on null.
+	out := make([]models.TenderMixRow, 0)
 	var total float64
 	for rows.Next() {
 		var r models.TenderMixRow

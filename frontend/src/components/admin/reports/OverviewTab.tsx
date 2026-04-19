@@ -94,12 +94,17 @@ export function OverviewTab({ range }: Props) {
   const overview = overviewQuery.data?.data
   const daily = dailyQuery.data?.data ?? []
 
+  // Defensive: Go's `encoding/json` serializes nil slices as `null`, so any
+  // empty-result array on `overview` may arrive as null from the API. Normalize
+  // here once so the rest of the component can treat it as an array.
+  const tenderMix = overview?.tender_mix ?? []
+
   const comparisonLabel = useMemo(() => {
     if (!overview) return 'vs. previous period'
     return `vs. ${formatDateDDMMYYYY(overview.previous_from)} → ${formatDateDDMMYYYY(overview.previous_to)}`
   }, [overview])
 
-  const tenderTotal = (overview?.tender_mix ?? []).reduce((s, r) => s + r.amount, 0)
+  const tenderTotal = tenderMix.reduce((s, r) => s + r.amount, 0)
   const formatNumber = (n: number) => n.toLocaleString('en-US')
 
   const handlePrintPdf = () => {
@@ -248,20 +253,20 @@ export function OverviewTab({ range }: Props) {
           <CardContent className="h-[280px]">
             {overviewQuery.isLoading ? (
               <Skeleton className="w-full h-full" />
-            ) : !overview || overview.tender_mix.length === 0 || tenderTotal === 0 ? (
+            ) : !overview || tenderMix.length === 0 || tenderTotal === 0 ? (
               <EmptyState message="No payments yet" />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={overview.tender_mix}
+                    data={tenderMix}
                     dataKey="amount"
                     nameKey="method"
                     innerRadius={50}
                     outerRadius={80}
                     paddingAngle={2}
                   >
-                    {overview.tender_mix.map((entry) => (
+                    {tenderMix.map((entry) => (
                       <Cell key={entry.method} fill={tenderColor(entry.method)} />
                     ))}
                   </Pie>
@@ -283,13 +288,13 @@ export function OverviewTab({ range }: Props) {
         </Card>
       </div>
 
-      {overview && overview.tender_mix.length > 0 && (
+      {overview && tenderMix.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Tender mix breakdown</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {overview.tender_mix.map((row) => (
+            {tenderMix.map((row) => (
               <div
                 key={row.method}
                 className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 p-3"
@@ -349,7 +354,7 @@ function buildOverviewPdf(
         `<div><span class="label">${escapeHtml(label)}</span><span class="value">${escapeHtml(value)}</span></div>`,
     )
     .join('')
-  const tenderRows = overview.tender_mix
+  const tenderRows = (overview.tender_mix ?? [])
     .map(
       (t) =>
         `<tr><td>${escapeHtml(tenderLabel(t.method))}</td><td class="num">${t.count}</td><td class="num">${escapeHtml(formatCurrency(t.amount))}</td><td class="num">${t.pct.toFixed(1)}%</td></tr>`,
