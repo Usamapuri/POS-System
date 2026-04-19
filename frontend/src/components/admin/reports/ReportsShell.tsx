@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import {
   BarChart3,
   ClipboardList,
@@ -9,8 +8,8 @@ import {
   Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import apiClient from '@/api/client'
 import { useReportRange } from '@/hooks/useReportRange'
+import { useBusinessName } from '@/hooks/useBusinessName'
 import { DateRangeFilter } from './DateRangeFilter'
 import { DayFilter } from './DayFilter'
 import { OverviewTab } from './OverviewTab'
@@ -61,28 +60,14 @@ export function ReportsShell() {
     return d
   })
 
-  // Pull the venue display name from Admin → Settings. We prefer the
-  // General → Restaurant Name (`restaurant_name`) because that's the
-  // field operators expect to drive every in-app UI surface. We only
-  // fall back to `receipt_business_name` (Settings → Receipt & Printing
-  // → Business Name) for older installations that may have set the
-  // receipt name without ever filling in the general one — otherwise
-  // the subheader would silently disappear after an upgrade.
-  //
-  // Same queryKey as AdminSidebar so the React Query cache is shared and
-  // we don't double-fetch. Five-minute staleTime mirrors that window.
-  const { data: settingsRes } = useQuery({
-    queryKey: ['settings', 'all'],
-    queryFn: () => apiClient.getAllSettings(),
-    staleTime: 1000 * 60 * 5,
-  })
-  const rawSettings = settingsRes?.data as Record<string, unknown> | undefined
-  const businessName =
-    (rawSettings?.restaurant_name as string | undefined)?.trim() ||
-    (rawSettings?.receipt_business_name as string | undefined)?.trim()
-
-  // If the operator hasn't set a venue name yet, drop the trailing "for X"
-  // entirely rather than rendering an awkward placeholder.
+  // Pulled from Admin → Settings via the shared `useBusinessName` hook,
+  // which also drives the PDF-export footer (printReport.ts) and the CSV
+  // exports' brand row (backend reports.go). Single source of truth keeps
+  // every surface — header, PDF, CSV — in agreement after a rename.
+  // Returns null when neither restaurant_name nor receipt_business_name is
+  // configured, so we can drop the trailing "for X" cleanly on a fresh
+  // install instead of rendering an awkward placeholder.
+  const businessName = useBusinessName()
   const subtitle = businessName
     ? `Sales, items, tables and more for ${businessName}`
     : 'Sales, items, tables and more'

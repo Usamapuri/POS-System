@@ -12,6 +12,7 @@ import { useCurrency } from '@/contexts/CurrencyContext'
 import { ExportButton } from './ExportButton'
 import { ReportsExportSlot } from './ReportsExportSlot'
 import { openPrintableReport, escapeHtml } from '@/lib/printReport'
+import { useBusinessNameWithFallback } from '@/hooks/useBusinessName'
 import { formatDateDDMMYYYY } from '@/lib/utils'
 
 type SortKey = 'date' | 'orders' | 'covers' | 'net' | 'gross' | 'discounts' | 'tax'
@@ -91,11 +92,13 @@ export function DailySalesTab({ range }: Props) {
     </button>
   )
 
+  const brand = useBusinessNameWithFallback()
   const handlePrintPdf = () => {
     openPrintableReport({
       title: 'Daily Sales',
       subtitle: `${formatDateDDMMYYYY(range.from)} → ${formatDateDDMMYYYY(range.to)} • Asia/Karachi`,
       bodyHtml: buildDailyPdf(sorted, totals, formatCurrency),
+      brand,
     })
   }
 

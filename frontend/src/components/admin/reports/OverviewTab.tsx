@@ -34,6 +34,7 @@ import { MetricTile } from './MetricTile'
 import { ExportButton } from './ExportButton'
 import { ReportsExportSlot } from './ReportsExportSlot'
 import { openPrintableReport, escapeHtml } from '@/lib/printReport'
+import { useBusinessNameWithFallback } from '@/hooks/useBusinessName'
 import { formatDateDDMMYYYY } from '@/lib/utils'
 
 const TENDER_COLORS: Record<string, string> = {
@@ -108,12 +109,14 @@ export function OverviewTab({ range }: Props) {
   const tenderTotal = tenderMix.reduce((s, r) => s + r.amount, 0)
   const formatNumber = (n: number) => n.toLocaleString('en-US')
 
+  const brand = useBusinessNameWithFallback()
   const handlePrintPdf = () => {
     if (!overview) return
     openPrintableReport({
       title: 'Sales Overview',
       subtitle: `${formatDateDDMMYYYY(range.from)} → ${formatDateDDMMYYYY(range.to)} • ${overview.timezone}`,
       bodyHtml: buildOverviewPdf(overview, daily, formatCurrency),
+      brand,
     })
   }
 

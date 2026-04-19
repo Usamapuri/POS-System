@@ -20,6 +20,58 @@ import (
 // (Asia/Karachi is UTC+5, no DST — operationally simple.)
 const reportsTimezone = "Asia/Karachi"
 
+// reportsBrandFallback is what we stamp on exports when neither
+// `restaurant_name` nor `receipt_business_name` is configured in app_settings.
+// Should never be hit on a properly-configured deployment.
+const reportsBrandFallback = "POS"
+
+// reportsBrand reads the venue's display name from app_settings. Mirrors the
+// frontend lookup in [frontend/src/components/admin/reports/ReportsShell.tsx]:
+// prefer `restaurant_name` (the General → Restaurant Name field that drives
+// every in-app surface), fall back to `receipt_business_name` for older
+// installs, then to a generic fallback so we never emit "Cafe Cova" on a
+// restaurant that isn't Cafe Cova. Values in app_settings are JSONB strings,
+// hence the trim of surrounding quotes.
+func reportsBrand(db *sql.DB) string {
+	for _, key := range []string{"restaurant_name", "receipt_business_name"} {
+		var raw sql.NullString
+		err := db.QueryRow(`SELECT value::text FROM app_settings WHERE key = $1`, key).Scan(&raw)
+		if err != nil || !raw.Valid {
+			continue
+		}
+		s := strings.TrimSpace(strings.Trim(raw.String, `"`))
+		if s != "" {
+			return s
+		}
+	}
+	return reportsBrandFallback
+}
+
+// reportsBrandSlug turns a brand string into a filesystem-safe lowercase
+// slug for use in CSV filenames. Non-alphanumeric runs collapse to a single
+// dash. Empty input falls back to "pos".
+func reportsBrandSlug(brand string) string {
+	var b strings.Builder
+	prevDash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(brand)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevDash = false
+		default:
+			if !prevDash && b.Len() > 0 {
+				b.WriteRune('-')
+				prevDash = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "pos"
+	}
+	return out
+}
+
 // reportsLocation is the loaded *time.Location for reportsTimezone. Falls back
 // to a fixed UTC+5 zone if the system tzdata isn't available, so containers
 // without /usr/share/zoneinfo (e.g. minimal Alpine images) still produce
@@ -1133,7 +1185,9 @@ func (h *ReportsHandler) ExportReport(c *gin.Context) {
 		return
 	}
 
-	filename := fmt.Sprintf("cafe-cova_%s_%s_to_%s.csv", report, ddmmyyyy(rng.From), ddmmyyyy(rng.To))
+	brand := reportsBrand(h.db)
+	slug := reportsBrandSlug(brand)
+	filename := fmt.Sprintf("%s_%s_%s_to_%s.csv", slug, report, ddmmyyyy(rng.From), ddmmyyyy(rng.To))
 	c.Header("Content-Type", "text/csv; charset=utf-8")
 	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
 
@@ -1145,7 +1199,7 @@ func (h *ReportsHandler) ExportReport(c *gin.Context) {
 	defer w.Flush()
 
 	// Universal header rows — operator gets the date range + timezone in any export.
-	_ = w.Write([]string{"Cafe Cova"})
+	_ = w.Write([]string{brand})
 	_ = w.Write([]string{"Report", report})
 	_ = w.Write([]string{"From", ddmmyyyy(rng.From), "To", ddmmyyyy(rng.To), "Timezone", reportsTimezone})
 	_ = w.Write([]string{})

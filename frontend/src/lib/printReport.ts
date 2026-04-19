@@ -15,7 +15,15 @@ export function openPrintableReport(opts: {
   title: string
   subtitle: string
   bodyHtml: string
+  /**
+   * Optional venue display name printed in the PDF footer. Callers should
+   * source this from the `useBusinessName` hook so each restaurant's
+   * exports get their own brand. Falls back to a generic label when omitted
+   * so legacy callers don't break — but new code MUST pass it through.
+   */
+  brand?: string
 }): void {
+  const brand = (opts.brand ?? '').trim() || 'Restaurant POS'
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -53,7 +61,7 @@ export function openPrintableReport(opts: {
   <div class="subtitle">${escapeHtml(opts.subtitle)}</div>
 </header>
 ${opts.bodyHtml}
-<footer>Generated ${escapeHtml(new Date().toLocaleString('en-GB'))} • Café Cova POS</footer>
+<footer>Generated ${escapeHtml(new Date().toLocaleString('en-GB'))} • ${escapeHtml(brand)}</footer>
 <script>
   window.addEventListener('load', () => {
     setTimeout(() => {

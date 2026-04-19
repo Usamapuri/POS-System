@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -12,8 +14,25 @@ import (
 	"github.com/google/uuid"
 )
 
-// JWT Secret - In production, this should be loaded from environment variables
-var jwtSecret = []byte("your-secret-key-change-this-in-production")
+// jwtSecret is loaded once at package init from JWT_SECRET. We fail fast in
+// production-mode (GIN_MODE=release) when it's missing — the previous
+// hardcoded default was the same across every deployment, which means tokens
+// minted on one restaurant validated on another. Per-restaurant Railway
+// projects MUST set a unique JWT_SECRET (e.g. `openssl rand -base64 48`).
+//
+// In dev-mode (GIN_MODE unset or "debug") we fall back to a known-bad
+// placeholder so `make dev` still works on a fresh checkout, but log a loud
+// warning so nobody mistakes it for a production-safe state.
+var jwtSecret = func() []byte {
+	if s := os.Getenv("JWT_SECRET"); s != "" {
+		return []byte(s)
+	}
+	if os.Getenv("GIN_MODE") == "release" {
+		log.Fatal("JWT_SECRET must be set when GIN_MODE=release (generate one with: openssl rand -base64 48)")
+	}
+	log.Println("WARNING: JWT_SECRET unset — using dev fallback. DO NOT run like this in production.")
+	return []byte("your-secret-key-change-this-in-production")
+}()
 
 // Claims represents the JWT claims
 type Claims struct {
