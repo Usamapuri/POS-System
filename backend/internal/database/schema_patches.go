@@ -5,8 +5,29 @@ import (
 	"log"
 )
 
-// ApplySchemaPatches runs idempotent DDL so existing DB volumes (created before newer columns
-// or tables) match what handlers expect. Mirrors scripts/counter_pricing_migration.sql.
+// ApplySchemaPatches runs idempotent DDL so existing DB volumes (created
+// before newer columns or tables) match what handlers expect. It is invoked
+// from main.go on every backend boot, so production picks up new schema as
+// soon as the backend container restarts (Railway redeploys trigger this
+// automatically — see backend/railway.json watchPatterns).
+//
+// MIRROR INVARIANT — please read before adding a migration:
+//
+//  1. Every new file in `database/migrations/NNN_*.sql` MUST also be
+//     reflected here as idempotent DDL in the same PR. The raw SQL files
+//     are a human-readable history; this Go function is what production
+//     actually executes.
+//  2. Every statement MUST be safely re-runnable on an already-up-to-date
+//     database. Use `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT
+//     EXISTS`, `DROP CONSTRAINT IF EXISTS` before re-adding constraints,
+//     `INSERT … WHERE NOT EXISTS` / `ON CONFLICT DO NOTHING` for seed rows,
+//     etc. Failures are logged (never fatal) so one broken patch can't
+//     prevent the rest from running, but a non-idempotent statement will
+//     spam logs every boot.
+//  3. Order matters when patches depend on each other (e.g. add a column
+//     before adding a CHECK constraint on it). Append new logical groups
+//     at the bottom of this function rather than splicing into existing
+//     blocks.
 func ApplySchemaPatches(db *sql.DB) {
 	log.Println("Applying idempotent schema patches…")
 
@@ -316,6 +337,22 @@ func ApplySchemaPatches(db *sql.DB) {
 		if _, err := db.Exec(q); err != nil {
 			log.Printf("schema patch (kds): %v", err)
 		}
+	}
+
+	// Guarantee at least one active kitchen station exists. The Railway
+	// embedded bootstrap (embedded_railway_init.sql) creates the
+	// kitchen_stations table but never seeds rows — only the local-dev
+	// init/02_seed_data.sql does. Without this, FireKOT's fallback path in
+	// handlers/kot.go would be forced to use uuid.Nil as station_id, which
+	// then violates kitchen_events_station_id_fkey on insert. Idempotent:
+	// the WHERE NOT EXISTS clause makes this a no-op once any station row
+	// is present (whether seeded here, by 02_seed_data, or by an admin).
+	if _, err := db.Exec(`
+		INSERT INTO kitchen_stations (name, output_type, print_location, sort_order, is_active)
+		SELECT 'Main Kitchen', 'kds', 'kitchen', 1, true
+		WHERE NOT EXISTS (SELECT 1 FROM kitchen_stations)
+	`); err != nil {
+		log.Printf("schema patch: kitchen_stations default seed: %v", err)
 	}
 
 	// Seed KDS/KOT app_settings with smart defaults.
