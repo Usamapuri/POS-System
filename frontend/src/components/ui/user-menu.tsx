@@ -1,5 +1,5 @@
 import * as React from "react"
-import { User, Settings, Bell, LogOut } from "lucide-react"
+import { User, LogOut } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -69,19 +69,6 @@ export function UserMenu({ user, collapsed = false, size = "md" }: UserMenuProps
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
-            <User className="mr-2 h-4 w-4" />
-            <span>Profile</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <Settings className="mr-2 h-4 w-4" />
-            <span>Settings</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <Bell className="mr-2 h-4 w-4" />
-            <span>Notifications</span>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600">
             <LogOut className="mr-2 h-4 w-4" />
             <span>Log out</span>
@@ -120,19 +107,6 @@ export function UserMenu({ user, collapsed = false, size = "md" }: UserMenuProps
             <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
           </div>
         </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem>
-          <User className="mr-2 h-4 w-4" />
-          <span>Profile</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem>
-          <Settings className="mr-2 h-4 w-4" />
-          <span>Settings</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem>
-          <Bell className="mr-2 h-4 w-4" />
-          <span>Notifications</span>
-        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600">
           <LogOut className="mr-2 h-4 w-4" />
