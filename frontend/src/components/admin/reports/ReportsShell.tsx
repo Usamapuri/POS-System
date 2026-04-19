@@ -61,25 +61,31 @@ export function ReportsShell() {
     return d
   })
 
-  // Pull the venue display name from Admin → Settings (receipt_business_name).
-  // Same queryKey as AdminSidebar so the React Query cache is shared and we
-  // don't double-fetch. Five-minute staleTime mirrors AdminSidebar's window.
+  // Pull the venue display name from Admin → Settings. We prefer the
+  // General → Restaurant Name (`restaurant_name`) because that's the
+  // field operators expect to drive every in-app UI surface. We only
+  // fall back to `receipt_business_name` (Settings → Receipt & Printing
+  // → Business Name) for older installations that may have set the
+  // receipt name without ever filling in the general one — otherwise
+  // the subheader would silently disappear after an upgrade.
+  //
+  // Same queryKey as AdminSidebar so the React Query cache is shared and
+  // we don't double-fetch. Five-minute staleTime mirrors that window.
   const { data: settingsRes } = useQuery({
     queryKey: ['settings', 'all'],
     queryFn: () => apiClient.getAllSettings(),
     staleTime: 1000 * 60 * 5,
   })
-  const businessName = (
-    (settingsRes?.data as Record<string, unknown> | undefined)?.receipt_business_name as
-      | string
-      | undefined
-  )?.trim()
+  const rawSettings = settingsRes?.data as Record<string, unknown> | undefined
+  const businessName =
+    (rawSettings?.restaurant_name as string | undefined)?.trim() ||
+    (rawSettings?.receipt_business_name as string | undefined)?.trim()
 
   // If the operator hasn't set a venue name yet, drop the trailing "for X"
-  // entirely rather than rendering an awkward placeholder or trailing period.
+  // entirely rather than rendering an awkward placeholder.
   const subtitle = businessName
-    ? `Sales, items, tables and more for ${businessName}.`
-    : 'Sales, items, tables and more.'
+    ? `Sales, items, tables and more for ${businessName}`
+    : 'Sales, items, tables and more'
 
   return (
     <ReportsExportSlotProvider>
