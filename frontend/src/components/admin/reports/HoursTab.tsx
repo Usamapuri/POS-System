@@ -20,6 +20,7 @@ import type { HourlyHeatmapCell } from '@/types'
 import { ExportButton } from './ExportButton'
 import { ReportsExportSlot } from './ReportsExportSlot'
 import { openPrintableReport, escapeHtml } from '@/lib/printReport'
+import { useBusinessNameWithFallback } from '@/hooks/useBusinessName'
 import { cn, formatDateDDMMYYYY } from '@/lib/utils'
 
 const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -82,11 +83,13 @@ export function HoursTab({ range }: Props) {
 
   const formatMetricValue = (v: number) => (metric === 'net' ? formatCurrency(v) : v.toLocaleString('en-US'))
 
+  const brand = useBusinessNameWithFallback()
   const handlePrintPdf = () => {
     openPrintableReport({
       title: 'Hourly Sales',
       subtitle: `${formatDateDDMMYYYY(range.from)} → ${formatDateDDMMYYYY(range.to)} • Asia/Karachi`,
       bodyHtml: buildHourlyPdf(matrix, metric, formatCurrency),
+      brand,
     })
   }
 

@@ -20,6 +20,7 @@ import type { PartySizeRow, TableSalesRow } from '@/types'
 import { ExportButton } from './ExportButton'
 import { ReportsExportSlot } from './ReportsExportSlot'
 import { openPrintableReport, escapeHtml } from '@/lib/printReport'
+import { useBusinessNameWithFallback } from '@/hooks/useBusinessName'
 import { formatDateDDMMYYYY } from '@/lib/utils'
 
 interface Props {
@@ -57,11 +58,13 @@ export function TablesTab({ range }: Props) {
     [tables],
   )
 
+  const brand = useBusinessNameWithFallback()
   const handlePrintTablesPdf = () => {
     openPrintableReport({
       title: 'Tables & Parties',
       subtitle: `${formatDateDDMMYYYY(range.from)} → ${formatDateDDMMYYYY(range.to)} • Asia/Karachi`,
       bodyHtml: buildTablesPdf(tables, partySize, formatCurrency),
+      brand,
     })
   }
 

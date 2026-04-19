@@ -29,6 +29,7 @@ import type { Category, ItemSalesRow } from '@/types'
 import { ExportButton } from './ExportButton'
 import { ReportsExportSlot } from './ReportsExportSlot'
 import { openPrintableReport, escapeHtml } from '@/lib/printReport'
+import { useBusinessNameWithFallback } from '@/hooks/useBusinessName'
 import { formatDateDDMMYYYY } from '@/lib/utils'
 
 type SortKey = 'qty' | 'gross' | 'net'
@@ -69,11 +70,13 @@ export function ItemsTab({ range }: Props) {
   )
   const top = useMemo(() => items.slice(0, 10), [items])
 
+  const brand = useBusinessNameWithFallback()
   const handlePrintPdf = () => {
     openPrintableReport({
       title: 'Item Sales',
       subtitle: `${formatDateDDMMYYYY(range.from)} → ${formatDateDDMMYYYY(range.to)} • Asia/Karachi`,
       bodyHtml: buildItemsPdf(items, totals, formatCurrency),
+      brand,
     })
   }
 
