@@ -79,24 +79,32 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	if req.Username == "" || req.Password == "" {
+	identifier := strings.TrimSpace(req.Username)
+	if identifier == "" || req.Password == "" {
 		c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
-			Message: "Username and password are required",
+			Message: "Username or email and password are required",
 			Error:   stringPtr("missing_credentials"),
 		})
 		return
 	}
 
 	var user models.User
+	// Accept either username or email in the same JSON field (still keyed
+	// "username" for API backward compatibility). Email match is
+	// case-insensitive; username is case-insensitive too so "Admin" works
+	// when the row is stored as "admin". UNIQUE on both columns prevents
+	// ambiguous double-matches.
 	query := `
 		SELECT id, username, email, password_hash, first_name, last_name, role, is_active, created_at, updated_at,
 		       profile_image_url
 		FROM users 
-		WHERE username = $1 AND is_active = true
+		WHERE is_active = true
+		  AND (LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1))
+		LIMIT 1
 	`
 	var profileURL sql.NullString
-	err := h.db.QueryRow(query, req.Username).Scan(
+	err := h.db.QueryRow(query, identifier).Scan(
 		&user.ID, &user.Username, &user.Email, &user.PasswordHash,
 		&user.FirstName, &user.LastName, &user.Role, &user.IsActive,
 		&user.CreatedAt, &user.UpdatedAt, &profileURL,
@@ -109,7 +117,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusUnauthorized, models.APIResponse{
 			Success: false,
-			Message: "Invalid username or password",
+			Message: "Invalid username, email, or password",
 			Error:   stringPtr("invalid_credentials"),
 		})
 		return
@@ -127,7 +135,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		c.JSON(http.StatusUnauthorized, models.APIResponse{
 			Success: false,
-			Message: "Invalid username or password",
+			Message: "Invalid username, email, or password",
 			Error:   stringPtr("invalid_credentials"),
 		})
 		return

@@ -439,7 +439,8 @@ type ProcessPaymentRequest struct {
 	ReferenceNumber *string `json:"reference_number"`
 }
 
-// LoginRequest represents the login request
+// LoginRequest represents the login request. Username holds either the
+// staff username or their email address; the backend matches both.
 type LoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`

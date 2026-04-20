@@ -84,11 +84,14 @@ function LoginPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    if (!formData.username || !formData.password) {
-      setError('Username and password are required')
+    if (!formData.username.trim() || !formData.password) {
+      setError('Username or email and password are required')
       return
     }
-    loginMutation.mutate(formData)
+    loginMutation.mutate({
+      username: formData.username.trim(),
+      password: formData.password,
+    })
   }
 
   // One-click demo: fill credentials AND sign in immediately. The previous
@@ -402,7 +405,7 @@ function FormPanel({
 
           {/* form */}
           <form onSubmit={onSubmit} className="space-y-4">
-            <Field label="Username">
+            <Field label="Username or email">
               <div className="bhk-input flex h-12 items-center rounded-xl px-3.5">
                 <UserIcon className="mr-2.5 h-4 w-4 text-zinc-400" />
                 <Input
@@ -411,7 +414,7 @@ function FormPanel({
                   onChange={(e) => setFormData((p) => ({ ...p, username: e.target.value }))}
                   className="h-full border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                   autoComplete="username"
-                  placeholder="e.g. server1"
+                  placeholder="e.g. server1 or you@restaurant.com"
                   disabled={isPending}
                 />
               </div>

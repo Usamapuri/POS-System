@@ -35,6 +35,7 @@ export interface User {
   profile_image_url?: string | null;
 }
 
+/** username may be the staff username or their email (same JSON field for backward compatibility). */
 export interface LoginRequest {
   username: string;
   password: string;
