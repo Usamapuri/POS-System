@@ -239,6 +239,25 @@ func ApplySchemaPatches(db *sql.DB) {
 		log.Printf("schema patch: users.profile_image_url: %v", err)
 	}
 
+	// Self-service password flow + bhookly platform-admin (migrations/004).
+	// See database/migrations/004_auth_password_reset.sql for column semantics.
+	authPasswordReset := []string{
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token_hash TEXT`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMPTZ`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_requested_at TIMESTAMPTZ`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_updated_at TIMESTAMPTZ`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_platform_admin BOOLEAN NOT NULL DEFAULT false`,
+		`CREATE INDEX IF NOT EXISTS idx_users_password_reset_token_hash
+			ON users(password_reset_token_hash)
+			WHERE password_reset_token_hash IS NOT NULL`,
+	}
+	for _, q := range authPasswordReset {
+		if _, err := db.Exec(q); err != nil {
+			log.Printf("schema patch (auth-password-reset): %v", err)
+		}
+	}
+
 	// Expense categories + recorded_at (migrations/005).
 	expenseLedger := []string{
 		`CREATE TABLE IF NOT EXISTS expense_category_defs (

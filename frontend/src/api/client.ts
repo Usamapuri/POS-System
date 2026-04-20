@@ -194,6 +194,45 @@ class APIClient {
     });
   }
 
+  /**
+   * Starts a password-reset flow. The backend always responds 200 with a
+   * generic message — we never signal whether the email exists. Rate
+   * limiting lives on the server.
+   */
+  async forgotPassword(email: string): Promise<APIResponse> {
+    return this.request({
+      method: 'POST',
+      url: '/auth/forgot-password',
+      data: { email },
+    });
+  }
+
+  /**
+   * Completes a password reset using the one-time token embedded in the
+   * email link. `newPassword` must be at least 8 characters; the backend
+   * enforces the same rule.
+   */
+  async resetPassword(token: string, newPassword: string): Promise<APIResponse> {
+    return this.request({
+      method: 'POST',
+      url: '/auth/reset-password',
+      data: { token, new_password: newPassword },
+    });
+  }
+
+  /**
+   * Rotates the currently-signed-in user's password. Requires current
+   * password as anti-session-hijack guard. Does NOT invalidate existing
+   * JWTs — the caller keeps their session, which is fine at our scale.
+   */
+  async changePassword(currentPassword: string, newPassword: string): Promise<APIResponse> {
+    return this.request({
+      method: 'POST',
+      url: '/auth/change-password',
+      data: { current_password: currentPassword, new_password: newPassword },
+    });
+  }
+
   // Product endpoints
   async getProducts(filters?: ProductFilters): Promise<PaginatedResponse<Product[]>> {
     return this.request({

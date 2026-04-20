@@ -1,4 +1,4 @@
-import { createFileRoute, Navigate, useRouter } from '@tanstack/react-router'
+import { createFileRoute, Link, Navigate, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -420,13 +420,13 @@ function FormPanel({
             <Field
               label="Password"
               right={
-                <button
-                  type="button"
+                <Link
+                  to="/forgot-password"
                   className="text-xs font-medium text-zinc-400 hover:text-orange-600"
                   tabIndex={-1}
                 >
                   Forgot?
-                </button>
+                </Link>
               }
             >
               <div className="bhk-input flex h-12 items-center rounded-xl px-3.5">

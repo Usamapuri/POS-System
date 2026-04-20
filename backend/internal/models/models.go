@@ -451,6 +451,29 @@ type LoginResponse struct {
 	User  User   `json:"user"`
 }
 
+// ForgotPasswordRequest initiates a password reset. `Email` is matched
+// case-insensitively against users.email. The response is always 200 with a
+// generic message — never leak whether an email is registered.
+type ForgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+// ResetPasswordRequest completes a password reset using the one-time token
+// delivered by email. NewPassword must be at least 8 characters; enforcement
+// lives in the handler so we can emit a consistent error code.
+type ResetPasswordRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+
+// ChangePasswordRequest is used by an already-authenticated user to rotate
+// their own password. CurrentPassword protects against session-hijack scenarios
+// where an attacker has an active JWT but not the actual password.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
 // APIResponse represents a generic API response
 type APIResponse struct {
 	Success bool        `json:"success"`

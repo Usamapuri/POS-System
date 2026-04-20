@@ -46,6 +46,11 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		// Authentication routes
 		public.POST("/auth/login", authHandler.Login)
 		public.POST("/auth/logout", authHandler.Logout)
+		// Self-service password flow. Both endpoints are deliberately public
+		// (no JWT required) and rate-limited inside the handler. Responses
+		// are generic so they don't leak which emails exist.
+		public.POST("/auth/forgot-password", authHandler.ForgotPassword)
+		public.POST("/auth/reset-password", authHandler.ResetPassword)
 	}
 
 	// Protected routes (authentication required)
@@ -54,6 +59,9 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 	{
 		// Authentication routes
 		protected.GET("/auth/me", authHandler.GetCurrentUser)
+		// Authenticated self-service — user rotating their own password.
+		// Requires the current password in the body as anti-session-hijack.
+		protected.POST("/auth/change-password", authHandler.ChangePassword)
 
 		// Product routes
 		protected.GET("/products", productHandler.GetProducts)
@@ -1926,6 +1934,25 @@ func deleteTable(db *sql.DB) gin.HandlerFunc {
 }
 
 // Admin handler - Create user
+// isPlatformAdminUser reports whether a user row has is_platform_admin=true.
+// Returns false on any error (missing row, DB hiccup, invalid UUID) — callers
+// use this as a guard, and "don't know → not platform-admin" would leak the
+// existence of the support account; "don't know → platform-admin" (true on
+// error) would falsely 404 legitimate customer admins. False on error splits
+// the difference toward the safer UX: a real customer admin sees their
+// expected update/delete behavior, and an attacker probing with invalid IDs
+// gets nothing useful. The actual platform-admin guard remains strong
+// because the flag check happens over a bound parameter.
+func isPlatformAdminUser(db *sql.DB, userID string) bool {
+	var isPlatform bool
+	if err := db.QueryRow(
+		`SELECT is_platform_admin FROM users WHERE id = $1`, userID,
+	).Scan(&isPlatform); err != nil {
+		return false
+	}
+	return isPlatform
+}
+
 func createUser(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
@@ -1986,6 +2013,19 @@ func createUser(db *sql.DB) gin.HandlerFunc {
 func updateUser(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.Param("id")
+
+		// Protect platform-admin rows from tampering by customer admins.
+		// Without this guard, a curious customer admin could rename, disable,
+		// or reset the password on the bhookly_support account via the
+		// standard /admin/users/:id endpoint and lock us out of their
+		// deployment. Mirrors the filter in getAdminUsers.
+		if isPlatformAdminUser(db, userID) {
+			c.JSON(404, gin.H{
+				"success": false,
+				"message": "User not found",
+			})
+			return
+		}
 
 		var req struct {
 			Username          *string `json:"username"`
@@ -2114,6 +2154,15 @@ func deleteUser(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.Param("id")
 
+		// Protect platform-admin rows — see updateUser for rationale.
+		if isPlatformAdminUser(db, userID) {
+			c.JSON(404, gin.H{
+				"success": false,
+				"message": "User not found",
+			})
+			return
+		}
+
 		// Prevent deletion if user has associated orders
 		var orderCount int
 		db.QueryRow("SELECT COUNT(*) FROM orders WHERE user_id = $1", userID).Scan(&orderCount)
@@ -2177,8 +2226,13 @@ func getAdminUsers(db *sql.DB) gin.HandlerFunc {
 
 		offset := (page - 1) * perPage
 
-		// Build query with filters
-		queryBuilder := "SELECT id, username, email, first_name, last_name, role, is_active, created_at, profile_image_url, CASE WHEN manager_pin IS NOT NULL THEN true ELSE false END as has_pin FROM users WHERE 1=1"
+		// Build query with filters.
+		// is_platform_admin = false hides the bhookly support account from
+		// the customer's Users admin page. The account is still fully
+		// functional for login, it just never shows up in lists or
+		// update/delete endpoints for non-platform callers. See
+		// updateUser / deleteUser below for the matching write-side guards.
+		queryBuilder := "SELECT id, username, email, first_name, last_name, role, is_active, created_at, last_login_at, profile_image_url, CASE WHEN manager_pin IS NOT NULL THEN true ELSE false END as has_pin FROM users WHERE is_platform_admin = false"
 		args := []interface{}{}
 		argCount := 0
 
@@ -2239,9 +2293,10 @@ func getAdminUsers(db *sql.DB) gin.HandlerFunc {
 			var id, username, email, firstName, lastName, userRole string
 			var isActive, hasPin bool
 			var createdAt time.Time
+			var lastLoginAt sql.NullTime
 			var profileURL sql.NullString
 
-			err := rows.Scan(&id, &username, &email, &firstName, &lastName, &userRole, &isActive, &createdAt, &profileURL, &hasPin)
+			err := rows.Scan(&id, &username, &email, &firstName, &lastName, &userRole, &isActive, &createdAt, &lastLoginAt, &profileURL, &hasPin)
 			if err != nil {
 				c.JSON(500, gin.H{
 					"success": false,
@@ -2260,6 +2315,11 @@ func getAdminUsers(db *sql.DB) gin.HandlerFunc {
 			user["is_active"] = isActive
 			user["created_at"] = createdAt
 			user["has_pin"] = hasPin
+			if lastLoginAt.Valid {
+				user["last_login_at"] = lastLoginAt.Time
+			} else {
+				user["last_login_at"] = nil
+			}
 			if profileURL.Valid && strings.TrimSpace(profileURL.String) != "" {
 				user["profile_image_url"] = strings.TrimSpace(profileURL.String)
 			} else {

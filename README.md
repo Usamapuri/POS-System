@@ -383,15 +383,58 @@ Adding a new SQL file under `database/migrations/` is enough to trigger a backen
 3. Run locally with `make dev` and confirm logs show `Applying idempotent schema patches…` followed by `Schema patches finished`.
 4. Push. Railway rebuilds the backend (because `database/migrations/**` is in `watchPatterns`). The first request after deploy hits the new schema.
 
-### **Brand-new restaurant deploy (TL;DR)**
+### **Brand-new restaurant deploy (full checklist)**
 
-```text
-1. Connect repo to a new Railway project
-2. Add Postgres plugin
-3. Create backend service → Root Directory = backend → set JWT_SECRET, CORS_ORIGINS, GIN_MODE=release
-4. Create frontend service → Root Directory = frontend → set BACKEND_URL
-5. Push to main — first backend boot bootstraps the schema and seeds a default Main Kitchen station
+We run one Railway project per restaurant (CK, COVA, …). Each deployment is fully isolated: its own Postgres, its own `JWT_SECRET`, its own `CORS_ORIGINS`. Re-evaluate the multi-tenant/SaaS migration around 10–15 deployments.
+
+**Automated path** (recommended): run the interactive helper, paste the env block it prints into Railway, and let it seed the two admin accounts once the services are healthy.
+
+```bash
+./scripts/provision-restaurant.sh
 ```
+
+**Manual path**, step by step:
+
+1. **Railway project** — connect this repo to a new project, add the Postgres plugin, create `backend` and `frontend` services (Root Directory = `backend` / `frontend` respectively).
+2. **Backend env vars**:
+   - `DATABASE_URL=${{Postgres.DATABASE_URL}}`
+   - `JWT_SECRET` — **unique per restaurant** (generate with `openssl rand -base64 48`). Reusing this across restaurants lets a CK token validate against COVA.
+   - `CORS_ORIGINS=https://<subdomain>.bhookly.com`
+   - `APP_URL=https://<subdomain>.bhookly.com` — used to build reset-password links inside emails.
+   - `GIN_MODE=release`
+   - `RESEND_API_KEY` — **same** value across every deployment (centralized bhookly Resend account). Leave blank in dev to log reset emails to stdout instead of sending.
+   - `EMAIL_FROM=CK Restaurant <noreply@bhookly.com>`
+   - `TENANT_DISPLAY_NAME=CK Restaurant` — shown in email subject/body.
+   - `TENANT_SUPPORT_EMAIL=support@bhookly.com` — optional reply-to.
+3. **Frontend env vars**: `BACKEND_URL=http://${{Backend.RAILWAY_PRIVATE_DOMAIN}}:8080`.
+4. **DNS**: point `<subdomain>.bhookly.com` at the Railway frontend service. Railway issues a TLS cert automatically.
+5. **Seed admin users** (once the deployment is healthy): run [`scripts/create-admin.sh`](scripts/create-admin.sh) twice against the **local** Postgres container OR shell into the Railway DB:
+   ```bash
+   # Bhookly support account — hidden from the customer's admin UI,
+   # protected from update/delete. Store credentials in 1Password.
+   ./scripts/create-admin.sh --platform
+
+   # Customer's own first admin user. Hand credentials over to them.
+   ./scripts/create-admin.sh
+   ```
+6. **Smoke test**: login, forgot-password (verify email arrives), change password from the user menu, create a product, run an order end-to-end.
+
+### **Authentication & password flows**
+
+- **Login** — `POST /api/v1/auth/login` issues an HS256 JWT (24h). Token is stored in `localStorage` as `pos_token` and sent as `Authorization: Bearer …` on every request.
+- **Forgot password** — `POST /api/v1/auth/forgot-password` with `{email}` sends a single-use reset link valid for 1 hour. Always returns HTTP 200 with a generic message (no enumeration). Rate-limited per-IP and per-email.
+- **Reset password** — `POST /api/v1/auth/reset-password` with `{token, new_password}` (min 8 chars). Token is 32 bytes of `crypto/rand`, only `sha256(token)` is stored; compared in constant time.
+- **Change password** — `POST /api/v1/auth/change-password` (protected) with `{current_password, new_password}`. UI lives in the top-right user menu.
+
+Known limitation (documented): JWTs are stateless, so changing a password does not invalidate existing tokens. Acceptable at our scale; revisit with a `token_version` claim if needed.
+
+### **Bhookly support access (platform admin)**
+
+Each deployment has a `bhookly_support` user with `users.is_platform_admin=true`. This row is:
+- **Hidden** from the customer's `Admin → Staff` page — [`getAdminUsers`](backend/internal/api/routes.go) filters out `is_platform_admin = true`.
+- **Protected** from customer-initiated modifications — [`updateUser`](backend/internal/api/routes.go) and [`deleteUser`](backend/internal/api/routes.go) reject any attempt to touch a platform-admin row and respond with 404 to preserve the illusion that it doesn't exist.
+
+When we need to help a customer, we log in at `https://<subdomain>.bhookly.com/login` with the `bhookly_support` credentials from 1Password — same flow customers use, full admin access, auditable. If that ever fails, break-glass is direct Postgres access via Railway.
 
 ---
 

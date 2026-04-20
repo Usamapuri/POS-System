@@ -15,9 +15,24 @@ CREATE TABLE users (
     manager_pin VARCHAR(4),
     profile_image_url TEXT,
     is_active BOOLEAN DEFAULT true,
+    -- Self-service password flow (see migrations/004_auth_password_reset.sql).
+    -- token_hash stores sha256(token); the raw token never touches the DB.
+    password_reset_token_hash   TEXT,
+    password_reset_expires_at   TIMESTAMPTZ,
+    password_reset_requested_at TIMESTAMPTZ,
+    last_login_at               TIMESTAMPTZ,
+    password_updated_at         TIMESTAMPTZ,
+    -- TRUE for the bhookly_support account seeded on every deployment. Rows
+    -- with this flag are hidden from /admin/users and protected from
+    -- update/delete by non-platform callers.
+    is_platform_admin           BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX idx_users_password_reset_token_hash
+    ON users(password_reset_token_hash)
+    WHERE password_reset_token_hash IS NOT NULL;
 
 -- Categories table
 CREATE TABLE categories (
