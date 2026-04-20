@@ -133,7 +133,7 @@ export function TableSessionModal({ open, table, onOpenChange, onConfirm }: Prop
 
   const listEmptyMessage = (() => {
     if (serversQueryIsError) return 'Could not load staff. Try again or check your connection.'
-    if (allServers.length === 0) return 'No servers found'
+    if (allServers.length === 0) return 'No counter or admin staff found to assign'
     if (filteredServers.length === 0) return 'No matches — try another search'
     return null
   })()

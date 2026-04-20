@@ -26,7 +26,8 @@ type counterServerDTO struct {
 	LastName  string    `json:"last_name"`
 }
 
-// ListServers returns active users with role server (for dine-in assignment).
+// ListServers returns active counter and admin users for dine-in assignment
+// (replaces the old dedicated "server" role).
 func (h *CounterHandler) ListServers(c *gin.Context) {
 	q := c.Query("q")
 	var rows *sql.Rows
@@ -35,14 +36,14 @@ func (h *CounterHandler) ListServers(c *gin.Context) {
 		pattern := "%" + q + "%"
 		rows, err = h.db.Query(`
 			SELECT id, username, first_name, last_name FROM users
-			WHERE role = 'server' AND is_active = true
+			WHERE role IN ('counter', 'admin') AND is_active = true
 			  AND (username ILIKE $1 OR first_name ILIKE $1 OR last_name ILIKE $1 OR (first_name || ' ' || last_name) ILIKE $1)
 			ORDER BY first_name, last_name
 		`, pattern)
 	} else {
 		rows, err = h.db.Query(`
 			SELECT id, username, first_name, last_name FROM users
-			WHERE role = 'server' AND is_active = true
+			WHERE role IN ('counter', 'admin') AND is_active = true
 			ORDER BY first_name, last_name
 		`)
 	}

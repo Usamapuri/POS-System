@@ -180,11 +180,11 @@ export function VoidLog() {
   }, [staffData])
 
   const voiders = useMemo(
-    () => staffList.filter((u) => u.is_active && ['server', 'counter', 'manager', 'admin'].includes(u.role)),
+    () => staffList.filter((u) => u.is_active && ['counter', 'admin'].includes(u.role)),
     [staffList],
   )
   const authorizers = useMemo(
-    () => staffList.filter((u) => u.is_active && ['manager', 'admin'].includes(u.role)),
+    () => staffList.filter((u) => u.is_active && u.role === 'admin'),
     [staffList],
   )
 
@@ -316,7 +316,7 @@ export function VoidLog() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Void Log</h2>
           <p className="text-muted-foreground mt-1">
-            Audit trail of all kitchen-fired items voided with manager authorization
+            Audit trail of all kitchen-fired items voided with admin PIN authorization
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -402,10 +402,10 @@ export function VoidLog() {
             <FilterField label="Authorized by">
               <Select value={authorizedBy} onValueChange={onFilterChange(setAuthorizedBy)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Any manager" />
+                  <SelectValue placeholder="Any authorizer" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE}>Any manager</SelectItem>
+                  <SelectItem value={NONE}>Any authorizer</SelectItem>
                   {authorizers.map((u) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.first_name} {u.last_name}
@@ -735,7 +735,7 @@ function EmptyState({
               <>Try widening the date range or clearing some filters.</>
             ) : (
               <>
-                Voids appear here only after an item has been sent to the kitchen and a manager
+                Voids appear here only after an item has been sent to the kitchen and an admin
                 authorizes the void with their PIN. Draft items removed before being fired are not
                 tracked here.
               </>

@@ -51,12 +51,16 @@ export function POSHeader({
 
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
-      case 'admin': return 'bg-red-100 text-red-700'
-      case 'manager': return 'bg-blue-100 text-blue-700'
-      case 'cashier': return 'bg-green-100 text-green-700'
-      case 'kitchen': return 'bg-yellow-100 text-yellow-700'
-      case 'store_manager': return 'bg-teal-100 text-teal-700'
-      default: return 'bg-gray-100 text-gray-700'
+      case 'admin':
+        return 'bg-red-100 text-red-700'
+      case 'inventory_manager':
+        return 'bg-teal-100 text-teal-700'
+      case 'counter':
+        return 'bg-green-100 text-green-700'
+      case 'kitchen':
+        return 'bg-yellow-100 text-yellow-700'
+      default:
+        return 'bg-gray-100 text-gray-700'
     }
   }
 
@@ -152,7 +156,7 @@ export function POSHeader({
           {/* User Actions */}
           <div className="flex items-center gap-2">
             {/* Payment History Access */}
-            {(user.role === 'admin' || user.role === 'cashier') && (
+            {(user.role === 'admin' || user.role === 'counter') && (
               <Button 
                 variant="ghost" 
                 size="sm" 
@@ -166,7 +170,7 @@ export function POSHeader({
             )}
 
             {/* Kitchen Display Access */}
-            {(user.role === 'kitchen' || user.role === 'admin' || user.role === 'manager') && (
+            {(user.role === 'kitchen' || user.role === 'admin') && (
               <Button 
                 variant="ghost" 
                 size="sm" 

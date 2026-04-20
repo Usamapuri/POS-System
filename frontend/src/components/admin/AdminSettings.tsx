@@ -1159,7 +1159,7 @@ export function AdminSettings() {
               <p className="text-xs text-muted-foreground mt-0.5">
                 Lets cashiers issue a PRA invoice for a past order from{' '}
                 <strong>Reports → Orders</strong> when the customer comes back later. Admins and
-                managers can always reprint regardless of this window.
+                admins can always reprint regardless of this window.
               </p>
             </div>
             <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">

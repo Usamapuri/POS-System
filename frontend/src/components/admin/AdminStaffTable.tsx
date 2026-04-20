@@ -29,6 +29,7 @@ import {
   Key,
 } from "lucide-react"
 import type { User } from "@/types"
+import { staffRoleLabel } from "@/lib/staff-roles"
 import { staffAvatarImageUrl } from "@/lib/staff-avatar"
 import { formatDateDDMMYYYY } from "@/lib/utils"
 
@@ -51,12 +52,10 @@ export function AdminStaffTable({
 
   const getRoleBadgeColor = (role: string) => {
     const colors: Record<string, string> = {
-      'admin': 'bg-red-100 text-red-800 hover:bg-red-200',
-      'manager': 'bg-purple-100 text-purple-800 hover:bg-purple-200',
-      'server': 'bg-blue-100 text-blue-800 hover:bg-blue-200',
-      'counter': 'bg-green-100 text-green-800 hover:bg-green-200',
-      'kitchen': 'bg-orange-100 text-orange-800 hover:bg-orange-200',
-      'store_manager': 'bg-teal-100 text-teal-800 hover:bg-teal-200',
+      admin: 'bg-red-100 text-red-800 hover:bg-red-200',
+      inventory_manager: 'bg-teal-100 text-teal-800 hover:bg-teal-200',
+      counter: 'bg-green-100 text-green-800 hover:bg-green-200',
+      kitchen: 'bg-orange-100 text-orange-800 hover:bg-orange-200',
     }
     return colors[role.toLowerCase()] || 'bg-gray-100 text-gray-800'
   }
@@ -174,7 +173,7 @@ export function AdminStaffTable({
         const role = getValue() as string
         return (
           <Badge className={getRoleBadgeColor(role)}>
-            {role.toUpperCase()}
+            {staffRoleLabel(role)}
           </Badge>
         )
       },
@@ -233,7 +232,7 @@ export function AdminStaffTable({
       ),
       cell: ({ row }) => {
         const user = row.original as User & { has_pin?: boolean }
-        const canHavePin = user.role === 'manager' || user.role === 'admin'
+        const canHavePin = user.role === 'admin'
         if (!canHavePin) return <span className="text-gray-300">—</span>
         return (
           <div className="flex items-center gap-2">

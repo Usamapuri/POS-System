@@ -8,11 +8,11 @@ interface KitchenDisabledScreenProps {
 
 /**
  * Shown when `kitchen.mode === 'kot_only'` and a user attempts to reach the KDS.
- * For admin/manager the CTA sends them to settings to re-enable; for kitchen
+ * For admin the CTA sends them to settings to re-enable; for kitchen
  * role the screen is informational only.
  */
 export function KitchenDisabledScreen({ userRole }: KitchenDisabledScreenProps) {
-  const isAdmin = userRole === 'admin' || userRole === 'manager'
+  const isAdmin = userRole === 'admin'
 
   const handleLogout = () => {
     apiClient.clearAuth()
@@ -52,7 +52,7 @@ export function KitchenDisabledScreen({ userRole }: KitchenDisabledScreenProps) 
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              If you expected to see orders here, ask your manager to change the Kitchen Mode in
+              If you expected to see orders here, ask an administrator to change the Kitchen Mode in
               Admin Settings.
             </p>
             <Button variant="outline" className="w-full" onClick={handleLogout}>

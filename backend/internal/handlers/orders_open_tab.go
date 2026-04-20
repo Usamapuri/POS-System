@@ -89,8 +89,8 @@ func (h *OrderHandler) OpenCounterTableTab(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to validate server", Error: stringPtr(err.Error())})
 			return
 		}
-		if serverRole != "server" {
-			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Assigned user must be a server", Error: stringPtr("invalid_assigned_server")})
+		if serverRole != "counter" && serverRole != "admin" {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Assigned user must be counter or admin staff", Error: stringPtr("invalid_assigned_server")})
 			return
 		}
 		orderUserID = *req.AssignedServerID
@@ -503,8 +503,8 @@ func (h *OrderHandler) UpdateCounterOrderService(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to validate server", Error: stringPtr(err.Error())})
 			return
 		}
-		if serverRole != "server" {
-			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Assigned user must be a server", Error: stringPtr("invalid_assigned_server")})
+		if serverRole != "counter" && serverRole != "admin" {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Assigned user must be counter or admin staff", Error: stringPtr("invalid_assigned_server")})
 			return
 		}
 		userArg = sid

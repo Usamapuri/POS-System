@@ -1,8 +1,13 @@
-import { createFileRoute, Navigate, Outlet } from '@tanstack/react-router'
+import { createFileRoute, Navigate, Outlet, useLocation } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import apiClient from '@/api/client'
 import type { User } from '@/types'
 import { AdminSidebar } from '@/components/admin/AdminSidebar'
+import {
+  canAccessAdminRoute,
+  defaultAdminPath,
+  isStaffRole,
+} from '@/lib/staff-roles'
 
 export const Route = createFileRoute('/admin')({
   component: AdminLayout,
@@ -11,11 +16,12 @@ export const Route = createFileRoute('/admin')({
 function AdminLayout() {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const location = useLocation()
 
   useEffect(() => {
     const storedUser = localStorage.getItem('pos_user')
     const token = localStorage.getItem('pos_token')
-    
+
     if (storedUser && token) {
       try {
         const parsedUser = JSON.parse(storedUser)
@@ -29,37 +35,27 @@ function AdminLayout() {
     setIsLoading(false)
   }, [])
 
-  // Show loading while checking auth
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading Admin Panel...</p>
+          <p className="text-muted-foreground">Loading…</p>
         </div>
       </div>
     )
   }
 
-  // Check authentication
   if (!apiClient.isAuthenticated() || !user) {
     return <Navigate to="/login" />
   }
 
-  // Allow admin and manager roles into the admin shell. Manager-scoped pages
-  // (Reports, Dashboard, Expenses) are explicitly safe; admin-only pages
-  // already enforce permissions on the backend, so non-admin attempts will
-  // surface as 403 from the API rather than rendering broken UI.
-  if (user.role !== 'admin' && user.role !== 'manager') {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-destructive mb-2">Access Denied</h1>
-          <p className="text-muted-foreground mb-4">You don't have admin or manager privileges</p>
-          <Navigate to="/" />
-        </div>
-      </div>
-    )
+  if (!isStaffRole(user.role)) {
+    return <Navigate to="/login" replace />
+  }
+
+  if (!canAccessAdminRoute(user.role, location.pathname)) {
+    return <Navigate to={defaultAdminPath(user.role)} replace />
   }
 
   return (

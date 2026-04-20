@@ -15,11 +15,6 @@ import {
   Sparkles,
   ShieldCheck,
   ChefHat,
-  CreditCard,
-  UserCheck,
-  Settings,
-  BarChart3,
-  Warehouse,
   Loader2,
 } from 'lucide-react'
 
@@ -27,34 +22,11 @@ export const Route = createFileRoute('/login')({
   component: LoginPage,
 })
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Demo accounts — same credentials as before, but presented as compact chips
-// instead of two competing card grids. One source of truth.
-// ─────────────────────────────────────────────────────────────────────────────
-type DemoAccount = {
-  username: string
-  password: string
-  role: string
-  blurb: string
-  icon: typeof ChefHat
-}
-
-const DEMO_ACCOUNTS: DemoAccount[] = [
-  { username: 'server1',  password: 'admin123', role: 'Server',  blurb: 'Floor & dine-in',     icon: UserCheck },
-  { username: 'counter1', password: 'admin123', role: 'Counter', blurb: 'Checkout & payments', icon: CreditCard },
-  { username: 'kitchen1', password: 'admin123', role: 'Kitchen', blurb: 'Tickets & prep',      icon: ChefHat },
-  { username: 'admin',    password: 'admin123', role: 'Admin',   blurb: 'Full access',         icon: Settings },
-  { username: 'manager1', password: 'admin123', role: 'Manager', blurb: 'Reports & ops',       icon: BarChart3 },
-  { username: 'store1',   password: 'admin123', role: 'Store',   blurb: 'Inventory',           icon: Warehouse },
-]
-
 function LoginPage() {
   const router = useRouter()
   const [formData, setFormData] = useState<LoginRequest>({ username: '', password: '' })
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
-  const [activeDemo, setActiveDemo] = useState<string | null>(null)
-
   // Already authenticated → home
   if (apiClient.isAuthenticated()) {
     return <Navigate to="/" />
@@ -94,16 +66,6 @@ function LoginPage() {
     })
   }
 
-  // One-click demo: fill credentials AND sign in immediately. The previous
-  // page only filled the form — this is faster and matches what the chip
-  // visually promises.
-  const useDemo = (account: DemoAccount) => {
-    setError('')
-    setActiveDemo(account.username)
-    setFormData({ username: account.username, password: account.password })
-    loginMutation.mutate({ username: account.username, password: account.password })
-  }
-
   return (
     <div className="bhookly-login min-h-screen w-full bg-[#fdf8f1] text-[#1a1410] lg:grid lg:grid-cols-[3fr_2fr]">
       <BrandPanel />
@@ -114,9 +76,7 @@ function LoginPage() {
         setShowPassword={setShowPassword}
         error={error}
         isPending={loginMutation.isPending}
-        activeDemo={activeDemo}
         onSubmit={handleSubmit}
-        onUseDemo={useDemo}
       />
     </div>
   )
@@ -348,9 +308,7 @@ type FormPanelProps = {
   setShowPassword: React.Dispatch<React.SetStateAction<boolean>>
   error: string
   isPending: boolean
-  activeDemo: string | null
   onSubmit: (e: React.FormEvent) => void
-  onUseDemo: (account: DemoAccount) => void
 }
 
 function FormPanel({
@@ -360,9 +318,7 @@ function FormPanel({
   setShowPassword,
   error,
   isPending,
-  activeDemo,
   onSubmit,
-  onUseDemo,
 }: FormPanelProps) {
   return (
     <section className="relative flex min-h-screen flex-col bg-[#fdf8f1] px-6 py-8 sm:px-10 lg:px-14 lg:py-10">
@@ -399,7 +355,7 @@ function FormPanel({
               Welcome back.
             </h2>
             <p className="mt-2 text-sm text-zinc-600">
-              Sign in to your station — or jump in with a demo role below.
+              Sign in with the username or email and password from your administrator.
             </p>
           </div>
 
@@ -414,7 +370,7 @@ function FormPanel({
                   onChange={(e) => setFormData((p) => ({ ...p, username: e.target.value }))}
                   className="h-full border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                   autoComplete="username"
-                  placeholder="e.g. server1 or you@restaurant.com"
+                  placeholder="Username or email"
                   disabled={isPending}
                 />
               </div>
@@ -484,45 +440,6 @@ function FormPanel({
               )}
             </Button>
           </form>
-
-          {/* divider */}
-          <div className="my-7 flex items-center gap-3 text-[11px] uppercase tracking-[0.18em] text-zinc-400">
-            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-300 to-transparent" />
-            One-click demo
-            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-300 to-transparent" />
-          </div>
-
-          {/* demo chips — single grid, no nested headings */}
-          <div className="grid grid-cols-3 gap-2.5">
-            {DEMO_ACCOUNTS.map((account) => {
-              const Icon = account.icon
-              const isActive = activeDemo === account.username && isPending
-              return (
-                <button
-                  key={account.username}
-                  type="button"
-                  onClick={() => onUseDemo(account)}
-                  disabled={isPending}
-                  data-active={isActive}
-                  className="bhk-chip group relative flex flex-col items-start gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-3 text-left disabled:cursor-wait disabled:opacity-70"
-                >
-                  <div className="flex w-full items-center justify-between">
-                    <span className="grid h-7 w-7 place-items-center rounded-lg bg-amber-50 text-amber-700 ring-1 ring-amber-100 transition-colors group-hover:bg-orange-100 group-hover:text-orange-700">
-                      {isActive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Icon className="h-3.5 w-3.5" />}
-                    </span>
-                    <span className="text-[10px] font-mono text-zinc-400">{account.username}</span>
-                  </div>
-                  <div className="text-[13px] font-semibold text-[#1a1410]">{account.role}</div>
-                  <div className="text-[11px] text-zinc-500">{account.blurb}</div>
-                </button>
-              )
-            })}
-          </div>
-
-          <p className="mt-5 text-center text-[11px] text-zinc-400">
-            Demo accounts use password <span className="font-mono text-zinc-500">admin123</span>.
-            One click signs you straight in.
-          </p>
         </div>
       </div>
 

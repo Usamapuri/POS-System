@@ -43,7 +43,7 @@ function KitchenPage() {
     return <Navigate to="/login" replace />;
   }
 
-  const hasKitchenAccess = user.role === 'kitchen' || user.role === 'admin' || user.role === 'manager';
+  const hasKitchenAccess = user.role === 'kitchen' || user.role === 'admin';
   if (!hasKitchenAccess) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">

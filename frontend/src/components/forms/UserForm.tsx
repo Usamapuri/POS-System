@@ -49,7 +49,7 @@ export function UserForm({ user, onSuccess, onCancel, mode = 'create' }: UserFor
         password: '',
         first_name: '',
         last_name: '',
-        role: 'server' as const,
+        role: 'counter' as const,
         profile_image_url: '',
       }
 

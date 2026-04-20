@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -92,12 +91,11 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		protected.GET("/settings", settingsHandler.GetAllSettings)
 	}
 
-	// KOT / order-line mutation routes — restricted to roles that take orders
-	// (server, counter, admin, manager). Kitchen role is intentionally excluded;
-	// the kitchen can only observe and mark prepared, never fire/void lines.
+	// KOT / order-line mutations — admin + counter (floor/checkout). Kitchen is
+	// intentionally excluded; KDS is observe / bump / status only.
 	orderWrite := router.Group("/")
 	orderWrite.Use(authMiddleware)
-	orderWrite.Use(middleware.RequireRoles([]string{"server", "counter", "admin", "manager"}))
+	orderWrite.Use(middleware.RequireRoles([]string{"counter", "admin"}))
 	{
 		orderWrite.POST("/orders/:id/fire-kot", kotHandler.FireKOT)
 		orderWrite.POST("/orders/:id/items", kotHandler.AddItemsToOrder)
@@ -105,18 +103,10 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		orderWrite.POST("/orders/:id/items/:item_id/void", kotHandler.VoidItem)
 	}
 
-	// Server routes (server role - dine-in orders only)
-	server := router.Group("/server")
-	server.Use(authMiddleware)
-	server.Use(middleware.RequireRole("server"))
-	{
-		server.POST("/orders", createDineInOrder(db)) // Only dine-in orders
-	}
-
-	// Counter routes (counter role - all order types and payments; admin/manager use embedded counter UI)
+	// Counter routes (all order types + payments; admins use the same APIs from the admin shell)
 	counter := router.Group("/counter")
 	counter.Use(authMiddleware)
-	counter.Use(middleware.RequireRoles([]string{"counter", "admin", "manager"}))
+	counter.Use(middleware.RequireRoles([]string{"counter", "admin"}))
 	{
 		counter.GET("/servers", counterHandler.ListServers)
 		counter.GET("/pricing", settingsHandler.GetPricingSettings)
@@ -133,116 +123,125 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		counter.POST("/orders/:id/pra-invoice", orderHandler.MarkPraInvoicePrinted)
 	}
 
-	// Admin routes (admin/manager only)
-	admin := router.Group("/admin")
-	admin.Use(authMiddleware)
-	admin.Use(middleware.RequireRoles([]string{"admin", "manager"}))
+	// Menu + table CRUD — admins and counter staff (same admin UI shell).
+	adminMenu := router.Group("/admin")
+	adminMenu.Use(authMiddleware)
+	adminMenu.Use(middleware.RequireRoles([]string{"admin", "counter"}))
+	{
+		adminMenu.GET("/products", productHandler.GetProducts)
+		adminMenu.GET("/categories", getAdminCategories(db))
+		adminMenu.POST("/categories", createCategory(db))
+		adminMenu.PUT("/categories/:id/station", stationHandler.SetCategoryKitchenStation)
+		adminMenu.PUT("/categories/:id", updateCategory(db))
+		adminMenu.DELETE("/categories/:id", deleteCategory(db))
+		adminMenu.POST("/products", createProduct(db))
+		adminMenu.PUT("/products/:id", updateProduct(db))
+		adminMenu.DELETE("/products/:id", deleteProduct(db))
+
+		adminMenu.GET("/tables", getAdminTables(db))
+		adminMenu.POST("/tables", createTable(db))
+		adminMenu.PUT("/tables/:id", updateTable(db))
+		adminMenu.DELETE("/tables/:id", deleteTable(db))
+	}
+
+	// Kitchen station configuration — admins + kitchen (KDS + stations pages).
+	adminStations := router.Group("/admin")
+	adminStations.Use(authMiddleware)
+	adminStations.Use(middleware.RequireRoles([]string{"admin", "kitchen"}))
+	{
+		adminStations.GET("/stations", stationHandler.GetStations)
+		adminStations.POST("/stations", stationHandler.CreateStation)
+		adminStations.PUT("/stations/:id", stationHandler.UpdateStation)
+		adminStations.DELETE("/stations/:id", stationHandler.DeleteStation)
+		adminStations.POST("/stations/:id/categories", stationHandler.SetStationCategories)
+		adminStations.GET("/stations/:id/categories", stationHandler.GetStationCategories)
+		adminStations.POST("/stations/:id/test-kot", stationHandler.TestKOT)
+	}
+
+	// Admin-only routes (full owner dashboard, staff, settings, reports, …).
+	adminOnly := router.Group("/admin")
+	adminOnly.Use(authMiddleware)
+	adminOnly.Use(middleware.RequireRoles([]string{"admin"}))
 	{
 		// Dashboard and monitoring
 		// Legacy snapshot — kept for backward compatibility while clients
 		// migrate to the new typed /dashboard/* endpoints below.
-		admin.GET("/dashboard/stats", getDashboardStats(db))
-		admin.GET("/reports/sales", getSalesReport(db))
-		admin.GET("/reports/orders", getOrdersReport(db))
-		admin.GET("/reports/income", getIncomeReport(db))
+		adminOnly.GET("/dashboard/stats", getDashboardStats(db))
+		adminOnly.GET("/reports/sales", getSalesReport(db))
+		adminOnly.GET("/reports/orders", getOrdersReport(db))
+		adminOnly.GET("/reports/income", getIncomeReport(db))
 
 		// Dashboard v2 — typed, business-timezone-aware, with real
 		// previous-period comparisons and server-formatted bucket labels.
-		admin.GET("/dashboard/overview", dashboardHandler.GetOverview)
-		admin.GET("/dashboard/live", dashboardHandler.GetLive)
-		admin.GET("/dashboard/sales-timeseries", dashboardHandler.GetSalesTimeseries)
-		admin.GET("/dashboard/top-items", dashboardHandler.GetTopItems)
-		admin.GET("/dashboard/payment-mix", dashboardHandler.GetPaymentMix)
-		admin.GET("/dashboard/order-type-mix", dashboardHandler.GetOrderTypeMix)
-		admin.GET("/dashboard/alerts", dashboardHandler.GetAlerts)
+		adminOnly.GET("/dashboard/overview", dashboardHandler.GetOverview)
+		adminOnly.GET("/dashboard/live", dashboardHandler.GetLive)
+		adminOnly.GET("/dashboard/sales-timeseries", dashboardHandler.GetSalesTimeseries)
+		adminOnly.GET("/dashboard/top-items", dashboardHandler.GetTopItems)
+		adminOnly.GET("/dashboard/payment-mix", dashboardHandler.GetPaymentMix)
+		adminOnly.GET("/dashboard/order-type-mix", dashboardHandler.GetOrderTypeMix)
+		adminOnly.GET("/dashboard/alerts", dashboardHandler.GetAlerts)
 
 		// Reports v2 — granular, drill-down enterprise-grade reports
 		// (powers the redesigned /admin/reports page). All endpoints honor
 		// Asia/Karachi calendar days and return DD-MM-YYYY *_label fields.
-		admin.GET("/reports/v2/overview", reportsHandler.GetOverview)
-		admin.GET("/reports/v2/sales/daily", reportsHandler.GetDailySales)
-		admin.GET("/reports/v2/sales/hourly", reportsHandler.GetHourlySales)
-		admin.GET("/reports/v2/items", reportsHandler.GetItemSales)
-		admin.GET("/reports/v2/tables", reportsHandler.GetTableSales)
-		admin.GET("/reports/v2/party-size", reportsHandler.GetPartySizeReport)
-		admin.GET("/reports/v2/orders", reportsHandler.GetOrdersBrowser)
-		admin.GET("/reports/v2/export", reportsHandler.ExportReport)
-
-		// Menu management with pagination
-		admin.GET("/products", productHandler.GetProducts) // Use existing paginated handler
-		admin.GET("/categories", getAdminCategories(db))   // Add pagination
-		admin.POST("/categories", createCategory(db))
-		admin.PUT("/categories/:id/station", stationHandler.SetCategoryKitchenStation)
-		admin.PUT("/categories/:id", updateCategory(db))
-		admin.DELETE("/categories/:id", deleteCategory(db))
-		admin.POST("/products", createProduct(db))
-		admin.PUT("/products/:id", updateProduct(db))
-		admin.DELETE("/products/:id", deleteProduct(db))
-
-		// Table management with pagination
-		admin.GET("/tables", getAdminTables(db)) // Add pagination
-		admin.POST("/tables", createTable(db))
-		admin.PUT("/tables/:id", updateTable(db))
-		admin.DELETE("/tables/:id", deleteTable(db))
+		adminOnly.GET("/reports/v2/overview", reportsHandler.GetOverview)
+		adminOnly.GET("/reports/v2/sales/daily", reportsHandler.GetDailySales)
+		adminOnly.GET("/reports/v2/sales/hourly", reportsHandler.GetHourlySales)
+		adminOnly.GET("/reports/v2/items", reportsHandler.GetItemSales)
+		adminOnly.GET("/reports/v2/tables", reportsHandler.GetTableSales)
+		adminOnly.GET("/reports/v2/party-size", reportsHandler.GetPartySizeReport)
+		adminOnly.GET("/reports/v2/orders", reportsHandler.GetOrdersBrowser)
+		adminOnly.GET("/reports/v2/export", reportsHandler.ExportReport)
 
 		// User management with pagination
-		admin.GET("/users", getAdminUsers(db)) // Update with pagination
-		admin.POST("/users", createUser(db))
-		admin.PUT("/users/:id", updateUser(db))
-		admin.DELETE("/users/:id", deleteUser(db))
+		adminOnly.GET("/users", getAdminUsers(db))
+		adminOnly.POST("/users", createUser(db))
+		adminOnly.PUT("/users/:id", updateUser(db))
+		adminOnly.DELETE("/users/:id", deleteUser(db))
 
 		// Advanced order management
-		admin.POST("/orders", orderHandler.CreateOrder)                   // Admins can create any type of order
-		admin.POST("/orders/:id/payments", paymentHandler.ProcessPayment) // Admins can process payments
-		admin.POST("/orders/:id/pra-invoice", orderHandler.MarkPraInvoicePrinted)
+		adminOnly.POST("/orders", orderHandler.CreateOrder)
+		adminOnly.POST("/orders/:id/payments", paymentHandler.ProcessPayment)
+		adminOnly.POST("/orders/:id/pra-invoice", orderHandler.MarkPraInvoicePrinted)
 
 		// Expense management
-		admin.GET("/expenses", expenseHandler.GetExpenses)
-		admin.POST("/expenses", expenseHandler.CreateExpense)
-		admin.PUT("/expenses/:id", expenseHandler.UpdateExpense)
-		admin.DELETE("/expenses/:id", expenseHandler.DeleteExpense)
-		admin.GET("/expenses/summary", expenseHandler.GetExpenseSummary)
-		admin.GET("/expenses/categories", expenseHandler.GetExpenseCategories)
-		admin.GET("/expense-category-definitions", expenseHandler.ListExpenseCategoryDefinitions)
-		admin.POST("/expense-category-definitions", expenseHandler.CreateExpenseCategoryDefinition)
-		admin.PUT("/expense-category-definitions/:id", expenseHandler.UpdateExpenseCategoryDefinition)
-		admin.DELETE("/expense-category-definitions/:id", expenseHandler.DeleteExpenseCategoryDefinition)
+		adminOnly.GET("/expenses", expenseHandler.GetExpenses)
+		adminOnly.POST("/expenses", expenseHandler.CreateExpense)
+		adminOnly.PUT("/expenses/:id", expenseHandler.UpdateExpense)
+		adminOnly.DELETE("/expenses/:id", expenseHandler.DeleteExpense)
+		adminOnly.GET("/expenses/summary", expenseHandler.GetExpenseSummary)
+		adminOnly.GET("/expenses/categories", expenseHandler.GetExpenseCategories)
+		adminOnly.GET("/expense-category-definitions", expenseHandler.ListExpenseCategoryDefinitions)
+		adminOnly.POST("/expense-category-definitions", expenseHandler.CreateExpenseCategoryDefinition)
+		adminOnly.PUT("/expense-category-definitions/:id", expenseHandler.UpdateExpenseCategoryDefinition)
+		adminOnly.DELETE("/expense-category-definitions/:id", expenseHandler.DeleteExpenseCategoryDefinition)
 
 		// Daily closing
-		admin.GET("/daily-closings", closingHandler.GetDailyClosings)
-		admin.GET("/daily-closings/current", closingHandler.GetCurrentDayStatus)
-		admin.POST("/daily-closings", closingHandler.CloseDay)
-		admin.GET("/daily-closings/:date", closingHandler.GetDailyClosingByDate)
+		adminOnly.GET("/daily-closings", closingHandler.GetDailyClosings)
+		adminOnly.GET("/daily-closings/current", closingHandler.GetCurrentDayStatus)
+		adminOnly.POST("/daily-closings", closingHandler.CloseDay)
+		adminOnly.GET("/daily-closings/:date", closingHandler.GetDailyClosingByDate)
 
 		// P&L Reports
-		admin.GET("/reports/pnl", expenseHandler.GetPnLReport)
-		admin.GET("/reports/expense-intelligence", expenseHandler.GetExpenseIntelligence)
+		adminOnly.GET("/reports/pnl", expenseHandler.GetPnLReport)
+		adminOnly.GET("/reports/expense-intelligence", expenseHandler.GetExpenseIntelligence)
 
-		// Kitchen station management
-		admin.GET("/stations", stationHandler.GetStations)
-		admin.POST("/stations", stationHandler.CreateStation)
-		admin.PUT("/stations/:id", stationHandler.UpdateStation)
-		admin.DELETE("/stations/:id", stationHandler.DeleteStation)
-		admin.POST("/stations/:id/categories", stationHandler.SetStationCategories)
-		admin.GET("/stations/:id/categories", stationHandler.GetStationCategories)
-		admin.POST("/stations/:id/test-kot", stationHandler.TestKOT)
-
-		// PIN management
-		admin.PUT("/users/:id/pin", pinHandler.SetPin)
+		// PIN management (void authorization PIN — admin accounts only)
+		adminOnly.PUT("/users/:id/pin", pinHandler.SetPin)
 
 		// Void log
-		admin.GET("/void-log", pinHandler.GetVoidLog)
+		adminOnly.GET("/void-log", pinHandler.GetVoidLog)
 
-		admin.GET("/customers", listAdminCustomers(db))
+		adminOnly.GET("/customers", listAdminCustomers(db))
 
 		// Settings management
-		admin.PUT("/settings/:key", settingsHandler.UpdateSetting)
+		adminOnly.PUT("/settings/:key", settingsHandler.UpdateSetting)
 	}
 
-	// Store inventory routes (store_manager, admin, manager)
+	// Store inventory routes
 	store := router.Group("/store")
 	store.Use(authMiddleware)
-	store.Use(middleware.RequireRoles([]string{"admin", "manager", "store_manager"}))
+	store.Use(middleware.RequireRoles([]string{"admin", "inventory_manager"}))
 	{
 		store.GET("/stock-categories", stockHandler.GetStockCategories)
 		store.POST("/stock-categories", stockHandler.CreateStockCategory)
@@ -285,7 +284,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 	// if set to 'kot_only', all endpoints return kitchen_display_disabled.
 	kitchen := router.Group("/kitchen")
 	kitchen.Use(authMiddleware)
-	kitchen.Use(middleware.RequireRoles([]string{"kitchen", "admin", "manager"}))
+	kitchen.Use(middleware.RequireRoles([]string{"kitchen", "admin"}))
 	kitchen.Use(middleware.RequireKDSEnabled(db))
 	{
 		kitchen.GET("/orders", getKitchenOrders(db))
@@ -301,14 +300,14 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 	// SSE stream: EventSource can't send custom headers, so we accept the
 	// JWT via query string (?token=) as well as Authorization. The stream is
 	// gated on the same role + mode rules as the kitchen REST endpoints.
-	router.GET("/kitchen/stream", sseAuthMiddleware(), middleware.RequireRoles([]string{"kitchen", "admin", "manager"}), middleware.RequireKDSEnabled(db), kitchenStream())
+	router.GET("/kitchen/stream", sseAuthMiddleware(), middleware.RequireRoles([]string{"kitchen", "admin"}), middleware.RequireKDSEnabled(db), kitchenStream())
 
 	// Admin dashboard SSE — same auth pattern as /kitchen/stream. Pushes a
 	// signal whenever orders, payments, tables, or voids change so the UI
 	// can refresh live cards without polling.
 	router.GET("/admin/dashboard/stream",
 		sseAuthMiddleware(),
-		middleware.RequireRoles([]string{"admin", "manager"}),
+		middleware.RequireRoles([]string{"admin"}),
 		dashboardHandler.DashboardStream(),
 	)
 }
@@ -1084,54 +1083,6 @@ func safeEventName(t string) string {
 		return "message"
 	}
 	return string(out)
-}
-
-// Server role handler - creates orders with configurable order types
-func createDineInOrder(db *sql.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var req struct {
-			TableID      *string `json:"table_id"`
-			CustomerName *string `json:"customer_name"`
-			OrderType    string  `json:"order_type"`
-			GuestCount   int     `json:"guest_count"`
-			Items        []struct {
-				ProductID           string  `json:"product_id"`
-				Quantity            int     `json:"quantity"`
-				SpecialInstructions *string `json:"special_instructions"`
-			} `json:"items"`
-			Notes *string `json:"notes"`
-		}
-
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(400, gin.H{
-				"success": false,
-				"message": "Invalid request body",
-				"error":   err.Error(),
-			})
-			return
-		}
-
-		orderType := req.OrderType
-		if orderType == "" {
-			orderType = "dine_in"
-		}
-
-		orderHandler := handlers.NewOrderHandler(db)
-
-		createOrderReq := map[string]interface{}{
-			"table_id":      req.TableID,
-			"customer_name": req.CustomerName,
-			"order_type":    orderType,
-			"guest_count":   req.GuestCount,
-			"items":         req.Items,
-			"notes":         req.Notes,
-		}
-
-		reqBytes, _ := json.Marshal(createOrderReq)
-		c.Request.Body = io.NopCloser(strings.NewReader(string(reqBytes)))
-
-		orderHandler.CreateOrder(c)
-	}
 }
 
 // Admin handler - Income report
@@ -1974,6 +1925,14 @@ func createUser(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		if !util.ValidStaffRole(req.Role) {
+			c.JSON(400, gin.H{
+				"success": false,
+				"message": "Invalid role. Allowed: admin, inventory_manager, counter, kitchen",
+			})
+			return
+		}
+
 		// Hash password
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
@@ -2087,6 +2046,13 @@ func updateUser(db *sql.DB) gin.HandlerFunc {
 			argCount++
 		}
 		if req.Role != nil {
+			if !util.ValidStaffRole(*req.Role) {
+				c.JSON(400, gin.H{
+					"success": false,
+					"message": "Invalid role. Allowed: admin, inventory_manager, counter, kitchen",
+				})
+				return
+			}
 			updates = append(updates, fmt.Sprintf("role = $%d", argCount))
 			args = append(args, *req.Role)
 			argCount++

@@ -26,6 +26,7 @@ import {
 import type { User as UserType } from '@/types'
 import apiClient from '@/api/client'
 import { useKitchenSettings, isKDSEnabled } from '@/hooks/useKitchenSettings'
+import { navSectionIdsForRole } from '@/lib/staff-roles'
 
 interface AdminSidebarProps {
   user: UserType
@@ -143,9 +144,13 @@ export function AdminSidebar({ user }: AdminSidebarProps) {
   const businessName = (settingsRes?.data as Record<string, unknown>)?.receipt_business_name as string || ''
   const logoUrl = (settingsRes?.data as Record<string, unknown>)?.receipt_logo_url as string || ''
 
-  // Hide Kitchen Display nav entry when the venue is in KOT-only mode. The
-  // route itself also renders a friendly disabled screen for direct URL access.
-  const visibleAdminSections = adminSections.filter((s) => (s.id === 'kitchen' ? kdsOn : true))
+  const allowedIds = navSectionIdsForRole(user.role)
+  // Hide Kitchen Display when KOT-only; restrict nav by role (null = admin: all).
+  const visibleAdminSections = adminSections.filter((s) => {
+    if (s.id === 'kitchen' && !kdsOn) return false
+    if (allowedIds !== null && !allowedIds.has(s.id)) return false
+    return true
+  })
 
   // Responsive checks
   useEffect(() => {

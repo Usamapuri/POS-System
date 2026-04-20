@@ -150,22 +150,21 @@ Backend API: http://localhost:8080/api/v1
 Database: localhost:5432
 ```
 
-### 🎭 **Demo Accounts**
+### 🎭 **Default seed accounts** (local / `make db-reset`; password `admin123`)
 
-| Role | Username | Password | Access Level |
-|------|----------|----------|-------------|
-| **👑 Admin** | `admin` | `admin123` | Full system access, all interfaces, beautiful admin tables |
-| **📊 Manager** | `manager1` | `admin123` | Business operations and oversight with reporting |
-| **🍽️ Server** | `server1` / `server2` | `admin123` | Dine-in orders only with streamlined interface |
-| **💰 Counter** | `counter1` / `counter2` | `admin123` | All orders + complete payment processing |
-| **👨‍🍳 Kitchen** | `kitchen1` | `admin123` | Order preparation and status updates |
+| Role | Username | Access |
+|------|----------|--------|
+| **Admin** | `admin` | Full dashboard; default void-authorization PIN `1234` on fresh seed |
+| **Inventory manager** | `inventory1` | Store inventory only (same admin shell, limited sidebar) |
+| **Counter** | `counter1` / `counter2` | Checkout, server floor UI, menu & tables (same admin shell) |
+| **Kitchen** | `kitchen1` | KDS + kitchen stations (same admin shell) |
 
-### 🎯 **First Login Experience**
-1. **🌐 Navigate to**: http://localhost:3000
-2. **🔑 Login as Admin**: Use `admin` / `admin123` for full system access
-3. **📊 Explore Admin Dashboard**: Access all interfaces via the beautiful sidebar navigation
-4. **🔄 Switch Interfaces**: Admin can view Server, Counter, Kitchen, and POS interfaces  
-5. **⚙️ Manage System**: Create staff, manage menu with professional tables, configure settings
+Add real staff in **Admin → Manage Staff** for production; the login page has no demo shortcuts.
+
+### 🎯 **First login**
+1. Open http://localhost:3000 and sign in with a staff account (username or email + password).
+2. Each role lands in the **same admin-style layout**; the sidebar only shows what that role may open.
+3. Use **Manage Staff** (admin) to create additional users.
 
 ---
 

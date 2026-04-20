@@ -8,7 +8,7 @@ export const positiveNumberSchema = z.number().min(0, 'Must be a positive number
 export const priceSchema = z.number().min(0.01, 'Price must be greater than 0')
 
 // User/Staff related schemas
-export const userRoles = ['admin', 'manager', 'server', 'counter', 'kitchen', 'store_manager'] as const
+export const userRoles = ['admin', 'inventory_manager', 'counter', 'kitchen'] as const
 export const userRoleSchema = z.enum(userRoles)
 
 const profileImageUrlSchema = z

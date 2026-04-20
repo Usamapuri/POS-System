@@ -14,7 +14,7 @@ type User struct {
 	PasswordHash string    `json:"-"`
 	FirstName    string    `json:"first_name"`
 	LastName     string    `json:"last_name"`
-	Role         string    `json:"role"` // admin, manager, server, counter, kitchen, store_manager
+	Role         string    `json:"role"` // admin, inventory_manager, counter, kitchen
 	ManagerPin   *string   `json:"manager_pin,omitempty"`
 	ProfileImageURL *string `json:"profile_image_url,omitempty"`
 	IsActive     bool      `json:"is_active"`

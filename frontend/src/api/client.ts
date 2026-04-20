@@ -141,7 +141,7 @@ class APIClient {
   }
 
   /**
-   * Backend exposes POST /server/orders, /counter/orders, and /admin/orders — not POST /orders.
+   * Backend exposes POST /counter/orders and /admin/orders — not POST /orders.
    * Order creation must use the route group that matches the logged-in role.
    */
   private getStoredUserRole(): string {
@@ -154,20 +154,19 @@ class APIClient {
     } catch {
       /* ignore */
     }
-    return 'server';
+    return 'counter';
   }
 
   private getOrderCreatePath(): string {
     const role = this.getStoredUserRole();
-    if (role === 'admin' || role === 'manager') return '/admin/orders';
+    if (role === 'admin') return '/admin/orders';
     if (role === 'counter') return '/counter/orders';
-    return '/server/orders';
+    return '/counter/orders';
   }
 
   private getProcessPaymentPath(orderId: string): string {
     const role = this.getStoredUserRole();
-    if (role === 'admin' || role === 'manager') return `/admin/orders/${orderId}/payments`;
-    if (role === 'counter') return `/counter/orders/${orderId}/payments`;
+    if (role === 'admin') return `/admin/orders/${orderId}/payments`;
     return `/counter/orders/${orderId}/payments`;
   }
 
@@ -646,7 +645,7 @@ class APIClient {
     });
   }
 
-  /** Kitchen-scoped read-only stations list (works for kitchen, admin, manager). */
+  /** Kitchen-scoped read-only stations list (works for kitchen and admin). */
   async getKitchenStations(): Promise<APIResponse<KitchenStation[]>> {
     return this.request({ method: 'GET', url: '/kitchen/stations' });
   }

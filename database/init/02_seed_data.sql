@@ -1,15 +1,13 @@
 -- Seed data for POS System
 
--- Insert default users (Twemoji PNGs — friendly faces for demo avatars)
+-- Default users (Twemoji avatars). Password for all: admin123 (bcrypt below).
+-- Production: add real staff under Admin → Manage Staff; only admin is required here.
 INSERT INTO users (username, email, password_hash, first_name, last_name, role, manager_pin, profile_image_url) VALUES
-('admin', 'admin@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Admin', 'User', 'admin', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f60e.png'),
-('manager1', 'manager@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'John', 'Manager', 'manager', '1234', 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f603.png'),
-('server1', 'server1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Sarah', 'Smith', 'server', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f604.png'),
-('server2', 'server2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Mike', 'Johnson', 'server', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f601.png'),
+('admin', 'admin@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Admin', 'User', 'admin', '1234', 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f60e.png'),
+('inventory1', 'inventory@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Sam', 'Inventory', 'inventory_manager', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f917.png'),
 ('counter1', 'counter1@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Lisa', 'Davis', 'counter', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f606.png'),
 ('counter2', 'counter2@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Tom', 'Wilson', 'counter', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f60a.png'),
-('kitchen1', 'kitchen@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Chef', 'Williams', 'kitchen', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f973.png'),
-('store1', 'store@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Ali', 'Store', 'store_manager', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f917.png');
+('kitchen1', 'kitchen@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Chef', 'Williams', 'kitchen', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f973.png');
 
 -- Insert categories
 INSERT INTO categories (name, description, color, sort_order) VALUES
@@ -88,8 +86,8 @@ FROM products;
 
 -- Sample orders (amounts in PKR;10% tax on subtotal for demo rows)
 INSERT INTO orders (order_number, table_id, user_id, order_type, status, subtotal, tax_amount, total_amount, guest_count) VALUES
-('20260101-001', (SELECT id FROM dining_tables WHERE table_number = 'T02'), (SELECT id FROM users WHERE username = 'server1'), 'dine_in', 'pending', 10818.60, 1081.86, 11900.46, 2),
-('20260101-002', (SELECT id FROM dining_tables WHERE table_number = 'T05'), (SELECT id FROM users WHERE username = 'server2'), 'dine_in', 'preparing', 5412.15, 541.22, 5953.37, 2),
+('20260101-001', (SELECT id FROM dining_tables WHERE table_number = 'T02'), (SELECT id FROM users WHERE username = 'counter1'), 'dine_in', 'pending', 10818.60, 1081.86, 11900.46, 2),
+('20260101-002', (SELECT id FROM dining_tables WHERE table_number = 'T05'), (SELECT id FROM users WHERE username = 'counter2'), 'dine_in', 'preparing', 5412.15, 541.22, 5953.37, 2),
 ('20260101-003', (SELECT id FROM dining_tables WHERE table_number = 'TAKEOUT'), (SELECT id FROM users WHERE username = 'counter1'), 'takeout', 'ready', 4272.15, 427.22, 4699.37, 1);
 
 INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price, status) VALUES
@@ -152,7 +150,7 @@ INSERT INTO stock_items (category_id, name, unit, quantity_on_hand, reorder_leve
 
 -- Demo purchase order (ordered, not fully received) — after stock_items exist
 INSERT INTO purchase_orders (supplier_id, status, expected_date, notes, created_by) VALUES
-((SELECT id FROM suppliers WHERE name = 'Fresh Farms Co'), 'ordered', CURRENT_DATE + 5, 'Weekly produce top-up', (SELECT id FROM users WHERE username = 'store1'));
+((SELECT id FROM suppliers WHERE name = 'Fresh Farms Co'), 'ordered', CURRENT_DATE + 5, 'Weekly produce top-up', (SELECT id FROM users WHERE username = 'inventory1'));
 
 INSERT INTO purchase_order_lines (purchase_order_id, stock_item_id, quantity_ordered, unit_cost, quantity_received) VALUES
 ((SELECT id FROM purchase_orders ORDER BY created_at DESC LIMIT 1),
@@ -162,14 +160,14 @@ INSERT INTO purchase_order_lines (purchase_order_id, stock_item_id, quantity_ord
 
 -- Sample stock movements
 INSERT INTO stock_movements (stock_item_id, movement_type, quantity, unit_cost, total_cost, issued_to_user_id, created_by, note, created_at) VALUES
-((SELECT id FROM stock_items WHERE name = 'Potatoes'), 'purchase', 50, 1.20, 60.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Initial stock purchase', CURRENT_TIMESTAMP - INTERVAL '7 days'),
-((SELECT id FROM stock_items WHERE name = 'Chicken Breast'), 'purchase', 25, 6.50, 162.50, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Weekly meat order', CURRENT_TIMESTAMP - INTERVAL '5 days'),
-((SELECT id FROM stock_items WHERE name = 'Potatoes'), 'issue', -5, NULL, NULL, (SELECT id FROM users WHERE username = 'kitchen1'), (SELECT id FROM users WHERE username = 'store1'), 'Issued to kitchen for prep', CURRENT_TIMESTAMP - INTERVAL '3 days'),
-((SELECT id FROM stock_items WHERE name = 'Floor Cleaner'), 'purchase', 10, 3.00, 30.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Cleaning supplies restock', CURRENT_TIMESTAMP - INTERVAL '4 days'),
-((SELECT id FROM stock_items WHERE name = 'Floor Cleaner'), 'issue', -2, NULL, NULL, (SELECT id FROM users WHERE username = 'server1'), (SELECT id FROM users WHERE username = 'store1'), 'Issued to cleaning staff', CURRENT_TIMESTAMP - INTERVAL '2 days'),
-((SELECT id FROM stock_items WHERE name = 'Air Freshener'), 'purchase', 6, 3.00, 18.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Bathroom supplies', CURRENT_TIMESTAMP - INTERVAL '6 days'),
-((SELECT id FROM stock_items WHERE name = 'Coffee Beans'), 'purchase', 5, 12.00, 60.00, NULL, (SELECT id FROM users WHERE username = 'store1'), 'Coffee bean order', CURRENT_TIMESTAMP - INTERVAL '3 days'),
-((SELECT id FROM stock_items WHERE name = 'Coffee Beans'), 'issue', -1, NULL, NULL, (SELECT id FROM users WHERE username = 'counter1'), (SELECT id FROM users WHERE username = 'store1'), 'For counter coffee machine', CURRENT_TIMESTAMP - INTERVAL '1 day');
+((SELECT id FROM stock_items WHERE name = 'Potatoes'), 'purchase', 50, 1.20, 60.00, NULL, (SELECT id FROM users WHERE username = 'inventory1'), 'Initial stock purchase', CURRENT_TIMESTAMP - INTERVAL '7 days'),
+((SELECT id FROM stock_items WHERE name = 'Chicken Breast'), 'purchase', 25, 6.50, 162.50, NULL, (SELECT id FROM users WHERE username = 'inventory1'), 'Weekly meat order', CURRENT_TIMESTAMP - INTERVAL '5 days'),
+((SELECT id FROM stock_items WHERE name = 'Potatoes'), 'issue', -5, NULL, NULL, (SELECT id FROM users WHERE username = 'kitchen1'), (SELECT id FROM users WHERE username = 'inventory1'), 'Issued to kitchen for prep', CURRENT_TIMESTAMP - INTERVAL '3 days'),
+((SELECT id FROM stock_items WHERE name = 'Floor Cleaner'), 'purchase', 10, 3.00, 30.00, NULL, (SELECT id FROM users WHERE username = 'inventory1'), 'Cleaning supplies restock', CURRENT_TIMESTAMP - INTERVAL '4 days'),
+((SELECT id FROM stock_items WHERE name = 'Floor Cleaner'), 'issue', -2, NULL, NULL, (SELECT id FROM users WHERE username = 'counter1'), (SELECT id FROM users WHERE username = 'inventory1'), 'Issued to cleaning staff', CURRENT_TIMESTAMP - INTERVAL '2 days'),
+((SELECT id FROM stock_items WHERE name = 'Air Freshener'), 'purchase', 6, 3.00, 18.00, NULL, (SELECT id FROM users WHERE username = 'inventory1'), 'Bathroom supplies', CURRENT_TIMESTAMP - INTERVAL '6 days'),
+((SELECT id FROM stock_items WHERE name = 'Coffee Beans'), 'purchase', 5, 12.00, 60.00, NULL, (SELECT id FROM users WHERE username = 'inventory1'), 'Coffee bean order', CURRENT_TIMESTAMP - INTERVAL '3 days'),
+((SELECT id FROM stock_items WHERE name = 'Coffee Beans'), 'issue', -1, NULL, NULL, (SELECT id FROM users WHERE username = 'counter1'), (SELECT id FROM users WHERE username = 'inventory1'), 'For counter coffee machine', CURRENT_TIMESTAMP - INTERVAL '1 day');
 
 -- Opening stock batches (FIFO / expiry tracking); aligns with current quantity_on_hand
 INSERT INTO stock_batches (stock_item_id, quantity_remaining, initial_quantity, unit_cost, expiry_date, stock_movement_id, purchase_order_line_id)
@@ -182,17 +180,17 @@ WHERE si.quantity_on_hand > 0;
 -- ============================================================
 
 INSERT INTO expenses (category, amount, description, reference_type, reference_id, expense_date, recorded_at, created_by, created_at) VALUES
-('inventory_purchase', 60.00, 'Potatoes - Initial stock purchase', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Initial stock purchase' LIMIT 1), CURRENT_DATE - INTERVAL '7 days', CURRENT_TIMESTAMP - INTERVAL '7 days', (SELECT id FROM users WHERE username = 'store1'), CURRENT_TIMESTAMP - INTERVAL '7 days'),
-('inventory_purchase', 162.50, 'Chicken Breast - Weekly meat order', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Weekly meat order' LIMIT 1), CURRENT_DATE - INTERVAL '5 days', CURRENT_TIMESTAMP - INTERVAL '5 days', (SELECT id FROM users WHERE username = 'store1'), CURRENT_TIMESTAMP - INTERVAL '5 days'),
-('inventory_purchase', 30.00, 'Floor Cleaner - Cleaning supplies restock', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Cleaning supplies restock' LIMIT 1), CURRENT_DATE - INTERVAL '4 days', CURRENT_TIMESTAMP - INTERVAL '4 days', (SELECT id FROM users WHERE username = 'store1'), CURRENT_TIMESTAMP - INTERVAL '4 days'),
-('inventory_purchase', 18.00, 'Air Freshener - Bathroom supplies', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Bathroom supplies' LIMIT 1), CURRENT_DATE - INTERVAL '6 days', CURRENT_TIMESTAMP - INTERVAL '6 days', (SELECT id FROM users WHERE username = 'store1'), CURRENT_TIMESTAMP - INTERVAL '6 days'),
-('inventory_purchase', 60.00, 'Coffee Beans - Coffee bean order', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Coffee bean order' LIMIT 1), CURRENT_DATE - INTERVAL '3 days', CURRENT_TIMESTAMP - INTERVAL '3 days', (SELECT id FROM users WHERE username = 'store1'), CURRENT_TIMESTAMP - INTERVAL '3 days'),
+('inventory_purchase', 60.00, 'Potatoes - Initial stock purchase', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Initial stock purchase' LIMIT 1), CURRENT_DATE - INTERVAL '7 days', CURRENT_TIMESTAMP - INTERVAL '7 days', (SELECT id FROM users WHERE username = 'inventory1'), CURRENT_TIMESTAMP - INTERVAL '7 days'),
+('inventory_purchase', 162.50, 'Chicken Breast - Weekly meat order', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Weekly meat order' LIMIT 1), CURRENT_DATE - INTERVAL '5 days', CURRENT_TIMESTAMP - INTERVAL '5 days', (SELECT id FROM users WHERE username = 'inventory1'), CURRENT_TIMESTAMP - INTERVAL '5 days'),
+('inventory_purchase', 30.00, 'Floor Cleaner - Cleaning supplies restock', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Cleaning supplies restock' LIMIT 1), CURRENT_DATE - INTERVAL '4 days', CURRENT_TIMESTAMP - INTERVAL '4 days', (SELECT id FROM users WHERE username = 'inventory1'), CURRENT_TIMESTAMP - INTERVAL '4 days'),
+('inventory_purchase', 18.00, 'Air Freshener - Bathroom supplies', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Bathroom supplies' LIMIT 1), CURRENT_DATE - INTERVAL '6 days', CURRENT_TIMESTAMP - INTERVAL '6 days', (SELECT id FROM users WHERE username = 'inventory1'), CURRENT_TIMESTAMP - INTERVAL '6 days'),
+('inventory_purchase', 60.00, 'Coffee Beans - Coffee bean order', 'stock_movement', (SELECT id FROM stock_movements WHERE note = 'Coffee bean order' LIMIT 1), CURRENT_DATE - INTERVAL '3 days', CURRENT_TIMESTAMP - INTERVAL '3 days', (SELECT id FROM users WHERE username = 'inventory1'), CURRENT_TIMESTAMP - INTERVAL '3 days'),
 ('utilities', 250.00, 'Monthly electricity bill', NULL, NULL, CURRENT_DATE - INTERVAL '5 days', CURRENT_TIMESTAMP - INTERVAL '5 days' + interval '10 hours 15 minutes', (SELECT id FROM users WHERE username = 'admin'), CURRENT_TIMESTAMP - INTERVAL '5 days'),
 ('utilities', 80.00, 'Water bill', NULL, NULL, CURRENT_DATE - INTERVAL '5 days', CURRENT_TIMESTAMP - INTERVAL '5 days' + interval '14 hours 40 minutes', (SELECT id FROM users WHERE username = 'admin'), CURRENT_TIMESTAMP - INTERVAL '5 days'),
 ('rent', 2000.00, 'Monthly shop rent', NULL, NULL, CURRENT_DATE - INTERVAL '1 day', CURRENT_TIMESTAMP - INTERVAL '1 day' + interval '9 hours', (SELECT id FROM users WHERE username = 'admin'), CURRENT_TIMESTAMP - INTERVAL '1 day'),
-('maintenance', 150.00, 'Plumber - kitchen sink repair', NULL, NULL, CURRENT_DATE - INTERVAL '2 days', CURRENT_TIMESTAMP - INTERVAL '2 days' + interval '16 hours 30 minutes', (SELECT id FROM users WHERE username = 'manager1'), CURRENT_TIMESTAMP - INTERVAL '2 days'),
+('maintenance', 150.00, 'Plumber - kitchen sink repair', NULL, NULL, CURRENT_DATE - INTERVAL '2 days', CURRENT_TIMESTAMP - INTERVAL '2 days' + interval '16 hours 30 minutes', (SELECT id FROM users WHERE username = 'admin'), CURRENT_TIMESTAMP - INTERVAL '2 days'),
 ('salaries', 500.00, 'Weekly staff wages advance', NULL, NULL, CURRENT_DATE - INTERVAL '3 days', CURRENT_TIMESTAMP - INTERVAL '3 days' + interval '11 hours', (SELECT id FROM users WHERE username = 'admin'), CURRENT_TIMESTAMP - INTERVAL '3 days'),
-('supplies', 45.00, 'Office stationery and receipt paper', NULL, NULL, CURRENT_DATE - INTERVAL '4 days', CURRENT_TIMESTAMP - INTERVAL '4 days' + interval '13 hours 20 minutes', (SELECT id FROM users WHERE username = 'manager1'), CURRENT_TIMESTAMP - INTERVAL '4 days'),
+('supplies', 45.00, 'Office stationery and receipt paper', NULL, NULL, CURRENT_DATE - INTERVAL '4 days', CURRENT_TIMESTAMP - INTERVAL '4 days' + interval '13 hours 20 minutes', (SELECT id FROM users WHERE username = 'admin'), CURRENT_TIMESTAMP - INTERVAL '4 days'),
 ('other', 35.00, 'Pest control service', NULL, NULL, CURRENT_DATE - INTERVAL '6 days', CURRENT_TIMESTAMP - INTERVAL '6 days' + interval '8 hours 45 minutes', (SELECT id FROM users WHERE username = 'admin'), CURRENT_TIMESTAMP - INTERVAL '6 days');
 
 -- ============================================================

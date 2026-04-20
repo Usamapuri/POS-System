@@ -1,7 +1,7 @@
 /**
  * Single source of truth for void reasons.
  *
- * Used by both the manager-PIN void modal and the admin void log filter so the
+ * Used by both the admin-PIN void modal and the void log filter so the
  * dropdown values always match what gets persisted in `void_log.reason`.
  */
 export const VOID_REASONS = [

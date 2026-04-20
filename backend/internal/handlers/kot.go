@@ -331,7 +331,7 @@ func (h *KOTHandler) VoidItem(c *gin.Context) {
 
 	var managerID uuid.UUID
 	var managerName string
-	err := h.db.QueryRow(`SELECT id, first_name || ' ' || last_name FROM users WHERE manager_pin = $1 AND role IN ('manager','admin') AND is_active = true LIMIT 1`, req.Pin).Scan(&managerID, &managerName)
+	err := h.db.QueryRow(`SELECT id, first_name || ' ' || last_name FROM users WHERE manager_pin = $1 AND role = 'admin' AND is_active = true LIMIT 1`, req.Pin).Scan(&managerID, &managerName)
 	if err != nil {
 		c.JSON(http.StatusForbidden, models.APIResponse{Success: false, Message: "Invalid manager PIN"})
 		return

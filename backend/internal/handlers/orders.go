@@ -436,10 +436,10 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 	if req.AssignedServerID != nil {
 		var serverRole string
 		srvErr := tx.QueryRow(`SELECT role FROM users WHERE id = $1 AND is_active = true`, *req.AssignedServerID).Scan(&serverRole)
-		if srvErr != nil || serverRole != "server" {
+		if srvErr != nil || (serverRole != "counter" && serverRole != "admin") {
 			c.JSON(http.StatusBadRequest, models.APIResponse{
 				Success: false,
-				Message: "Invalid or inactive assigned server",
+				Message: "Invalid or inactive assigned staff for this order",
 				Error:   stringPtr("invalid_assigned_server"),
 			})
 			return
@@ -634,7 +634,7 @@ func (h *OrderHandler) UpdateCheckoutIntent(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Checkout intent updated", Data: order})
 }
 
-// ApplyOrderDiscount applies a discount at counter checkout (authenticated counter/admin/manager).
+// ApplyOrderDiscount applies a discount at counter checkout (authenticated counter/admin).
 func (h *OrderHandler) ApplyOrderDiscount(c *gin.Context) {
 	orderID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -1365,7 +1365,7 @@ func loadPraLatePrintPolicy(db *sql.DB) (enabled bool, windowDays int) {
 //   - The first print (pra_invoice_printed = false → true) is always allowed
 //     (subject to admin policy on whether PRA invoices are enabled at all).
 //   - A reprint is allowed when one of:
-//       (a) the caller's role is admin or manager (manager override), OR
+//       (a) the caller's role is admin (override), OR
 //       (b) the configurable late-print window in app_settings has not yet
 //           expired. The window is computed in Asia/Karachi local time and
 //           defaults to "until end of the next business day" (window_days=1).
@@ -1402,7 +1402,7 @@ func (h *OrderHandler) MarkPraInvoicePrinted(c *gin.Context) {
 	}
 
 	userID, _, role, _ := middleware.GetUserFromContext(c)
-	isManagerOverride := role == "admin" || role == "manager"
+	isManagerOverride := role == "admin"
 
 	lateEnabled, windowDays := loadPraLatePrintPolicy(h.db)
 

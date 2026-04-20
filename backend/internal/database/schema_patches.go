@@ -402,5 +402,20 @@ func ApplySchemaPatches(db *sql.DB) {
 		}
 	}
 
+	// Staff roles: four roles only (admin, inventory_manager, counter, kitchen).
+	// Idempotent: remap legacy values then replace CHECK constraint.
+	rolePatches := []string{
+		`UPDATE users SET role = 'admin' WHERE role = 'manager'`,
+		`UPDATE users SET role = 'counter' WHERE role = 'server'`,
+		`UPDATE users SET role = 'inventory_manager' WHERE role = 'store_manager'`,
+		`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`,
+		`ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'inventory_manager', 'counter', 'kitchen'))`,
+	}
+	for _, q := range rolePatches {
+		if _, err := db.Exec(q); err != nil {
+			log.Printf("schema patch (staff roles): %v", err)
+		}
+	}
+
 	log.Println("Schema patches finished")
 }
