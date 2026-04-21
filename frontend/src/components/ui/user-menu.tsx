@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "@/hooks/use-toast"
 import apiClient from "@/api/client"
+import { staffRoleLabel } from "@/lib/staff-roles"
 import type { User as UserType } from "@/types"
 
 interface UserMenuProps {
@@ -109,9 +110,9 @@ export function UserMenu({ user, collapsed = false, size = "md" }: UserMenuProps
       ) : (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="w-full justify-start p-3 h-auto bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors">
-              <div className="flex items-center gap-3 w-full">
-                <div className={`bg-primary rounded-full flex items-center justify-center ${currentSize.avatar}`}>
+            <Button variant="ghost" className="w-full justify-start p-3 h-auto bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors min-w-0">
+              <div className="flex items-center gap-2 sm:gap-3 w-full min-w-0">
+                <div className={`bg-primary rounded-full flex items-center justify-center shrink-0 ${currentSize.avatar}`}>
                   <User className={`text-primary-foreground ${currentSize.icon}`} />
                 </div>
                 <div className="flex-1 min-w-0 text-left">
@@ -122,8 +123,12 @@ export function UserMenu({ user, collapsed = false, size = "md" }: UserMenuProps
                     {user.email}
                   </p>
                 </div>
-                <Badge variant="outline" className={currentSize.text}>
-                  {user.role.toUpperCase()}
+                <Badge
+                  variant="outline"
+                  title={staffRoleLabel(user.role)}
+                  className={`${currentSize.text} shrink min-w-0 max-w-[5.5rem] sm:max-w-[7rem] truncate font-medium`}
+                >
+                  {staffRoleLabel(user.role)}
                 </Badge>
               </div>
             </Button>
