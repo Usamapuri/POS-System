@@ -1674,12 +1674,6 @@ export function CounterInterface() {
                       </Button>
                     </div>
                   </div>
-                  {!selectedTable && (
-                    <div className="rounded-lg border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
-                      Tap <span className="font-semibold">Pick a table</span> to open the floor picker. Free tables
-                      start a new session; open tables load the active tab.
-                    </div>
-                  )}
                   {selectedTable && dineInSession && (
                     <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3 text-sm">
                       {existingOrder?.is_open_tab && !existingOrder.kot_first_sent_at && continuingOrderId && (
@@ -1710,36 +1704,25 @@ export function CounterInterface() {
                   )}
                 </>
               ) : (
-                <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3 text-sm">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {orderType === 'takeout' ? 'Pickup (walk-in)' : 'Delivery'}
-                  </div>
-                  {!existingOrder ? (
-                    <p className="text-xs leading-relaxed text-muted-foreground">
-                      Add items, then send to kitchen — the ticket stays on this rail like dine-in (no table
-                      picker). Guest details below can be filled anytime before or after the first send.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="text-xs text-muted-foreground">
-                        Active ticket{' '}
-                        <span className="font-semibold text-foreground">#{existingOrder.order_number}</span>
-                      </div>
-                      {existingOrder &&
-                        continuingOrderId &&
-                        !checkoutOpen &&
-                        orderPayableRemaining(existingOrder) > 0 && (
-                          <Button
-                            type="button"
-                            className="h-10 w-full text-sm font-semibold"
-                            onClick={() => selectPaymentOrder(existingOrder)}
-                          >
-                            Checkout / Pay
-                          </Button>
-                        )}
+                existingOrder && (
+                  <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3 text-sm">
+                    <div className="text-xs text-muted-foreground">
+                      Active ticket{' '}
+                      <span className="font-semibold text-foreground">#{existingOrder.order_number}</span>
                     </div>
-                  )}
-                </div>
+                    {continuingOrderId &&
+                      !checkoutOpen &&
+                      orderPayableRemaining(existingOrder) > 0 && (
+                        <Button
+                          type="button"
+                          className="h-10 w-full text-sm font-semibold"
+                          onClick={() => selectPaymentOrder(existingOrder)}
+                        >
+                          Checkout / Pay
+                        </Button>
+                      )}
+                  </div>
+                )
               )}
 
               {orderType === 'dine_in' && (
