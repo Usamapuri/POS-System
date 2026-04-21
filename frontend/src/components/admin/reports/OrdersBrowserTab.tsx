@@ -73,7 +73,7 @@ export function OrdersBrowserTab({ day }: Props) {
 
   const data = ordersQuery.data?.data
   const orders = data?.orders ?? []
-  const windowDays = data?.pra_window_days ?? 1
+  const windowDays = data?.pra_window_days ?? 7
 
   const totals = useMemo(() => {
     return orders.reduce(

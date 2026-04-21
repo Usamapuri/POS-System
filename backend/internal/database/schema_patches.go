@@ -124,7 +124,7 @@ func ApplySchemaPatches(db *sql.DB) {
 		val string
 	}{
 		{"pra_invoice_late_print_enabled", "true"},
-		{"pra_invoice_late_print_window_days", "1"},
+		{"pra_invoice_late_print_window_days", "7"},
 	}
 	for _, d := range praLateDefaults {
 		if _, err := db.Exec(
@@ -420,6 +420,40 @@ func ApplySchemaPatches(db *sql.DB) {
 		if _, err := db.Exec(q); err != nil {
 			log.Printf("schema patch (staff roles): %v", err)
 		}
+	}
+
+	// PRA late-print window: one-time bump of legacy shipped default (1 → 7).
+	// Sentinel prevents overwriting an admin who later sets 1 day on purpose.
+	if _, err := db.Exec(`
+		INSERT INTO app_settings (key, value)
+		VALUES ('pra_invoice_late_print_window_legacy_default_migrated', 'false'::jsonb)
+		ON CONFLICT (key) DO NOTHING
+	`); err != nil {
+		log.Printf("schema patch: pra_invoice_late_print_window_legacy_default_migrated insert: %v", err)
+	}
+	if _, err := db.Exec(`
+		UPDATE app_settings AS w
+		SET value = '7'::jsonb
+		FROM app_settings AS m
+		WHERE w.key = 'pra_invoice_late_print_window_days'
+		  AND w.value = '1'::jsonb
+		  AND m.key = 'pra_invoice_late_print_window_legacy_default_migrated'
+		  AND m.value = 'false'::jsonb
+	`); err != nil {
+		log.Printf("schema patch: pra_invoice_late_print_window_days legacy bump: %v", err)
+	}
+	if _, err := db.Exec(`
+		UPDATE app_settings AS m
+		SET value = 'true'::jsonb
+		WHERE m.key = 'pra_invoice_late_print_window_legacy_default_migrated'
+		  AND m.value = 'false'::jsonb
+		  AND EXISTS (
+			SELECT 1 FROM app_settings AS w
+			WHERE w.key = 'pra_invoice_late_print_window_days'
+			  AND w.value IS DISTINCT FROM '1'::jsonb
+		  )
+	`); err != nil {
+		log.Printf("schema patch: pra_invoice_late_print_window_legacy_default_migrated flip: %v", err)
 	}
 
 	log.Println("Schema patches finished")

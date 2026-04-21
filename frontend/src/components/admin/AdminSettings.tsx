@@ -212,7 +212,7 @@ export function AdminSettings() {
     qr_url_template: '',
     footer_note: '',
     late_print_enabled: true,
-    late_print_window_days: '1',
+    late_print_window_days: '7',
   }
   const [praForm, setPraForm] = useState<PraFormState>(EMPTY_PRA_FORM)
 
@@ -267,7 +267,7 @@ export function AdminSettings() {
       late_print_window_days:
         typeof windowDaysRaw === 'number'
           ? String(Math.max(0, Math.min(7, Math.round(windowDaysRaw))))
-          : '1',
+          : '7',
     })
   }, [allSettingsRes])
 
@@ -309,7 +309,7 @@ export function AdminSettings() {
     mutationFn: async () => {
       const days = Math.max(
         0,
-        Math.min(7, Math.round(Number(praForm.late_print_window_days || '1') || 0)),
+        Math.min(7, Math.round(Number(praForm.late_print_window_days || '7') || 0)),
       )
       await apiClient.updateSetting('pra_invoice_enabled', praForm.enabled)
       await apiClient.updateSetting('pra_invoice_qr_url_template', praForm.qr_url_template.trim())

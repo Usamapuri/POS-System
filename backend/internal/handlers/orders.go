@@ -1323,7 +1323,7 @@ func (h *OrderHandler) allocDailyOrderNumber(tx *sql.Tx) (string, error) {
 }
 
 // loadPraLatePrintPolicy reads the configurable late-print policy from
-// app_settings. Falls back to safe defaults (enabled, 1 day) if the keys are
+// app_settings. Falls back to safe defaults (enabled, 7 days) if the keys are
 // missing or malformed — never blocks a user over bad config.
 //
 // The window is defined inclusively: an order completed on day D is eligible
@@ -1331,7 +1331,7 @@ func (h *OrderHandler) allocDailyOrderNumber(tx *sql.Tx) (string, error) {
 // therefore means "same business day only".
 func loadPraLatePrintPolicy(db *sql.DB) (enabled bool, windowDays int) {
 	enabled = true
-	windowDays = 1
+	windowDays = 7
 
 	var raw []byte
 	if err := db.QueryRow(`SELECT value FROM app_settings WHERE key = 'pra_invoice_late_print_enabled'`).Scan(&raw); err == nil {
@@ -1368,7 +1368,8 @@ func loadPraLatePrintPolicy(db *sql.DB) (enabled bool, windowDays int) {
 //       (a) the caller's role is admin (override), OR
 //       (b) the configurable late-print window in app_settings has not yet
 //           expired. The window is computed in Asia/Karachi local time and
-//           defaults to "until end of the next business day" (window_days=1).
+//           defaults to one week (window_days=7): end of the local calendar day
+//           that is window_days full days after the order's business day.
 //   - When a reprint is rejected the response is 409 Conflict and includes
 //     the original printed_at timestamp + the computed window expiry so the
 //     UI can show a clear, dated tooltip.
