@@ -160,13 +160,14 @@ class APIClient {
   private getOrderCreatePath(): string {
     const role = this.getStoredUserRole();
     if (role === 'admin') return '/admin/orders';
-    if (role === 'counter') return '/counter/orders';
+    if (role === 'counter' || role === 'manager') return '/counter/orders';
     return '/counter/orders';
   }
 
   private getProcessPaymentPath(orderId: string): string {
     const role = this.getStoredUserRole();
     if (role === 'admin') return `/admin/orders/${orderId}/payments`;
+    if (role === 'counter' || role === 'manager') return `/counter/orders/${orderId}/payments`;
     return `/counter/orders/${orderId}/payments`;
   }
 

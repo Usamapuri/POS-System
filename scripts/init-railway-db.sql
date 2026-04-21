@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     first_name VARCHAR(50) NOT NULL,
     last_name VARCHAR(50) NOT NULL,
-    role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'inventory_manager', 'counter', 'kitchen')),
+    role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'manager', 'inventory_manager', 'counter', 'kitchen')),
     manager_pin VARCHAR(4),
     profile_image_url TEXT,
     is_active BOOLEAN DEFAULT true,

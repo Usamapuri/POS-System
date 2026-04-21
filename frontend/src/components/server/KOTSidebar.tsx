@@ -140,7 +140,7 @@ export function KOTSidebar({
                     <button
                       onClick={() => onRequestVoid(item.id, item.product_name, item.quantity, item.unit_price)}
                       className="w-7 h-7 rounded-md text-red-500 flex items-center justify-center hover:bg-red-50"
-                      title="Void item (requires admin PIN)"
+                      title="Void item (requires manager or admin PIN)"
                     >
                       <Ban className="w-3.5 h-3.5" />
                     </button>

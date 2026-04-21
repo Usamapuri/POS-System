@@ -53,6 +53,7 @@ export function AdminStaffTable({
   const getRoleBadgeColor = (role: string) => {
     const colors: Record<string, string> = {
       admin: 'bg-red-100 text-red-800 hover:bg-red-200',
+      manager: 'bg-purple-100 text-purple-800 hover:bg-purple-200',
       inventory_manager: 'bg-teal-100 text-teal-800 hover:bg-teal-200',
       counter: 'bg-green-100 text-green-800 hover:bg-green-200',
       kitchen: 'bg-orange-100 text-orange-800 hover:bg-orange-200',
@@ -232,7 +233,7 @@ export function AdminStaffTable({
       ),
       cell: ({ row }) => {
         const user = row.original as User & { has_pin?: boolean }
-        const canHavePin = user.role === 'admin'
+        const canHavePin = user.role === 'admin' || user.role === 'manager'
         if (!canHavePin) return <span className="text-gray-300">—</span>
         return (
           <div className="flex items-center gap-2">

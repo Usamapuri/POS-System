@@ -13,6 +13,7 @@ import (
 	"pos-backend/internal/models"
 	"pos-backend/internal/pricing"
 	"pos-backend/internal/realtime"
+	"pos-backend/internal/util"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -436,7 +437,7 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 	if req.AssignedServerID != nil {
 		var serverRole string
 		srvErr := tx.QueryRow(`SELECT role FROM users WHERE id = $1 AND is_active = true`, *req.AssignedServerID).Scan(&serverRole)
-		if srvErr != nil || (serverRole != "counter" && serverRole != "admin") {
+		if srvErr != nil || !util.AssignableFloorStaffRole(serverRole) {
 			c.JSON(http.StatusBadRequest, models.APIResponse{
 				Success: false,
 				Message: "Invalid or inactive assigned staff for this order",

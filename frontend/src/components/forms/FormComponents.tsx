@@ -562,8 +562,9 @@ export function FormSubmitButton({
 // POS-specific role select options
 export const roleOptions: SelectOption[] = [
   { value: 'admin', label: 'Administrator (full access)' },
+  { value: 'manager', label: 'Manager (counter, server, menu, tables, void PIN & void log)' },
   { value: 'inventory_manager', label: 'Inventory manager' },
-  { value: 'counter', label: 'Counter (checkout, floor, menu & tables)' },
+  { value: 'counter', label: 'Counter (checkout counter & server interface only)' },
   { value: 'kitchen', label: 'Kitchen (KDS & stations)' },
 ]
 

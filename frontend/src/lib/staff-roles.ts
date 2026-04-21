@@ -1,5 +1,5 @@
 /** Canonical staff roles stored in users.role (JWT + localStorage). */
-export const STAFF_ROLES = ['admin', 'inventory_manager', 'counter', 'kitchen'] as const
+export const STAFF_ROLES = ['admin', 'manager', 'inventory_manager', 'counter', 'kitchen'] as const
 export type StaffRole = (typeof STAFF_ROLES)[number]
 
 export function isStaffRole(role: string): role is StaffRole {
@@ -8,8 +8,9 @@ export function isStaffRole(role: string): role is StaffRole {
 
 const ROLE_ADMIN_PATHS: Record<StaffRole, string[] | null> = {
   admin: null,
+  manager: ['/admin/counter', '/admin/server', '/admin/menu', '/admin/tables', '/admin/void-log'],
   inventory_manager: ['/admin/inventory'],
-  counter: ['/admin/counter', '/admin/server', '/admin/menu', '/admin/tables'],
+  counter: ['/admin/counter', '/admin/server'],
   kitchen: ['/admin/kitchen', '/admin/stations'],
 }
 
@@ -18,6 +19,8 @@ export function defaultAdminPath(role: string): string {
   switch (role) {
     case 'admin':
       return '/admin/dashboard'
+    case 'manager':
+      return '/admin/counter'
     case 'inventory_manager':
       return '/admin/inventory'
     case 'counter':
@@ -42,7 +45,10 @@ export function canAccessAdminRoute(role: string, pathname: string): boolean {
 export function navSectionIdsForRole(role: string): Set<string> | null {
   if (role === 'admin') return null
   if (role === 'inventory_manager') return new Set(['inventory'])
-  if (role === 'counter') return new Set(['counter', 'server', 'menu', 'tables'])
+  if (role === 'manager') {
+    return new Set(['counter', 'server', 'menu', 'tables', 'void-log'])
+  }
+  if (role === 'counter') return new Set(['counter', 'server'])
   if (role === 'kitchen') return new Set(['kitchen', 'stations'])
   return new Set()
 }
@@ -57,6 +63,8 @@ export function staffRoleLabel(role: string): string {
       return 'Kitchen'
     case 'admin':
       return 'Admin'
+    case 'manager':
+      return 'Manager'
     default:
       return role
   }

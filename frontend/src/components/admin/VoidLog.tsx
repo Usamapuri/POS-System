@@ -180,11 +180,11 @@ export function VoidLog() {
   }, [staffData])
 
   const voiders = useMemo(
-    () => staffList.filter((u) => u.is_active && ['counter', 'admin'].includes(u.role)),
+    () => staffList.filter((u) => u.is_active && ['counter', 'manager', 'admin'].includes(u.role)),
     [staffList],
   )
   const authorizers = useMemo(
-    () => staffList.filter((u) => u.is_active && u.role === 'admin'),
+    () => staffList.filter((u) => u.is_active && ['admin', 'manager'].includes(u.role)),
     [staffList],
   )
 
@@ -316,7 +316,7 @@ export function VoidLog() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Void Log</h2>
           <p className="text-muted-foreground mt-1">
-            Audit trail of all kitchen-fired items voided with admin PIN authorization
+            Audit trail of all kitchen-fired items voided with manager or admin PIN authorization
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -735,7 +735,7 @@ function EmptyState({
               <>Try widening the date range or clearing some filters.</>
             ) : (
               <>
-                Voids appear here only after an item has been sent to the kitchen and an admin
+                Voids appear here only after an item has been sent to the kitchen and a manager or admin
                 authorizes the void with their PIN. Draft items removed before being fired are not
                 tracked here.
               </>

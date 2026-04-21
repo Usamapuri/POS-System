@@ -91,11 +91,11 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		protected.GET("/settings", settingsHandler.GetAllSettings)
 	}
 
-	// KOT / order-line mutations — admin + counter (floor/checkout). Kitchen is
+	// KOT / order-line mutations — admin + counter + manager (floor/checkout). Kitchen is
 	// intentionally excluded; KDS is observe / bump / status only.
 	orderWrite := router.Group("/")
 	orderWrite.Use(authMiddleware)
-	orderWrite.Use(middleware.RequireRoles([]string{"counter", "admin"}))
+	orderWrite.Use(middleware.RequireRoles([]string{"counter", "manager", "admin"}))
 	{
 		orderWrite.POST("/orders/:id/fire-kot", kotHandler.FireKOT)
 		orderWrite.POST("/orders/:id/items", kotHandler.AddItemsToOrder)
@@ -103,10 +103,10 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		orderWrite.POST("/orders/:id/items/:item_id/void", kotHandler.VoidItem)
 	}
 
-	// Counter routes (all order types + payments; admins use the same APIs from the admin shell)
+	// Counter routes (all order types + payments; admins/managers use the same APIs from the admin shell)
 	counter := router.Group("/counter")
 	counter.Use(authMiddleware)
-	counter.Use(middleware.RequireRoles([]string{"counter", "admin"}))
+	counter.Use(middleware.RequireRoles([]string{"counter", "manager", "admin"}))
 	{
 		counter.GET("/servers", counterHandler.ListServers)
 		counter.GET("/pricing", settingsHandler.GetPricingSettings)
@@ -123,10 +123,10 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		counter.POST("/orders/:id/pra-invoice", orderHandler.MarkPraInvoicePrinted)
 	}
 
-	// Menu + table CRUD — admins and counter staff (same admin UI shell).
+	// Menu + table CRUD — admins and managers (not checkout-only counter staff).
 	adminMenu := router.Group("/admin")
 	adminMenu.Use(authMiddleware)
-	adminMenu.Use(middleware.RequireRoles([]string{"admin", "counter"}))
+	adminMenu.Use(middleware.RequireRoles([]string{"admin", "manager"}))
 	{
 		adminMenu.GET("/products", productHandler.GetProducts)
 		adminMenu.GET("/categories", getAdminCategories(db))
@@ -142,6 +142,14 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		adminMenu.POST("/tables", createTable(db))
 		adminMenu.PUT("/tables/:id", updateTable(db))
 		adminMenu.DELETE("/tables/:id", deleteTable(db))
+	}
+
+	// Void log audit — admins and managers (read-only list).
+	adminVoidLog := router.Group("/admin")
+	adminVoidLog.Use(authMiddleware)
+	adminVoidLog.Use(middleware.RequireRoles([]string{"admin", "manager"}))
+	{
+		adminVoidLog.GET("/void-log", pinHandler.GetVoidLog)
 	}
 
 	// Kitchen station configuration — admins + kitchen (KDS + stations pages).
@@ -226,11 +234,8 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		adminOnly.GET("/reports/pnl", expenseHandler.GetPnLReport)
 		adminOnly.GET("/reports/expense-intelligence", expenseHandler.GetExpenseIntelligence)
 
-		// PIN management (void authorization PIN — admin accounts only)
+		// PIN management (void authorization PIN — set by admin for admin/manager accounts)
 		adminOnly.PUT("/users/:id/pin", pinHandler.SetPin)
-
-		// Void log
-		adminOnly.GET("/void-log", pinHandler.GetVoidLog)
 
 		adminOnly.GET("/customers", listAdminCustomers(db))
 
@@ -1942,7 +1947,7 @@ func createUser(db *sql.DB) gin.HandlerFunc {
 		if !util.ValidStaffRole(req.Role) {
 			c.JSON(400, gin.H{
 				"success": false,
-				"message": "Invalid role. Allowed: admin, inventory_manager, counter, kitchen",
+				"message": "Invalid role. Allowed: admin, manager, inventory_manager, counter, kitchen",
 			})
 			return
 		}
@@ -2063,7 +2068,7 @@ func updateUser(db *sql.DB) gin.HandlerFunc {
 			if !util.ValidStaffRole(*req.Role) {
 				c.JSON(400, gin.H{
 					"success": false,
-					"message": "Invalid role. Allowed: admin, inventory_manager, counter, kitchen",
+					"message": "Invalid role. Allowed: admin, manager, inventory_manager, counter, kitchen",
 				})
 				return
 			}

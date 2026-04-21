@@ -55,6 +55,8 @@ export function POSHeader({
         return 'bg-red-100 text-red-700'
       case 'inventory_manager':
         return 'bg-teal-100 text-teal-700'
+      case 'manager':
+        return 'bg-purple-100 text-purple-700'
       case 'counter':
         return 'bg-green-100 text-green-700'
       case 'kitchen':
@@ -156,7 +158,7 @@ export function POSHeader({
           {/* User Actions */}
           <div className="flex items-center gap-2">
             {/* Payment History Access */}
-            {(user.role === 'admin' || user.role === 'counter') && (
+            {(user.role === 'admin' || user.role === 'counter' || user.role === 'manager') && (
               <Button 
                 variant="ghost" 
                 size="sm" 

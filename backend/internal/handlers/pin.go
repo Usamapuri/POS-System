@@ -48,8 +48,8 @@ func (h *PinHandler) SetPin(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "User not found"})
 		return
 	}
-	if role != "admin" {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Void authorization PINs can only be set for admin accounts"})
+	if role != "admin" && role != "manager" {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Void authorization PINs can only be set for admin or manager accounts"})
 		return
 	}
 
@@ -78,7 +78,7 @@ func (h *PinHandler) VerifyPin(c *gin.Context) {
 	}
 
 	var userName string
-	err := h.db.QueryRow(`SELECT first_name || ' ' || last_name FROM users WHERE manager_pin = $1 AND role = 'admin' AND is_active = true LIMIT 1`, req.Pin).Scan(&userName)
+	err := h.db.QueryRow(`SELECT first_name || ' ' || last_name FROM users WHERE manager_pin = $1 AND role IN ('admin', 'manager') AND is_active = true LIMIT 1`, req.Pin).Scan(&userName)
 	if err != nil {
 		c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "PIN verification result", Data: map[string]interface{}{"valid": false}})
 		return
