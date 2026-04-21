@@ -91,7 +91,7 @@ const adminSections = [
   },
   {
     id: 'expenses',
-    label: 'Expenses',
+    label: 'View Expenses',
     icon: <Receipt className="w-5 h-5" />,
     description: 'Expense tracking & daily closing',
     href: '/admin/expenses'

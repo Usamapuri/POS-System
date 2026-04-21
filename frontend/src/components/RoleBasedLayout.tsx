@@ -149,7 +149,7 @@ export function RoleBasedLayout({ user }: RoleBasedLayoutProps) {
       if (kdsOn) {
         views.push({ id: 'kitchen', label: 'Kitchen Display', icon: <ChefHat className="w-4 h-4" /> })
       }
-      views.push({ id: 'expenses', label: 'Expenses', icon: <Receipt className="w-4 h-4" /> })
+      views.push({ id: 'expenses', label: 'View Expenses', icon: <Receipt className="w-4 h-4" /> })
     }
     // Server gets server interface and general POS
     else if (role === 'server') {
