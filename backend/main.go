@@ -54,6 +54,9 @@ func main() {
 
 	log.Println("Successfully connected to database")
 
+	// Initialize database schema (idempotent — safe to run on every startup)
+	database.InitializeSchema(db)
+
 	// Initialize Gin router
 	gin.SetMode(getEnv("GIN_MODE", "release"))
 	router := gin.New()
