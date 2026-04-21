@@ -37,12 +37,29 @@ import {
 } from '@/components/ui/dialog'
 import type { Product, Category } from '@/types'
 
+/** Extra segment so we never reuse old React Query entries that cached only `res.data` (array) without `meta`. */
+const ADMIN_PRODUCTS_QK = 'paged' as const
+const ADMIN_CATEGORIES_QK = 'paged' as const
+
+function adminProductsQueryKey(page: number, pageSize: number, search: string) {
+  return ['admin-products', ADMIN_PRODUCTS_QK, page, pageSize, search] as const
+}
+
+function adminCategoriesQueryKey(page: number, pageSize: number, search: string) {
+  return ['admin-categories', ADMIN_CATEGORIES_QK, page, pageSize, search] as const
+}
+
 function totalFromPagedPayload(payload: unknown): number {
-  if (!payload || typeof payload !== 'object') return 0
-  const row = payload as { meta?: { total?: number }; pagination?: { total?: number } }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return 0
+  const row = payload as { meta?: { total?: unknown }; pagination?: { total?: unknown } }
   const meta = row.meta ?? row.pagination
   const t = meta?.total
-  return typeof t === 'number' ? t : 0
+  if (typeof t === 'number' && Number.isFinite(t)) return t
+  if (typeof t === 'string' && t.trim() !== '') {
+    const n = Number(t)
+    return Number.isFinite(n) ? n : 0
+  }
+  return 0
 }
 
 type ViewMode = 'list' | 'product-form' | 'category-form'
@@ -115,7 +132,7 @@ export function AdminMenuManagement() {
 
   // Fetch products with pagination (keep full body so `meta` is available for totals)
   const { data: productsData, isLoading: isLoadingProducts, isFetching: isFetchingProducts } = useQuery({
-    queryKey: ['admin-products', productsPagination.page, productsPagination.pageSize, debouncedSearch],
+    queryKey: adminProductsQueryKey(productsPagination.page, productsPagination.pageSize, debouncedSearch),
     queryFn: () =>
       apiClient.getAdminProducts({
         page: productsPagination.page,
@@ -126,7 +143,7 @@ export function AdminMenuManagement() {
 
   // Fetch categories with pagination
   const { data: categoriesData, isLoading: isLoadingCategories, isFetching: isFetchingCategories } = useQuery({
-    queryKey: ['admin-categories', categoriesPagination.page, categoriesPagination.pageSize, debouncedCategorySearch],
+    queryKey: adminCategoriesQueryKey(categoriesPagination.page, categoriesPagination.pageSize, debouncedCategorySearch),
     queryFn: () =>
       apiClient.getAdminCategories({
         page: categoriesPagination.page,
@@ -292,9 +309,14 @@ export function AdminMenuManagement() {
       apiClient.updateProduct(id, { is_available: isAvailable }),
     onMutate: async ({ id, isAvailable }) => {
       await queryClient.cancelQueries({ queryKey: ['admin-products'] })
-      const previousProducts = queryClient.getQueryData(['admin-products', productsPagination.page, productsPagination.pageSize, debouncedSearch])
+      const productsQueryKey = adminProductsQueryKey(
+        productsPagination.page,
+        productsPagination.pageSize,
+        debouncedSearch
+      )
+      const previousProducts = queryClient.getQueryData(productsQueryKey)
       queryClient.setQueryData(
-        ['admin-products', productsPagination.page, productsPagination.pageSize, debouncedSearch],
+        productsQueryKey,
         (old: any) => {
           if (!old) return old
           const data = Array.isArray(old) ? old : old.data || []
@@ -317,7 +339,7 @@ export function AdminMenuManagement() {
     onError: (error: any, _, context) => {
       if (context?.previousProducts) {
         queryClient.setQueryData(
-          ['admin-products', productsPagination.page, productsPagination.pageSize, debouncedSearch],
+          adminProductsQueryKey(productsPagination.page, productsPagination.pageSize, debouncedSearch),
           context.previousProducts
         )
       }
