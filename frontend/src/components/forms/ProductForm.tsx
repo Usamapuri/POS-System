@@ -1,9 +1,11 @@
+import { useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Form } from '@/components/ui/form'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
 import { 
   TextInputField, 
   TextareaField,
@@ -15,7 +17,7 @@ import {
 import { createProductSchema, updateProductSchema, type CreateProductData, type UpdateProductData } from '@/lib/form-schemas'
 import { toastHelpers } from '@/lib/toast-helpers'
 import apiClient from '@/api/client'
-import type { Product, Category } from '@/types'
+import type { Product } from '@/types'
 import { useCurrency } from '@/contexts/CurrencyContext'
 import { currencyInputPrefix } from '@/lib/formatMoney'
 import { X } from 'lucide-react'
@@ -30,6 +32,7 @@ interface ProductFormProps {
 export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: ProductFormProps) {
   const { currencyCode } = useCurrency()
   const queryClient = useQueryClient()
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const isEditing = mode === 'edit' && product
 
   // Fetch categories for dropdown
@@ -70,6 +73,8 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
     resolver: zodResolver(schema),
     defaultValues,
   })
+
+  const imagePreviewUrl = form.watch('image_url')?.trim() || ''
 
   // Create mutation
   const createMutation = useMutation({
@@ -168,13 +173,74 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
                 description="Optional description for staff and customers"
               />
 
-              <TextInputField
-                control={form.control}
-                name="image_url"
-                label="Image URL"
-                placeholder="https://example.com/image.jpg"
-                description="Optional product image URL"
-              />
+              <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                <div>
+                  <Label className="text-base">Product photo</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Paste an image link (HTTPS recommended), or upload a small file — it is stored as a data URL in the database.
+                    For production at scale, prefer hosting images on a CDN and pasting the URL only.
+                  </p>
+                </div>
+                <TextInputField
+                  control={form.control}
+                  name="image_url"
+                  label="Image URL"
+                  placeholder="https://example.com/image.jpg"
+                  description="Optional product image URL"
+                />
+                <div className="space-y-1.5">
+                  <Label htmlFor="product-image-file" className="text-sm font-medium">
+                    Or upload an image
+                  </Label>
+                  <input
+                    id="product-image-file"
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                    className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:bg-background file:px-3 file:py-1.5 file:text-sm file:font-medium"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (!f) return
+                      if (f.size > 350_000) {
+                        toastHelpers.error('Image too large', 'Please use a file under ~350KB or paste an HTTPS link instead.')
+                        e.target.value = ''
+                        return
+                      }
+                      const reader = new FileReader()
+                      reader.onload = () => {
+                        const result = String(reader.result || '')
+                        form.setValue('image_url', result, { shouldValidate: true, shouldDirty: true })
+                      }
+                      reader.readAsDataURL(f)
+                    }}
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-xs text-muted-foreground"
+                      onClick={() => {
+                        form.setValue('image_url', '', { shouldValidate: true, shouldDirty: true })
+                        if (fileInputRef.current) fileInputRef.current.value = ''
+                      }}
+                    >
+                      Clear photo
+                    </Button>
+                  </div>
+                  {imagePreviewUrl &&
+                    (imagePreviewUrl.startsWith('http') || imagePreviewUrl.startsWith('data:image')) && (
+                      <div className="pt-1">
+                        <p className="mb-1 text-xs text-muted-foreground">Preview</p>
+                        <img
+                          src={imagePreviewUrl}
+                          alt=""
+                          className="h-24 w-24 rounded-md border object-cover"
+                        />
+                      </div>
+                    )}
+                </div>
+              </div>
             </div>
 
             {/* Pricing & Details */}

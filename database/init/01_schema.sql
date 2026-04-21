@@ -53,7 +53,7 @@ CREATE TABLE products (
     name VARCHAR(100) NOT NULL,
     description TEXT,
     price DECIMAL(10,2) NOT NULL,
-    image_url VARCHAR(500),
+    image_url TEXT,
     barcode VARCHAR(50),
     sku VARCHAR(50) UNIQUE,
     is_available BOOLEAN DEFAULT true,

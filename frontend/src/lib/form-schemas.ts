@@ -32,6 +32,27 @@ const profileImageUrlSchema = z
     { message: 'Use an http(s) image URL or upload a PNG, JPEG, WebP, or GIF' }
   )
 
+/** Menu product photo: HTTPS/HTTP link or browser data URL from file upload */
+const productImageUrlSchema = z
+  .string()
+  .max(600_000, 'Image data is too large — use a smaller file or an HTTPS link')
+  .refine(
+    (val) => {
+      if (val == null || val.trim() === '') return true
+      const t = val.trim()
+      return (
+        t.startsWith('https://') ||
+        t.startsWith('http://') ||
+        t.startsWith('data:image/png') ||
+        t.startsWith('data:image/jpeg') ||
+        t.startsWith('data:image/jpg') ||
+        t.startsWith('data:image/webp') ||
+        t.startsWith('data:image/gif')
+      )
+    },
+    { message: 'Use an http(s) image URL or upload a PNG, JPEG, WebP, or GIF' }
+  )
+
 export const createUserSchema = z.object({
   username: requiredStringSchema.min(3, 'Username must be at least 3 characters'),
   email: emailSchema,
@@ -62,7 +83,7 @@ export const createProductSchema = z.object({
   description: z.string().optional(),
   price: priceSchema,
   category_id: z.string().or(z.number()).transform(val => Number(val)),
-  image_url: z.string().url().optional().or(z.literal('')),
+  image_url: productImageUrlSchema,
   status: productStatusSchema.default('active'),
   preparation_time: z.number().min(0).max(120).default(5), // minutes
 })

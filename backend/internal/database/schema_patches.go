@@ -239,6 +239,11 @@ func ApplySchemaPatches(db *sql.DB) {
 		log.Printf("schema patch: users.profile_image_url: %v", err)
 	}
 
+	// Product menu images: URL or data URL from uploads (migrations/007).
+	if _, err := db.Exec(`ALTER TABLE products ALTER COLUMN image_url TYPE TEXT`); err != nil {
+		log.Printf("schema patch: products.image_url TEXT: %v", err)
+	}
+
 	// Self-service password flow + bhookly platform-admin (migrations/004).
 	// See database/migrations/004_auth_password_reset.sql for column semantics.
 	authPasswordReset := []string{
