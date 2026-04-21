@@ -640,7 +640,11 @@ export function CounterInterface() {
         const order = res.data
         setSelectedOrder(order)
         queryClient.setQueryData(['order', variables.orderId, 'payment-panel'], order)
-        setExistingOrder((prev) => (prev?.id === order.id ? order : prev))
+        // Keep the rail "On order" section in sync whenever checkout intent updates;
+        // the returned order is always the ticket being rung out (variables.orderId).
+        if (order.id === variables.orderId) {
+          setExistingOrder(order)
+        }
       }
       queryClient.invalidateQueries({ queryKey: ['counterPendingOrders'] })
     },
@@ -697,7 +701,13 @@ export function CounterInterface() {
   }, [sortedTables])
 
   const canUseCart =
-    orderType !== 'dine_in' || (selectedTable !== null && dineInSession !== null)
+    orderType !== 'dine_in' ||
+    (selectedTable !== null && dineInSession !== null) ||
+    Boolean(
+      continuingOrderId &&
+        existingOrder?.id === continuingOrderId &&
+        existingOrder.order_type === 'dine_in'
+    )
 
   const cartSubtotal = cart.reduce((t, item) => t + item.product.price * item.quantity, 0)
   const cartTotals = computeCartTotals(cartSubtotal, 0, createCheckoutIntent, pricing)
@@ -881,7 +891,6 @@ export function CounterInterface() {
 
   const handleSubmitCart = () => {
     if (cart.length === 0 || !canUseCart) return
-    if (orderType === 'dine_in' && (!selectedTable || !dineInSession)) return
     submitCartMutation.mutate()
   }
 
@@ -892,6 +901,88 @@ export function CounterInterface() {
     setPaymentCheckoutIntent(intent)
     checkoutIntentMutation.mutate({ orderId: order.id, intent })
   }
+
+  /**
+   * Apply a fetched active order to counter rail state (continuing tab, guests,
+   * dine-in table session). Does not open/close checkout — callers decide.
+   */
+  const applyActiveOrderToCounterState = useCallback(
+    (od: Order) => {
+      setExistingOrder(od)
+      setContinuingOrderId(od.id)
+      setExistingItemsExpanded(false)
+      setCustomerName(od.customer_name ?? '')
+      setCustomerEmail(od.customer_email ?? '')
+      setCustomerPhone(od.customer_phone ?? '')
+      setGuestBirthday(toGuestDateInputValue(od.guest_birthday))
+      if (od.order_type === 'dine_in') {
+        const tbl =
+          (od.table_id ? sortedTables.find((t) => t.id === od.table_id) : undefined) ?? od.table ?? null
+        if (tbl) {
+          setSelectedTable(tbl)
+          const disp =
+            od.user && (od.user.first_name || od.user.last_name)
+              ? `${od.user.first_name} ${od.user.last_name}`.trim()
+              : od.user?.username ?? '—'
+          setDineInSession({
+            guestCount: od.guest_count ?? 0,
+            serverId: od.user_id ?? '',
+            serverDisplayName: disp,
+            customerName: od.customer_name ?? undefined,
+            customerEmail: od.customer_email ?? undefined,
+            customerPhone: od.customer_phone ?? undefined,
+            guestBirthday: toGuestDateInputValue(od.guest_birthday) || undefined,
+          })
+        } else {
+          setSelectedTable(null)
+          setDineInSession(null)
+          if (od.table_id) {
+            toastHelpers.error(
+              'Table',
+              'Could not resolve this check’s table on the floor map. Use Pick a table.'
+            )
+          }
+        }
+      } else {
+        setSelectedTable(null)
+        setDineInSession(null)
+      }
+    },
+    [sortedTables]
+  )
+
+  /** Load full ticket context then open payment — fixes dine-in menu when using Orders to close. */
+  const ordersStripCheckoutMutation = useMutation({
+    mutationFn: async ({
+      order,
+      orderTypeAtClick,
+    }: {
+      order: Order
+      orderTypeAtClick: typeof orderType
+    }) => {
+      const r = await apiClient.getOrder(order.id)
+      if (!r.success || !r.data) {
+        throw new Error(r.message || 'Could not load order')
+      }
+      return { od: r.data, orderTypeAtClick }
+    },
+    onSuccess: ({ od, orderTypeAtClick }) => {
+      if (od.order_type !== orderTypeAtClick) {
+        toastHelpers.error(
+          'Orders',
+          `Switch to ${od.order_type === 'dine_in' ? 'Dine-in' : od.order_type} mode to work this ticket.`
+        )
+        return
+      }
+      applyActiveOrderToCounterState(od)
+      setCart([])
+      setOrderNotes('')
+      selectPaymentOrder(od)
+    },
+    onError: (e: Error) => {
+      toastHelpers.error('Orders', e.message || 'Could not load order')
+    },
+  })
 
   const handleGuestUpdated = useCallback((order: Order) => {
     setExistingOrder(order)
@@ -954,39 +1045,11 @@ export function CounterInterface() {
       }
       setCheckoutOpen(false)
       setSelectedOrder(null)
-      setExistingOrder(od)
-      setContinuingOrderId(od.id)
-      setExistingItemsExpanded(false)
-      setCustomerName(od.customer_name ?? '')
-      setCustomerEmail(od.customer_email ?? '')
-      setCustomerPhone(od.customer_phone ?? '')
-      setGuestBirthday(toGuestDateInputValue(od.guest_birthday))
-      if (od.order_type === 'dine_in' && od.table_id) {
-        const tbl = sortedTables.find((t) => t.id === od.table_id)
-        if (tbl) {
-          setSelectedTable(tbl)
-          const disp =
-            od.user && (od.user.first_name || od.user.last_name)
-              ? `${od.user.first_name} ${od.user.last_name}`.trim()
-              : od.user?.username ?? '—'
-          setDineInSession({
-            guestCount: od.guest_count ?? 0,
-            serverId: od.user_id ?? '',
-            serverDisplayName: disp,
-            customerName: od.customer_name ?? undefined,
-            customerEmail: od.customer_email ?? undefined,
-            customerPhone: od.customer_phone ?? undefined,
-            guestBirthday: toGuestDateInputValue(od.guest_birthday) || undefined,
-          })
-        }
-      } else if (od.order_type !== 'dine_in') {
-        setSelectedTable(null)
-        setDineInSession(null)
-      }
+      applyActiveOrderToCounterState(od)
       // Intentionally no toast: the rail re-renders with the loaded ticket's
       // order number, items, and status — the UI itself is the affirmation.
     },
-    [orderType, sortedTables]
+    [orderType, applyActiveOrderToCounterState]
   )
 
   const openTableTransferDialog = () => {
@@ -1186,7 +1249,6 @@ export function CounterInterface() {
   useCounterHotkeys({
     onSend: () => {
       if (cart.length === 0 || !canUseCart) return
-      if (orderType === 'dine_in' && (!selectedTable || !dineInSession)) return
       submitCartMutation.mutate()
     },
     onPay: () => {
@@ -1413,8 +1475,12 @@ export function CounterInterface() {
                     size="sm"
                     variant={selectedOrder?.id === order.id && checkoutOpen ? 'default' : 'outline'}
                     className="shrink-0 h-auto min-h-11 flex-col items-stretch py-2 px-3"
-                    disabled={checkoutIntentMutation.isPending}
-                    onClick={() => selectPaymentOrder(order)}
+                    disabled={
+                      checkoutIntentMutation.isPending || ordersStripCheckoutMutation.isPending
+                    }
+                    onClick={() =>
+                      ordersStripCheckoutMutation.mutate({ order, orderTypeAtClick: orderType })
+                    }
                   >
                     <span className="font-semibold">#{order.order_number}</span>
                     <span className="text-xs opacity-90 tabular-nums">{formatCurrency(order.total_amount)}</span>
@@ -1844,7 +1910,9 @@ export function CounterInterface() {
                   !canUseCart ||
                   cart.length === 0 ||
                   submitCartMutation.isPending ||
-                  (orderType === 'dine_in' && (!selectedTable || !dineInSession))
+                  (orderType === 'dine_in' &&
+                    !continuingOrderId &&
+                    (!selectedTable || !dineInSession))
                 }
                 primaryPending={submitCartMutation.isPending}
                 disabledHint={
