@@ -91,6 +91,7 @@ function ForgotPasswordPage() {
             </Button>
             <Link
               to="/login"
+              search={{}}
               className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-orange-600 hover:text-orange-700"
             >
               <ArrowLeft className="h-3.5 w-3.5" /> Back to sign in
@@ -158,6 +159,7 @@ function ForgotPasswordPage() {
           <div className="pt-2">
             <Link
               to="/login"
+              search={{}}
               className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-zinc-500 hover:text-orange-600"
             >
               <ArrowLeft className="h-3.5 w-3.5" /> Back to sign in

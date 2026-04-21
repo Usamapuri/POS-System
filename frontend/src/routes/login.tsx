@@ -1,11 +1,12 @@
 import { createFileRoute, Link, Navigate, useRouter } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 import apiClient from '@/api/client'
 import type { LoginRequest, LoginResponse, APIResponse } from '@/types'
+import { DEMO_ACCOUNTS, DEMO_LOGIN_PASSWORD, showDemoLoginUi } from '@/lib/demo-accounts'
 import {
   Eye,
   EyeOff,
@@ -19,14 +20,20 @@ import {
 } from 'lucide-react'
 
 export const Route = createFileRoute('/login')({
+  validateSearch: (raw: Record<string, unknown>) => ({
+    demo: typeof raw.demo === 'string' ? raw.demo.trim() : undefined,
+  }),
   component: LoginPage,
 })
 
 function LoginPage() {
   const router = useRouter()
+  const { demo: demoUser } = Route.useSearch()
   const [formData, setFormData] = useState<LoginRequest>({ username: '', password: '' })
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
+  const autoDemoAttempted = useRef(false)
+  const showDemos = showDemoLoginUi()
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginRequest) => {
@@ -48,6 +55,15 @@ function LoginPage() {
       setError(err.message || 'Login failed')
     },
   })
+
+  useEffect(() => {
+    if (apiClient.isAuthenticated()) return
+    if (!demoUser || autoDemoAttempted.current) return
+    if (!DEMO_ACCOUNTS.some((a) => a.username === demoUser)) return
+    autoDemoAttempted.current = true
+    setFormData({ username: demoUser, password: DEMO_LOGIN_PASSWORD })
+    loginMutation.mutate({ username: demoUser, password: DEMO_LOGIN_PASSWORD })
+  }, [demoUser, loginMutation.mutate])
 
   // Already authenticated → home (must run after all hooks)
   if (apiClient.isAuthenticated()) {
@@ -78,6 +94,10 @@ function LoginPage() {
         error={error}
         isPending={loginMutation.isPending}
         onSubmit={handleSubmit}
+        showDemos={showDemos}
+        onDemoLogin={(username) =>
+          loginMutation.mutate({ username, password: DEMO_LOGIN_PASSWORD })
+        }
       />
     </div>
   )
@@ -310,6 +330,8 @@ type FormPanelProps = {
   error: string
   isPending: boolean
   onSubmit: (e: React.FormEvent) => void
+  showDemos?: boolean
+  onDemoLogin?: (username: string) => void
 }
 
 function FormPanel({
@@ -320,6 +342,8 @@ function FormPanel({
   error,
   isPending,
   onSubmit,
+  showDemos = false,
+  onDemoLogin,
 }: FormPanelProps) {
   return (
     <section className="relative flex min-h-screen flex-col bg-[#fdf8f1] px-6 py-8 sm:px-10 lg:px-14 lg:py-10">
@@ -441,6 +465,32 @@ function FormPanel({
               )}
             </Button>
           </form>
+
+          {showDemos && onDemoLogin && (
+            <div className="mt-8 border-t border-zinc-200/80 pt-6">
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                Demo access
+              </p>
+              <p className="mb-3 text-xs text-zinc-500">
+                One-tap sign-in for seeded demo users (password is shared). Hide on production with{' '}
+                <code className="rounded bg-zinc-100 px-1 text-[10px]">VITE_HIDE_DEMO_LOGINS=true</code>.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {DEMO_ACCOUNTS.map((a) => (
+                  <button
+                    key={a.username}
+                    type="button"
+                    disabled={isPending}
+                    onClick={() => onDemoLogin(a.username)}
+                    className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-left text-xs font-medium text-zinc-800 shadow-sm transition-colors hover:border-amber-300 hover:bg-amber-50/50 disabled:opacity-50"
+                  >
+                    <span className="block font-semibold">{a.role}</span>
+                    <span className="block text-[10px] font-normal text-zinc-500">{a.username}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

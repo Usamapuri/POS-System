@@ -44,7 +44,7 @@ function ResetPasswordPage() {
       // login. Matches the dwell time of the login-success redirect in
       // /login.
       setTimeout(() => {
-        navigate({ to: '/login' })
+        navigate({ to: '/login', search: {} })
       }, 1600)
     },
     onError: (err: Error) => {
@@ -77,6 +77,7 @@ function ResetPasswordPage() {
             </Link>
             <Link
               to="/login"
+              search={{}}
               className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-zinc-500 hover:text-orange-600"
             >
               <ArrowLeft className="h-3.5 w-3.5" /> Back to sign in
@@ -115,7 +116,7 @@ function ResetPasswordPage() {
               You can now sign in with your new password. Redirecting you to the login page…
             </p>
           </div>
-          <Link to="/login">
+          <Link to="/login" search={{}}>
             <Button className="bhk-cta h-11 rounded-xl border-0 px-5 text-[14px] font-semibold text-white">
               Go to sign in
             </Button>
@@ -208,6 +209,7 @@ function ResetPasswordPage() {
           <div className="pt-2">
             <Link
               to="/login"
+              search={{}}
               className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-zinc-500 hover:text-orange-600"
             >
               <ArrowLeft className="h-3.5 w-3.5" /> Back to sign in
