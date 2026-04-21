@@ -29,9 +29,9 @@ export function TableFloorMap({
   const [canvasSize, setCanvasSize] = useState({ width: BASE_MAP_W, height: BASE_MAP_H })
   const mapShellRef = useRef<HTMLDivElement | null>(null)
   const hasLayout = tables.some((t) => typeof t.map_x === 'number' && typeof t.map_y === 'number')
-  if (!hasLayout) return null
 
   useEffect(() => {
+    if (!hasLayout) return
     const shell = mapShellRef.current
     if (!shell) return
 
@@ -49,7 +49,9 @@ export function TableFloorMap({
     const observer = new ResizeObserver(updateCanvasSize)
     observer.observe(shell)
     return () => observer.disconnect()
-  }, [viewportHeight])
+  }, [hasLayout, viewportHeight])
+
+  if (!hasLayout) return null
 
   return (
     <div className={`border rounded-md bg-[#f4efe6] p-2 ${className ?? ''}`}>

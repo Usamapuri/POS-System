@@ -27,10 +27,6 @@ function LoginPage() {
   const [formData, setFormData] = useState<LoginRequest>({ username: '', password: '' })
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
-  // Already authenticated → home
-  if (apiClient.isAuthenticated()) {
-    return <Navigate to="/" />
-  }
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginRequest) => {
@@ -52,6 +48,11 @@ function LoginPage() {
       setError(err.message || 'Login failed')
     },
   })
+
+  // Already authenticated → home (must run after all hooks)
+  if (apiClient.isAuthenticated()) {
+    return <Navigate to="/" />
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
