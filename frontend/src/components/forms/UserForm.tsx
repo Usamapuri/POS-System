@@ -172,7 +172,7 @@ export function UserForm({ user, onSuccess, onCancel, mode = 'create' }: UserFor
               <TextInputField
                 control={form.control}
                 name="password"
-                label={isEditing ? "New Password (leave blank to keep current)" : "Password"}
+                label={isEditing ? "New Password" : "Password"}
                 type="password"
                 placeholder={isEditing ? "Enter new password or leave blank" : "Enter password"}
                 autoComplete={isEditing ? "new-password" : "new-password"}
@@ -191,13 +191,7 @@ export function UserForm({ user, onSuccess, onCancel, mode = 'create' }: UserFor
             />
 
             <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-              <div>
-                <Label className="text-base">Profile photo</Label>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Paste a public image link (HTTPS recommended), or pick a small file — it is stored as a data URL in the database.
-                  For production, host images on your CDN and paste the URL only.
-                </p>
-              </div>
+              <Label className="text-base">Profile photo</Label>
               <TextInputField
                 control={form.control}
                 name="profile_image_url"
