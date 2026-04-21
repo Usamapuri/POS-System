@@ -47,11 +47,11 @@ function AdminLayout() {
   }
 
   if (!apiClient.isAuthenticated() || !user) {
-    return <Navigate to="/login" search={{}} />
+    return <Navigate to="/login" />
   }
 
   if (!isStaffRole(user.role)) {
-    return <Navigate to="/login" search={{}} replace />
+    return <Navigate to="/login" replace />
   }
 
   if (!canAccessAdminRoute(user.role, location.pathname)) {

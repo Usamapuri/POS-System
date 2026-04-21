@@ -40,7 +40,7 @@ function KitchenPage() {
   }
 
   if (!apiClient.isAuthenticated() || !user) {
-    return <Navigate to="/login" search={{}} replace />
+    return <Navigate to="/login" replace />;
   }
 
   const hasKitchenAccess = user.role === 'kitchen' || user.role === 'admin';
