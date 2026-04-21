@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"os"
 	"strings"
@@ -21,18 +22,26 @@ func main() {
 		log.Println("No .env file found, using environment variables")
 	}
 
-	// Database configuration
-	dbConfig := database.Config{
-		Host:     getEnv("DB_HOST", "postgres"),
-		Port:     getEnv("DB_PORT", "5432"),
-		User:     getEnv("DB_USER", "postgres"),
-		Password: getEnv("DB_PASSWORD", "postgres123"),
-		DBName:   getEnv("DB_NAME", "pos_system"),
-		SSLMode:  getEnv("DB_SSLMODE", "disable"),
+	// Initialize database connection.
+	// Prefer DATABASE_URL (Railway's standard connection string) when available,
+	// and fall back to individual DB_* variables for local development.
+	var db *sql.DB
+	var err error
+	if databaseURL := os.Getenv("DATABASE_URL"); databaseURL != "" {
+		log.Println("Connecting to database using DATABASE_URL")
+		db, err = database.ConnectURL(databaseURL)
+	} else {
+		log.Println("DATABASE_URL not set, falling back to individual DB_* variables")
+		dbConfig := database.Config{
+			Host:     getEnv("DB_HOST", "postgres"),
+			Port:     getEnv("DB_PORT", "5432"),
+			User:     getEnv("DB_USER", "postgres"),
+			Password: getEnv("DB_PASSWORD", "postgres123"),
+			DBName:   getEnv("DB_NAME", "pos_system"),
+			SSLMode:  getEnv("DB_SSLMODE", "disable"),
+		}
+		db, err = database.Connect(dbConfig)
 	}
-
-	// Initialize database connection
-	db, err := database.Connect(dbConfig)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
