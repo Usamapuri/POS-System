@@ -312,7 +312,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 	// can refresh live cards without polling.
 	router.GET("/admin/dashboard/stream",
 		sseAuthMiddleware(),
-		middleware.RequireRoles([]string{"admin"}),
+		middleware.RequireRoles([]string{"admin", "manager"}),
 		dashboardHandler.DashboardStream(),
 	)
 }

@@ -2,11 +2,14 @@
  * useKitchenStream — Server-Sent Events client for kitchen updates.
  *
  * - Auth via ?token=… because EventSource can't set headers.
- * - Auto-reconnect with exponential backoff (cap 30s).
+ * - Auto-reconnect with exponential backoff (cap 30s) for transient failures.
  * - Caller receives connection status (`connecting` | `live` | `offline`)
  *   and an onEvent callback for each message.
- * - If the venue disables KDS while a client is connected the server closes
- *   with 403 — we treat that as "offline" and stop reconnecting.
+ * - EventSource does not expose HTTP status on `error`. We issue a lightweight
+ *   XHR probe (headers only, then abort) to detect 401/403 — in those cases we
+ *   stay offline and do not reconnect until `enabled` flips or the effect
+ *   re-runs (e.g. navigation). Pass `enabled: false` when the app already knows
+ *   the stream should not run.
  */
 import { useEffect, useRef, useState } from 'react'
 
@@ -40,6 +43,44 @@ function buildStreamURL(token: string): string {
 
 const MAX_BACKOFF_MS = 30_000
 const MIN_BACKOFF_MS = 1_000
+const PROBE_MS = 10_000
+
+/**
+ * True when the server refuses this stream for this token (reconnecting will
+ * not help until auth or venue settings change).
+ */
+function probeKitchenStreamForbidden(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest()
+    let settled = false
+    const settle = (forbidden: boolean) => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timeoutId)
+      try {
+        xhr.abort()
+      } catch {
+        /* noop */
+      }
+      resolve(forbidden)
+    }
+
+    const timeoutId = window.setTimeout(() => settle(false), PROBE_MS)
+
+    xhr.onerror = () => settle(false)
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState < XMLHttpRequest.HEADERS_RECEIVED) return
+      settle(xhr.status === 401 || xhr.status === 403)
+    }
+
+    try {
+      xhr.open('GET', url)
+      xhr.send()
+    } catch {
+      settle(false)
+    }
+  })
+}
 
 export function useKitchenStream(opts: UseKitchenStreamOptions = {}): KitchenStreamStatus {
   const { enabled = true, onEvent } = opts
@@ -61,8 +102,18 @@ export function useKitchenStream(opts: UseKitchenStreamOptions = {}): KitchenStr
     }
 
     stoppedRef.current = false
+    backoffRef.current = MIN_BACKOFF_MS
 
-    const connect = () => {
+    function scheduleReconnect() {
+      if (stoppedRef.current) return
+      const delay = backoffRef.current
+      backoffRef.current = Math.min(MAX_BACKOFF_MS, Math.max(MIN_BACKOFF_MS, delay * 2))
+      reconnectTimer.current = window.setTimeout(() => {
+        void connect()
+      }, delay)
+    }
+
+    async function connect() {
       if (stoppedRef.current) return
       const token = localStorage.getItem('pos_token')
       if (!token) {
@@ -71,9 +122,18 @@ export function useKitchenStream(opts: UseKitchenStreamOptions = {}): KitchenStr
       }
 
       setStatus('connecting')
+
+      const url = buildStreamURL(token)
+      const forbidden = await probeKitchenStreamForbidden(url)
+      if (stoppedRef.current) return
+      if (forbidden) {
+        setStatus('offline')
+        return
+      }
+
       let es: EventSource
       try {
-        es = new EventSource(buildStreamURL(token))
+        es = new EventSource(url)
       } catch {
         scheduleReconnect()
         return
@@ -112,18 +172,19 @@ export function useKitchenStream(opts: UseKitchenStreamOptions = {}): KitchenStr
         setStatus('offline')
         es.close()
         eventSourceRef.current = null
-        scheduleReconnect()
+        if (stoppedRef.current) return
+        void (async () => {
+          const tok = localStorage.getItem('pos_token')
+          if (!tok) return
+          const denied = await probeKitchenStreamForbidden(buildStreamURL(tok))
+          if (stoppedRef.current) return
+          if (denied) return
+          scheduleReconnect()
+        })()
       }
     }
 
-    const scheduleReconnect = () => {
-      if (stoppedRef.current) return
-      const delay = backoffRef.current
-      backoffRef.current = Math.min(MAX_BACKOFF_MS, Math.max(MIN_BACKOFF_MS, delay * 2))
-      reconnectTimer.current = window.setTimeout(connect, delay)
-    }
-
-    connect()
+    void connect()
 
     return () => {
       stoppedRef.current = true

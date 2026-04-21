@@ -37,7 +37,7 @@ import type { Order, User, VoidLogEntry } from '@/types'
 import { useCurrency } from '@/contexts/CurrencyContext'
 import { formatDateTimeDDMMYYYY } from '@/lib/utils'
 import { VOID_REASONS } from '@/lib/void-reasons'
-import { useKitchenStream } from '@/lib/kitchenStream'
+import { useDashboardStream } from '@/lib/dashboardStream'
 import { toastHelpers } from '@/lib/toast-helpers'
 
 const NONE = '__all__'
@@ -191,13 +191,14 @@ export function VoidLog() {
   const entries = (data?.data as VoidLogEntry[] | null) || []
   const meta = data?.meta || { current_page: 1, total_pages: 1, total: 0, per_page: perPage }
 
-  // Live updates — the kitchen SSE stream already emits a "voided" event
-  // whenever an item is voided. We invalidate so the table reflects new rows
-  // without a manual refresh.
-  const streamStatus = useKitchenStream({
+  // Live updates — use the admin dashboard SSE (not /kitchen/stream).
+  // Kitchen stream is gated on KDS being enabled and only allows kitchen|admin,
+  // so managers and KOT-only venues would always look "offline". The dashboard
+  // stream emits `order_voided` from the same void handler that writes void_log.
+  const streamStatus = useDashboardStream({
     enabled: true,
     onEvent: (ev) => {
-      if (ev.type === 'voided') {
+      if (ev.type === 'order_voided') {
         queryClient.invalidateQueries({ queryKey: ['void-log'] })
       }
     },
