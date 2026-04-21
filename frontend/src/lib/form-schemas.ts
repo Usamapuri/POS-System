@@ -32,10 +32,10 @@ const profileImageUrlSchema = z
     { message: 'Use an http(s) image URL or upload a PNG, JPEG, WebP, or GIF' }
   )
 
-/** Menu product photo: HTTPS/HTTP link or browser data URL from file upload */
+/** Menu product photo: HTTPS/HTTP link or browser data URL from file upload (~5MB file → ~7M chars base64) */
 const productImageUrlSchema = z
   .string()
-  .max(600_000, 'Image data is too large — use a smaller file or an HTTPS link')
+  .max(8_000_000, 'Image data is too large — use a file under 5MB or an HTTPS link')
   .refine(
     (val) => {
       if (val == null || val.trim() === '') return true

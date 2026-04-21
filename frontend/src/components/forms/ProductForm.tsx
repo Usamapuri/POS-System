@@ -19,6 +19,9 @@ import { toastHelpers } from '@/lib/toast-helpers'
 import apiClient from '@/api/client'
 import type { Product } from '@/types'
 import { useCurrency } from '@/contexts/CurrencyContext'
+
+/** Raw file size cap before readAsDataURL (aligned with productImageUrlSchema in form-schemas) */
+const MAX_MENU_PHOTO_FILE_BYTES = 5 * 1024 * 1024
 import { currencyInputPrefix } from '@/lib/formatMoney'
 import { X } from 'lucide-react'
 
@@ -177,7 +180,7 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
                 <div>
                   <Label className="text-base">Product photo</Label>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Paste an image link (HTTPS recommended), or upload a small file — it is stored as a data URL in the database.
+                    Paste an image link (HTTPS recommended), or upload a file up to 5MB — it is stored as a data URL in the database.
                     For production at scale, prefer hosting images on a CDN and pasting the URL only.
                   </p>
                 </div>
@@ -201,8 +204,11 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
                     onChange={(e) => {
                       const f = e.target.files?.[0]
                       if (!f) return
-                      if (f.size > 350_000) {
-                        toastHelpers.error('Image too large', 'Please use a file under ~350KB or paste an HTTPS link instead.')
+                      if (f.size > MAX_MENU_PHOTO_FILE_BYTES) {
+                        toastHelpers.error(
+                          'Image too large',
+                          'Please use a file under 5MB (try exporting or compressing the photo), or paste an HTTPS link instead.'
+                        )
                         e.target.value = ''
                         return
                       }
