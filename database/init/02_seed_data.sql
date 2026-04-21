@@ -1,7 +1,7 @@
 -- Seed data for POS System
 
 -- Default users (Twemoji avatars). Password for all: admin123 (bcrypt below).
--- Production: add real staff under Admin → Manage Staff; only admin is required here.
+-- Production: add real staff under Admin → Manage Staff (only admin is required here).
 INSERT INTO users (username, email, password_hash, first_name, last_name, role, manager_pin, profile_image_url) VALUES
 ('admin', 'admin@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Admin', 'User', 'admin', '1234', 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f60e.png'),
 ('inventory1', 'inventory@pos.com', '$2a$10$FPH.ONfAgquWmXjM3LE61OIgOPgXX8i.jOISCHZ2DpK2gg4krEWfO', 'Sam', 'Inventory', 'inventory_manager', NULL, 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f917.png'),
@@ -18,7 +18,7 @@ INSERT INTO categories (name, description, color, sort_order) VALUES
 ('Salads', 'Fresh salads and healthy options', '#FECA57', 5),
 ('Pizza', 'Various pizza options', '#FF9FF3', 6);
 
--- Insert products (prices in PKR; scaled from former USD demo at ~285 PKR per1 USD)
+-- Insert products (prices in PKR, scaled from former USD demo at ~285 PKR per 1 USD)
 INSERT INTO products (category_id, name, description, price, sku, preparation_time, sort_order) VALUES
 -- Appetizers
 ((SELECT id FROM categories WHERE name = 'Appetizers'), 'Buffalo Wings', 'Crispy chicken wings with buffalo sauce', 3702.15, 'APP001', 15, 1),
@@ -84,7 +84,7 @@ SELECT
     price * 0.4 as unit_cost
 FROM products;
 
--- Sample orders (amounts in PKR;10% tax on subtotal for demo rows)
+-- Sample orders (amounts in PKR, 10% tax on subtotal for demo rows)
 INSERT INTO orders (order_number, table_id, user_id, order_type, status, subtotal, tax_amount, total_amount, guest_count) VALUES
 ('20260101-001', (SELECT id FROM dining_tables WHERE table_number = 'T02'), (SELECT id FROM users WHERE username = 'counter1'), 'dine_in', 'pending', 10818.60, 1081.86, 11900.46, 2),
 ('20260101-002', (SELECT id FROM dining_tables WHERE table_number = 'T05'), (SELECT id FROM users WHERE username = 'counter2'), 'dine_in', 'preparing', 5412.15, 541.22, 5953.37, 2),
@@ -169,7 +169,7 @@ INSERT INTO stock_movements (stock_item_id, movement_type, quantity, unit_cost, 
 ((SELECT id FROM stock_items WHERE name = 'Coffee Beans'), 'purchase', 5, 12.00, 60.00, NULL, (SELECT id FROM users WHERE username = 'inventory1'), 'Coffee bean order', CURRENT_TIMESTAMP - INTERVAL '3 days'),
 ((SELECT id FROM stock_items WHERE name = 'Coffee Beans'), 'issue', -1, NULL, NULL, (SELECT id FROM users WHERE username = 'counter1'), (SELECT id FROM users WHERE username = 'inventory1'), 'For counter coffee machine', CURRENT_TIMESTAMP - INTERVAL '1 day');
 
--- Opening stock batches (FIFO / expiry tracking); aligns with current quantity_on_hand
+-- Opening stock batches (FIFO / expiry tracking), aligns with current quantity_on_hand
 INSERT INTO stock_batches (stock_item_id, quantity_remaining, initial_quantity, unit_cost, expiry_date, stock_movement_id, purchase_order_line_id)
 SELECT si.id, si.quantity_on_hand, si.quantity_on_hand, si.default_unit_cost, NULL, NULL, NULL
 FROM stock_items si

@@ -101,9 +101,20 @@ func truncateQuery(s string) string {
 	return s[:400] + "…"
 }
 
+// stripLineComments removes `-- …` tails so semicolons inside SQL comments do not split statements.
+func stripLineComments(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if j := strings.Index(line, "--"); j >= 0 {
+			lines[i] = line[:j]
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // splitSQLStatements splits on semicolons outside single-quoted strings (SQL '' escape not handled).
 func splitSQLStatements(s string) []string {
-	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = stripLineComments(strings.ReplaceAll(s, "\r\n", "\n"))
 	var out []string
 	var b strings.Builder
 	inQuote := false
