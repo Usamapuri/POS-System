@@ -180,8 +180,7 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
                 <div>
                   <Label className="text-base">Product photo</Label>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Paste an image link (HTTPS recommended), or upload a file up to 5MB — it is stored as a data URL in the database.
-                    For production at scale, prefer hosting images on a CDN and pasting the URL only.
+                    Upload has a limit of 5 mb.
                   </p>
                 </div>
                 <TextInputField
