@@ -58,7 +58,7 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
         name: product.name,
         description: product.description || '',
         price: product.price,
-        category_id: product.category_id,
+        category_id: product.category_id != null ? String(product.category_id) : '',
         image_url: product.image_url || '',
         preparation_time: product.preparation_time || 5,
       }
@@ -66,7 +66,7 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
         name: '',
         description: '',
         price: 0,
-        category_id: categories[0]?.id || 1,
+        category_id: categories[0]?.id != null ? String(categories[0].id) : '',
         image_url: '',
         preparation_time: 5,
         is_available: true,

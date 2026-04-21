@@ -79,7 +79,8 @@ export function ServerInterface() {
         } else {
           response = await apiClient.getProductsByCategory(selectedCategory)
         }
-        return response.data || []
+        const list = response.data
+        return Array.isArray(list) ? list : []
       } catch (error) {
         console.error('Failed to fetch products:', error)
         return []

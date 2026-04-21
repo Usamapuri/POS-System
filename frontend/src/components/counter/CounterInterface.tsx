@@ -264,11 +264,17 @@ export function CounterInterface() {
 
   const { data: products = [] } = useQuery({
     queryKey: ['products', selectedCategory],
-    queryFn: () => {
+    queryFn: async () => {
       if (selectedCategory === 'all') {
-        return apiClient.getProducts().then((res) => res.data)
+        const res = await apiClient.getProducts()
+        const list = res.data
+        return Array.isArray(list) ? list : []
       }
-      return apiClient.getProductsByCategory(selectedCategory).then((res) => res.data)
+      const res = await apiClient.getProductsByCategory(selectedCategory)
+      const list = res.data
+      // API may omit `data` (omitempty) or send null; React Query preserves null, which
+      // breaks `.filter()` — default [] only applies to undefined, not null.
+      return Array.isArray(list) ? list : []
     },
   })
 

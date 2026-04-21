@@ -229,7 +229,8 @@ export function KOTServerInterface() {
       } else {
         res = await apiClient.getProductsByCategory(selectedCategory)
       }
-      return res.data || []
+      const list = res.data
+      return Array.isArray(list) ? list : []
     },
   })
 

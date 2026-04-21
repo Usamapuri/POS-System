@@ -82,7 +82,11 @@ export const createProductSchema = z.object({
   name: requiredStringSchema.min(2, 'Product name must be at least 2 characters'),
   description: z.string().optional(),
   price: priceSchema,
-  category_id: z.string().or(z.number()).transform(val => Number(val)),
+  // DB uses UUID strings; Number(uuid) is NaN and becomes JSON null — breaks create/update.
+  category_id: z
+    .union([z.string(), z.number()])
+    .transform((val) => (typeof val === 'string' ? val.trim() : String(val)))
+    .pipe(z.string().min(1, 'Category is required')),
   image_url: productImageUrlSchema,
   status: productStatusSchema.default('active'),
   preparation_time: z.number().min(0).max(120).default(5), // minutes

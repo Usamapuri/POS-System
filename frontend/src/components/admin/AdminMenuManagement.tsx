@@ -266,6 +266,9 @@ export function AdminMenuManagement() {
     mutationFn: ({ id }: { id: string; name: string }) => apiClient.deleteCategory(id),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['admin-categories'] })
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      queryClient.invalidateQueries({ queryKey: ['admin-products'] })
       toastHelpers.categoryDeleted(variables.name)
     },
     onError: (error: any) => {

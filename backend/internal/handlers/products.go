@@ -351,10 +351,24 @@ func (h *ProductHandler) GetProductsByCategory(c *gin.Context) {
 		products = append(products, product)
 	}
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	total := len(products)
+	totalPages := 1
+	if total == 0 {
+		totalPages = 0
+	}
+
+	// PaginatedResponse (not APIResponse) so `data` is always present in JSON for empty lists;
+	// APIResponse uses data,omitempty which omits empty slices and confuses clients.
+	c.JSON(http.StatusOK, models.PaginatedResponse{
 		Success: true,
 		Message: "Products retrieved successfully",
 		Data:    products,
+		Meta: models.MetaData{
+			CurrentPage: 1,
+			PerPage:     total,
+			Total:       total,
+			TotalPages:  totalPages,
+		},
 	})
 }
 

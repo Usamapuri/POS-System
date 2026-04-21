@@ -257,7 +257,10 @@ class APIClient {
     });
   }
 
-  async getProductsByCategory(categoryId: string, availableOnly = true): Promise<APIResponse<Product[]>> {
+  async getProductsByCategory(
+    categoryId: string,
+    availableOnly = true
+  ): Promise<PaginatedResponse<Product[]>> {
     return this.request({
       method: 'GET',
       url: `/categories/${categoryId}/products`,
