@@ -473,7 +473,7 @@ function MeatballMenu({ children }: { children: React.ReactNode }) {
   }, [open])
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative shrink-0" ref={ref}>
       <button onClick={() => setOpen(o => !o)} className="p-1 rounded hover:bg-muted transition-colors">
         <MoreVertical className="w-4 h-4 text-muted-foreground" />
       </button>
@@ -753,7 +753,7 @@ function ItemsTab({
       </Dialog>
 
       {/* Table — sortable headers + draggable column order (saved locally) */}
-      <div className="border rounded-lg overflow-hidden bg-card">
+      <div className="border rounded-lg overflow-x-auto bg-card">
         <table className="w-full text-base">
           <thead className="bg-muted/50 border-b">
             <tr>
@@ -803,7 +803,7 @@ function ItemsTab({
                   </th>
                 )
               })}
-              <th className="text-center px-4 py-3.5 text-sm font-semibold tracking-tight min-w-[240px]">Actions</th>
+              <th className="text-center px-4 py-3.5 text-sm font-semibold tracking-tight whitespace-nowrap min-w-[280px]">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -866,15 +866,15 @@ function ItemsTab({
                       </td>
                     )
                   })}
-                  <td className="px-4 py-3.5">
-                    <div className="flex flex-wrap items-center gap-1.5 justify-center">
-                      <Button size="sm" variant="outline" className="h-9 text-sm" onClick={() => setModal({ kind: 'purchase', item })}>
+                  <td className="px-4 py-3.5 align-middle whitespace-nowrap">
+                    <div className="flex flex-nowrap items-center justify-center gap-1.5">
+                      <Button size="sm" variant="outline" className="h-9 shrink-0 text-sm" onClick={() => setModal({ kind: 'purchase', item })}>
                         <ArrowDownCircle className="w-4 h-4 mr-1" /> Purchase
                       </Button>
-                      <Button size="sm" variant="outline" className="h-9 text-sm" onClick={() => setModal({ kind: 'issue', item })}>
+                      <Button size="sm" variant="outline" className="h-9 shrink-0 text-sm" onClick={() => setModal({ kind: 'issue', item })}>
                         <ArrowUpCircle className="w-4 h-4 mr-1" /> Issue
                       </Button>
-                      <Button size="sm" variant="outline" className="h-9 text-sm" onClick={() => setModal({ kind: 'adjust', item })}>
+                      <Button size="sm" variant="outline" className="h-9 shrink-0 text-sm" onClick={() => setModal({ kind: 'adjust', item })}>
                         <SlidersHorizontal className="w-4 h-4 mr-1" /> Adjust
                       </Button>
                       <MeatballMenu>
