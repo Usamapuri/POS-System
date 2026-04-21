@@ -57,19 +57,21 @@ export function AdminStaffManagement() {
     return () => clearTimeout(timer)
   }, [searchTerm, debouncedSearch])
 
-  // Fetch users with pagination
+  // Fetch users with pagination (full response preserves `meta` for totals)
   const { data: usersData, isLoading, isFetching } = useQuery({
     queryKey: ['users', pagination.page, pagination.pageSize, debouncedSearch],
-    queryFn: () => apiClient.getUsers({
-      page: pagination.page,
-      limit: pagination.pageSize,
-      search: debouncedSearch || undefined
-    }).then((res: any) => res.data)
+    queryFn: () =>
+      apiClient.getUsers({
+        page: pagination.page,
+        limit: pagination.pageSize,
+        search: debouncedSearch || undefined,
+      }),
   })
 
   // Extract data and pagination info
   const users = Array.isArray(usersData) ? usersData : (usersData as any)?.data || []
-  const paginationInfo = (usersData as any)?.pagination || { total: 0 }
+  const usersMeta = (usersData as any)?.meta ?? (usersData as any)?.pagination
+  const usersTotal = typeof usersMeta?.total === 'number' ? usersMeta.total : 0
 
   // Delete user mutation (keep existing functionality)  
   const deleteUserMutation = useMutation({
@@ -234,7 +236,7 @@ export function AdminStaffManagement() {
           )}
           <PaginationControlsComponent
             pagination={pagination}
-            total={paginationInfo.total || users.length}
+            total={usersTotal}
           />
         </div>
       )}

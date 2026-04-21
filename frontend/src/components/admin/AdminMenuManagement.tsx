@@ -37,6 +37,14 @@ import {
 } from '@/components/ui/dialog'
 import type { Product, Category } from '@/types'
 
+function totalFromPagedPayload(payload: unknown): number {
+  if (!payload || typeof payload !== 'object') return 0
+  const row = payload as { meta?: { total?: number }; pagination?: { total?: number } }
+  const meta = row.meta ?? row.pagination
+  const t = meta?.total
+  return typeof t === 'number' ? t : 0
+}
+
 type ViewMode = 'list' | 'product-form' | 'category-form'
 type DisplayMode = 'table' | 'cards'
 type ActiveTab = 'products' | 'categories'
@@ -105,32 +113,34 @@ export function AdminMenuManagement() {
     return () => clearTimeout(timer)
   }, [categorySearch, debouncedCategorySearch])
 
-  // Fetch products with pagination
+  // Fetch products with pagination (keep full body so `meta` is available for totals)
   const { data: productsData, isLoading: isLoadingProducts, isFetching: isFetchingProducts } = useQuery({
     queryKey: ['admin-products', productsPagination.page, productsPagination.pageSize, debouncedSearch],
-    queryFn: () => apiClient.getAdminProducts({
-      page: productsPagination.page,
-      per_page: productsPagination.pageSize,
-      search: debouncedSearch || undefined
-    }).then((res: any) => res.data)
+    queryFn: () =>
+      apiClient.getAdminProducts({
+        page: productsPagination.page,
+        per_page: productsPagination.pageSize,
+        search: debouncedSearch || undefined,
+      }),
   })
 
   // Fetch categories with pagination
   const { data: categoriesData, isLoading: isLoadingCategories, isFetching: isFetchingCategories } = useQuery({
     queryKey: ['admin-categories', categoriesPagination.page, categoriesPagination.pageSize, debouncedCategorySearch],
-    queryFn: () => apiClient.getAdminCategories({
-      page: categoriesPagination.page,
-      per_page: categoriesPagination.pageSize,
-      search: debouncedCategorySearch || undefined
-    }).then((res: any) => res.data)
+    queryFn: () =>
+      apiClient.getAdminCategories({
+        page: categoriesPagination.page,
+        per_page: categoriesPagination.pageSize,
+        search: debouncedCategorySearch || undefined,
+      }),
   })
 
   // Extract data and pagination info
   const products = Array.isArray(productsData) ? productsData : (productsData as any)?.data || []
-  const productsPaginationInfo = (productsData as any)?.pagination || { total: 0 }
+  const productsTotal = totalFromPagedPayload(productsData)
 
   const categories = Array.isArray(categoriesData) ? categoriesData : (categoriesData as any)?.data || []
-  const categoriesPaginationInfo = (categoriesData as any)?.pagination || { total: 0 }
+  const categoriesTotal = totalFromPagedPayload(categoriesData)
 
   useEffect(() => {
     setSelectedProductIds(new Set())
@@ -611,7 +621,7 @@ export function AdminMenuManagement() {
                 )}
                 <PaginationControlsComponent
                   pagination={productsPagination}
-                  total={productsPaginationInfo.total || products.length}
+                  total={productsTotal}
                 />
               </div>
             )}
@@ -733,7 +743,7 @@ export function AdminMenuManagement() {
                 )}
                 <PaginationControlsComponent
                   pagination={categoriesPagination}
-                  total={categoriesPaginationInfo.total || categories.length}
+                  total={categoriesTotal}
                 />
               </div>
             )}
