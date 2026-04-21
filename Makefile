@@ -1,7 +1,7 @@
 # POS System - Development Makefile
 # Usage: make <command>
 
-.PHONY: help dev prod up down build logs clean backup restore create-admin remove-data db-shell db-migrate-counter-pricing db-migrate-currency db-migrate-store-purchasing db-migrate-user-profile db-migrate-expense-categories db-migrate-inventory-activity db-migrate-orders-discount-percent test lint format
+.PHONY: help dev prod up down build logs clean backup restore create-admin remove-data db-shell db-migrate-counter-pricing db-migrate-currency db-migrate-store-purchasing db-migrate-user-profile db-migrate-expense-categories db-migrate-inventory-activity db-migrate-orders-discount-percent schema-dump-docker seed-demo-remote test lint format
 
 # Default target
 .DEFAULT_GOAL := help
@@ -45,7 +45,9 @@ help:
 	@echo "  make db-migrate-expense-categories - Expense category defs + expenses.recorded_at (existing DBs)"
 	@echo "  make db-migrate-inventory-activity - Activity log table + void columns (fixes adjust/purchase errors on old DBs)"
 	@echo "  make db-migrate-orders-discount-percent - Add orders.discount_percent (receipt shows % for % discounts)"
+	@echo "  make schema-dump-docker - Dump live DB schema to database/schema/generated_from_db.sql (compare to CURRENT_SCHEMA.sql)"
 	@echo "  make db-reset          - Reset database with fresh schema and seed data"
+	@echo "  make seed-demo-remote  - Truncate + load 02_seed on DATABASE_URL (Railway demo; destructive)"
 	@echo ""
 	@echo "$(GREEN)Utility Commands:$(NC)"
 	@echo "  make logs         - View logs from all services"
@@ -271,6 +273,16 @@ db-migrate-orders-discount-percent:
 	 docker exec -i pos-postgres psql -U postgres -d pos_system < database/migrations/006_orders_discount_percent.sql
 	@echo "$(GREEN)✅ Orders discount_percent migration applied. Restart the backend if it was already running.$(NC)"
 
+# Remote demo DB: wipe app data (keep bhookly_support + expense_category_defs) and run database/init/02_seed_data.sql
+# Requires: DATABASE_URL=postgresql://... (from Railway Postgres; not https://). Run from repo root.
+seed-demo-remote:
+	@if [ -z "$$DATABASE_URL" ]; then \
+		echo "$(RED)❌ DATABASE_URL is not set.$(NC)"; \
+		exit 1; \
+	fi
+	@cd backend && go run ./cmd/seeddemo -repo-root ..
+	@echo "$(GREEN)✅ Remote demo seed complete.$(NC)"
+
 # Reset database with fresh schema and seed data
 db-reset:
 	@echo "$(YELLOW)🔄 Resetting database...$(NC)"
@@ -280,6 +292,20 @@ db-reset:
 	fi
 	@./scripts/db-reset.sh -y
 	@echo "$(GREEN)✅ Database reset completed!$(NC)"
+
+# Schema-only dump from dev Postgres (after backend has applied patches). Compare with database/schema/CURRENT_SCHEMA.sql
+schema-dump-docker:
+	@echo "$(GREEN)📋 Dumping schema from Postgres container...$(NC)"
+	@OUT=database/schema/generated_from_db.sql; \
+	if docker ps --format '{{.Names}}' | grep -qx 'pos-postgres-dev'; then \
+		docker exec pos-postgres-dev pg_dump -U postgres -d pos_system --schema-only --no-owner --no-acl > $$OUT; \
+	elif docker ps --format '{{.Names}}' | grep -qx 'pos-postgres'; then \
+		docker exec pos-postgres pg_dump -U postgres -d pos_system --schema-only --no-owner --no-acl > $$OUT; \
+	else \
+		echo "$(RED)❌ No pos-postgres-dev or pos-postgres container running.$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(GREEN)✅ Wrote database/schema/generated_from_db.sql — diff against database/schema/CURRENT_SCHEMA.sql$(NC)"
 
 ## Utility Commands
 

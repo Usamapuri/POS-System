@@ -212,9 +212,8 @@ INSERT INTO category_station_map (category_id, station_id) VALUES
 
 -- App Settings
 INSERT INTO app_settings (key, value) VALUES
-('currency', to_jsonb('PKR'::text)),
-('enabled_order_types', '[{"id": "dine_in", "label": "Dine In", "enabled": true}, {"id": "takeout", "label": "Takeaway", "enabled": true}, {"id": "delivery", "label": "Delivery", "enabled": false}, {"id": "foodpanda", "label": "Foodpanda", "enabled": false}]'::jsonb),
 ('currency', '"PKR"'::jsonb),
+('enabled_order_types', '[{"id": "dine_in", "label": "Dine In", "enabled": true}, {"id": "takeout", "label": "Takeaway", "enabled": true}, {"id": "delivery", "label": "Delivery", "enabled": false}, {"id": "foodpanda", "label": "Foodpanda", "enabled": false}]'::jsonb),
 ('tax_rate_cash', '0.15'::jsonb),
 ('tax_rate_card', '0.05'::jsonb),
 ('tax_rate_online', '0.15'::jsonb),
