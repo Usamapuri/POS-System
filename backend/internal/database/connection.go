@@ -18,6 +18,28 @@ type Config struct {
 	SSLMode  string
 }
 
+// ConnectURL opens a database connection using a fully-formed DATABASE_URL
+// (e.g. postgresql://user:password@host:port/database?sslmode=require).
+func ConnectURL(databaseURL string) (*sql.DB, error) {
+	db, err := sql.Open("postgres", databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database connection: %w", err)
+	}
+
+	// Configure connection pool
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	// Test the connection
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	log.Println("Database connection established successfully")
+	return db, nil
+}
+
 func Connect(config Config) (*sql.DB, error) {
 	dsn := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
