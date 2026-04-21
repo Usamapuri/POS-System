@@ -40,6 +40,12 @@ export interface ActionFooterProps {
   disabledHint?: string
   /** Shown in checkout mode as a secondary row (the primary Charge CTA lives in the payment panel for color accuracy). */
   onCloseCheckout?: () => void
+  /**
+   * When checkout is open but the footer is in compose mode (staged cart lines),
+   * show Close checkout under the Fire KOT primary so operators can dismiss pay
+   * without losing the ability to send staged items.
+   */
+  showCloseCheckoutWithCompose?: boolean
   /** When the bottom CTA must not render (e.g. no cart and no session). */
   hidePrimary?: boolean
 }
@@ -54,6 +60,7 @@ export function ActionFooter({
   primaryPending,
   disabledHint,
   onCloseCheckout,
+  showCloseCheckoutWithCompose,
   hidePrimary,
 }: ActionFooterProps) {
   if (mode === 'idle') {
@@ -123,6 +130,18 @@ export function ActionFooter({
               {primaryLabel}
             </>
           )}
+        </Button>
+      )}
+
+      {mode === 'compose' && showCloseCheckoutWithCompose && onCloseCheckout && (
+        <Button
+          type="button"
+          variant="outline"
+          className="h-10 w-full border-red-200 bg-red-50 text-red-700 hover:bg-red-100 hover:text-red-800 dark:border-red-800/40 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-950/50"
+          onClick={onCloseCheckout}
+        >
+          <X className="mr-2 h-4 w-4" />
+          Close checkout
         </Button>
       )}
 

@@ -402,6 +402,9 @@ export function CounterInterface() {
         const od = ref.data
         setExistingOrder(od)
         setContinuingOrderId(od.id)
+        // Keep checkout / payment rail in sync with fired items (was stale until full refresh).
+        setSelectedOrder((prev) => (prev?.id === od.id ? od : prev))
+        queryClient.setQueryData(['order', od.id, 'payment-panel'], od)
         setExistingItemsExpanded(false)
         setCustomerName(od.customer_name ?? '')
         setCustomerEmail(od.customer_email ?? '')
@@ -1890,9 +1893,9 @@ export function CounterInterface() {
                 </div>
               )}
               <ActionFooter
-                mode={checkoutOpen ? 'checkout' : cart.length > 0 ? 'compose' : 'idle'}
+                mode={cart.length > 0 ? 'compose' : checkoutOpen ? 'checkout' : 'idle'}
                 totals={
-                  checkoutOpen || cart.length === 0
+                  cart.length === 0
                     ? null
                     : {
                         subtotal: cartSubtotal,
@@ -1903,6 +1906,7 @@ export function CounterInterface() {
                         total: cartTotals.total,
                       }
                 }
+                showCloseCheckoutWithCompose={checkoutOpen}
                 formatCurrency={formatCurrency}
                 primaryLabel={continuingOrderId ? 'Add items & fire KOT' : 'Place order & Fire'}
                 onPrimary={handleSubmitCart}
