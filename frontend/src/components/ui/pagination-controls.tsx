@@ -30,23 +30,22 @@ export function PaginationControlsComponent({
   const {
     page,
     pageSize,
-    totalPages,
-    hasNextPage,
-    hasPreviousPage,
     goToPage,
-    goToNextPage,
-    goToPreviousPage,
     goToFirstPage,
-    goToLastPage,
     setPageSize,
   } = pagination
 
-  const paginationRange = getPaginationRange(page, totalPages)
-  
-  const startItem = Math.min((page - 1) * pageSize + 1, total)
-  const endItem = Math.min(page * pageSize, total)
+  // Prefer server `total` so page counts stay in sync with "Showing X to Y" when the hook is created before data loads.
+  const effectiveTotalPages = Math.max(1, Math.ceil((total || 0) / pageSize))
+  const hasNextPage = page < effectiveTotalPages
+  const hasPreviousPage = page > 1
 
-  if (totalPages <= 1 && !showPageSizeSelector) {
+  const paginationRange = getPaginationRange(page, effectiveTotalPages)
+  
+  const startItem = total === 0 ? 0 : Math.min((page - 1) * pageSize + 1, total)
+  const endItem = total === 0 ? 0 : Math.min(page * pageSize, total)
+
+  if (effectiveTotalPages <= 1 && !showPageSizeSelector) {
     return null
   }
 
@@ -82,7 +81,7 @@ export function PaginationControlsComponent({
       </div>
 
       {/* Pagination controls */}
-      {totalPages > 1 && (
+      {effectiveTotalPages > 1 && (
         <div className="flex items-center space-x-2">
           <Pagination>
             <PaginationContent>
@@ -102,7 +101,7 @@ export function PaginationControlsComponent({
               {/* Previous page button */}
               <PaginationItem>
                 <PaginationPrevious
-                  onClick={goToPreviousPage}
+                  onClick={() => goToPage(Math.max(1, page - 1))}
                   className={!hasPreviousPage ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                 />
               </PaginationItem>
@@ -114,7 +113,7 @@ export function PaginationControlsComponent({
                     <PaginationEllipsis />
                   ) : (
                     <PaginationLink
-                      onClick={() => goToPage(Number(pageNumber))}
+                      onClick={() => goToPage(Math.max(1, Math.min(Number(pageNumber), effectiveTotalPages)))}
                       isActive={pageNumber === page}
                       className="cursor-pointer"
                     >
@@ -127,7 +126,9 @@ export function PaginationControlsComponent({
               {/* Next page button */}
               <PaginationItem>
                 <PaginationNext
-                  onClick={goToNextPage}
+                  onClick={() => {
+                    if (hasNextPage) goToPage(Math.min(page + 1, effectiveTotalPages))
+                  }}
                   className={!hasNextPage ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                 />
               </PaginationItem>
@@ -137,7 +138,7 @@ export function PaginationControlsComponent({
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={goToLastPage}
+                  onClick={() => goToPage(effectiveTotalPages)}
                   disabled={!hasNextPage}
                   aria-label="Go to last page"
                 >

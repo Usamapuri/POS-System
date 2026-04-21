@@ -302,14 +302,19 @@ export function AdminTableManagement() {
           onRenameFloor={handleRenameFloor}
           onDeleteFloor={handleDeleteFloor}
           onUpsertTable={async (payload) => {
-            if (payload.id) {
-              await apiClient.updateTable(payload.id, payload)
-            } else {
-              await apiClient.createTable(payload)
+            try {
+              if (payload.id) {
+                await apiClient.updateTable(payload.id, payload)
+              } else {
+                await apiClient.createTable(payload)
+              }
+              queryClient.invalidateQueries({ queryKey: ['tables'] })
+              queryClient.invalidateQueries({ queryKey: ['tables-summary'] })
+              toastHelpers.success('Table saved', `${payload.table_number} updated.`)
+            } catch (error) {
+              toastHelpers.apiError('Save table', error)
+              throw error
             }
-            queryClient.invalidateQueries({ queryKey: ['tables'] })
-            queryClient.invalidateQueries({ queryKey: ['tables-summary'] })
-            toastHelpers.success('Table saved', `${payload.table_number} updated.`)
           }}
           onDeleteTable={async (id) => {
             await apiClient.deleteTable(id)

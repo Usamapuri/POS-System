@@ -42,6 +42,8 @@ import {
 import { InventoryPurchasingTab } from '@/components/store/InventoryPurchasingTab'
 import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '@/lib/utils'
 import * as ReportHelp from '@/lib/inventory-report-help'
+import { PaginationControlsComponent } from '@/components/ui/pagination-controls'
+import type { PaginationControls } from '@/hooks/usePagination'
 
 // ─── Unit conversion ─────────────────────────────────────────────
 
@@ -173,6 +175,7 @@ export function StoreInventoryDashboard() {
   const [filterCategory, setFilterCategory] = useState('')
   const [filterStatus, setFilterStatus] = useState<StockStatusFilter>('')
   const [itemPage, setItemPage] = useState(1)
+  const [itemPageSize, setItemPageSize] = useState(10)
   const [movPage, setMovPage] = useState(1)
   const [movType, setMovType] = useState('')
   const [movFrom, setMovFrom] = useState('')
@@ -224,11 +227,11 @@ export function StoreInventoryDashboard() {
   }, [])
 
   const { data: itemsRes, isLoading: itemsLoading } = useQuery({
-    queryKey: ['stockItems', itemPage, filterCategory, debouncedSearch, filterStatus, itemSortKey, itemSortDir],
+    queryKey: ['stockItems', itemPage, itemPageSize, filterCategory, debouncedSearch, filterStatus, itemSortKey, itemSortDir],
     queryFn: () =>
       apiClient.getStockItems({
         page: itemPage,
-        per_page: 15,
+        per_page: itemPageSize,
         category_id: filterCategory || undefined,
         search: debouncedSearch || undefined,
         stock_health: stockHealthParam,
@@ -238,6 +241,27 @@ export function StoreInventoryDashboard() {
   })
   const items = itemsRes?.data ?? []
   const itemsMeta = itemsRes?.meta
+  const itemsTotal = itemsMeta?.total ?? 0
+
+  const itemsPagination = useMemo((): PaginationControls => {
+    const totalPages = Math.max(1, Math.ceil(itemsTotal / itemPageSize))
+    return {
+      page: itemPage,
+      pageSize: itemPageSize,
+      totalPages,
+      hasNextPage: itemPage < totalPages,
+      hasPreviousPage: itemPage > 1,
+      goToPage: (p: number) => setItemPage(Math.max(1, Math.min(p, totalPages))),
+      goToNextPage: () => setItemPage((p) => Math.min(p + 1, totalPages)),
+      goToPreviousPage: () => setItemPage((p) => Math.max(1, p - 1)),
+      goToFirstPage: () => setItemPage(1),
+      goToLastPage: () => setItemPage(totalPages),
+      setPageSize: (s: number) => {
+        setItemPageSize(s)
+        setItemPage(1)
+      },
+    }
+  }, [itemPage, itemPageSize, itemsTotal])
 
   const { data: alertsRes } = useQuery({ queryKey: ['stockAlerts'], queryFn: () => apiClient.getStockAlerts() })
   const alerts: StockAlert[] = alertsRes?.data ?? []
@@ -390,10 +414,10 @@ export function StoreInventoryDashboard() {
         ))}
       </div>
 
-      {tab === 'items' && <ItemsTab items={items} categories={categories} meta={itemsMeta} loading={itemsLoading}
+      {tab === 'items' && <ItemsTab items={items} categories={categories} loading={itemsLoading}
         search={search} setSearch={setSearch} filterCategory={filterCategory} setFilterCategory={setFilterCategory}
         filterStatus={filterStatus} setFilterStatus={setFilterStatus}
-        page={itemPage} setPage={setItemPage} setModal={setModal} qc={qc} showToast={showToast}
+        pagination={itemsPagination} total={itemsTotal} setModal={setModal} qc={qc} showToast={showToast}
         selectedIds={selectedIds} setSelectedIds={setSelectedIds}
         itemSortKey={itemSortKey} itemSortDir={itemSortDir} onItemSort={handleItemSort} />}
       {tab === 'purchasing' && <InventoryPurchasingTab stockItems={catalogPickItems} showToast={showToast} />}
@@ -502,7 +526,6 @@ function MenuItem({ icon, label, destructive, onClick }: { icon: React.ReactNode
 type ItemsTabProps = {
   items: StockItem[]
   categories: StockCategory[]
-  meta: { total_pages: number; total?: number } | undefined
   loading: boolean
   search: string
   setSearch: (s: string) => void
@@ -510,8 +533,8 @@ type ItemsTabProps = {
   setFilterCategory: (s: string) => void
   filterStatus: StockStatusFilter
   setFilterStatus: (s: StockStatusFilter) => void
-  page: number
-  setPage: (n: number) => void
+  pagination: PaginationControls
+  total: number
   setModal: (m: ModalState) => void
   qc: ReturnType<typeof useQueryClient>
   showToast: (type: 'success' | 'error', message: string) => void
@@ -525,7 +548,6 @@ type ItemsTabProps = {
 function ItemsTab({
   items,
   categories,
-  meta,
   loading,
   search,
   setSearch,
@@ -533,8 +555,8 @@ function ItemsTab({
   setFilterCategory,
   filterStatus,
   setFilterStatus,
-  page,
-  setPage,
+  pagination,
+  total,
   setModal,
   qc,
   showToast,
@@ -676,15 +698,15 @@ function ItemsTab({
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search items..."
+          <input value={search} onChange={e => { setSearch(e.target.value); pagination.goToFirstPage() }} placeholder="Search items..."
             className="w-full h-11 pl-10 pr-3 border rounded-md text-base bg-background" />
         </div>
-        <select value={filterCategory} onChange={e => { setFilterCategory(e.target.value); setPage(1) }}
+        <select value={filterCategory} onChange={e => { setFilterCategory(e.target.value); pagination.goToFirstPage() }}
           className="border rounded-md px-3 h-11 text-base bg-background min-w-[160px]">
           <option value="">All Categories</option>
           {categories.map((c: StockCategory) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value as StockStatusFilter); setPage(1) }}
+        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value as StockStatusFilter); pagination.goToFirstPage() }}
           className="border rounded-md px-3 h-11 text-base bg-background min-w-[140px]">
           <option value="">All Status</option>
           <option value="low">Low Stock</option>
@@ -890,7 +912,7 @@ function ItemsTab({
           </tbody>
         </table>
       </div>
-      {meta && meta.total_pages > 1 && <Pagination page={page} totalPages={meta.total_pages} setPage={setPage} />}
+      <PaginationControlsComponent pagination={pagination} total={total} className="pt-4 flex-wrap gap-y-2" />
 
       <Dialog open={deleteItemOpen} onOpenChange={setDeleteItemOpen}>
         <DialogContent className="sm:max-w-md">

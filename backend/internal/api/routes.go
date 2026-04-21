@@ -1688,6 +1688,13 @@ func createTable(db *sql.DB) gin.HandlerFunc {
 		`, req.TableNumber, req.SeatingCapacity, req.Location, req.Zone, req.MapX, req.MapY, req.MapW, req.MapH, req.MapRotation, req.Shape).Scan(&tableID)
 
 		if err != nil {
+			if util.IsDuplicateDiningTableNumber(err) {
+				c.JSON(409, gin.H{
+					"success": false,
+					"message": util.DuplicateTableNumberMessage,
+				})
+				return
+			}
 			c.JSON(500, gin.H{
 				"success": false,
 				"message": "Failed to create table",
@@ -1812,6 +1819,13 @@ func updateTable(db *sql.DB) gin.HandlerFunc {
 
 		result, err := db.Exec(query, args...)
 		if err != nil {
+			if util.IsDuplicateDiningTableNumber(err) {
+				c.JSON(409, gin.H{
+					"success": false,
+					"message": util.DuplicateTableNumberMessage,
+				})
+				return
+			}
 			c.JSON(500, gin.H{
 				"success": false,
 				"message": "Failed to update table",

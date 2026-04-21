@@ -18,6 +18,10 @@ import {
   snapRotationToStep,
   suggestMapDimensions,
 } from '@/lib/tableMapSizing'
+import { toastHelpers } from '@/lib/toast-helpers'
+
+const DUPLICATE_TABLE_NAME_MSG =
+  'Table names must be unique. Another table already uses this name — choose a different name.'
 
 type LayoutTable = DiningTable & {
   map_x: number
@@ -105,6 +109,7 @@ export function TableLayoutBuilder({
   const [canvasSize, setCanvasSize] = useState({ width: CANVAS_W, height: CANVAS_H })
   const [syncSizeWithSeats, setSyncSizeWithSeats] = useState(false)
   const [snapRotation15, setSnapRotation15] = useState(false)
+  const [tableNumberError, setTableNumberError] = useState<string | null>(null)
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const canvasShellRef = useRef<HTMLDivElement | null>(null)
 
@@ -318,14 +323,27 @@ export function TableLayoutBuilder({
     }
   }
 
-  const handleSaveTable = async () => {
-    if (!draft) return
-    if (!draft.table_number.trim()) return
+  const handleSaveTable = async (): Promise<boolean> => {
+    if (!draft) return false
+    const trimmed = draft.table_number.trim()
+    if (!trimmed) return false
+
+    const duplicate = tables.some((t) => {
+      if (!isCreatingTable && t.id === draft.id) return false
+      return t.table_number.trim() === trimmed
+    })
+    if (duplicate) {
+      setTableNumberError(DUPLICATE_TABLE_NAME_MSG)
+      toastHelpers.validationError(DUPLICATE_TABLE_NAME_MSG)
+      return false
+    }
+    setTableNumberError(null)
+
     setSavingTable(true)
     try {
       await onUpsertTable({
         id: isCreatingTable ? undefined : draft.id,
-        table_number: draft.table_number.trim(),
+        table_number: trimmed,
         seating_capacity: draft.seating_capacity,
         location: draft.location || selectedFloor,
         zone: null,
@@ -339,6 +357,7 @@ export function TableLayoutBuilder({
       })
       setIsCreatingTable(false)
       setActiveId(null)
+      return true
     } finally {
       setSavingTable(false)
     }
@@ -479,7 +498,18 @@ export function TableLayoutBuilder({
                   <p className="text-sm font-medium">{isCreatingTable ? 'New Table' : draft.table_number}</p>
                   <div>
                     <label className="text-xs text-muted-foreground">Table Number</label>
-                    <Input value={draft.table_number} onChange={(e) => setDraft({ ...draft, table_number: e.target.value })} className="mt-1" />
+                    <Input
+                      value={draft.table_number}
+                      onChange={(e) => {
+                        setTableNumberError(null)
+                        setDraft({ ...draft, table_number: e.target.value })
+                      }}
+                      className="mt-1"
+                      aria-invalid={tableNumberError ? true : undefined}
+                    />
+                    {tableNumberError ? (
+                      <p className="text-xs text-destructive mt-1">{tableNumberError}</p>
+                    ) : null}
                   </div>
                   <div>
                     <label className="text-xs text-muted-foreground">Location / Floor</label>
@@ -627,18 +657,26 @@ export function TableLayoutBuilder({
                     <Button
                       size="sm"
                       onClick={async () => {
-                        await handleSaveTable()
-                        if (!isCreatingTable && activeId) {
-                          applyActivePatch({
-                            table_number: draft.table_number,
-                            seating_capacity: draft.seating_capacity,
-                            location: draft.location,
-                            is_occupied: draft.is_occupied,
-                            shape: draft.shape,
-                            map_w: draft.map_w,
-                            map_h: draft.map_h,
-                            map_rotation: draft.map_rotation,
-                          })
+                        try {
+                          const saved = await handleSaveTable()
+                          if (
+                            saved &&
+                            !isCreatingTable &&
+                            activeId
+                          ) {
+                            applyActivePatch({
+                              table_number: draft.table_number,
+                              seating_capacity: draft.seating_capacity,
+                              location: draft.location,
+                              is_occupied: draft.is_occupied,
+                              shape: draft.shape,
+                              map_w: draft.map_w,
+                              map_h: draft.map_h,
+                              map_rotation: draft.map_rotation,
+                            })
+                          }
+                        } catch {
+                          /* toast from parent */
                         }
                       }}
                       disabled={savingTable}

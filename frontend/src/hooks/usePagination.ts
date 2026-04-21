@@ -47,8 +47,7 @@ export function usePagination({
   }, [page])
 
   const goToPage = (newPage: number) => {
-    const clampedPage = Math.max(1, Math.min(newPage, totalPages))
-    setPage(clampedPage)
+    setPage(Math.max(1, newPage))
   }
 
   const goToNextPage = () => {
