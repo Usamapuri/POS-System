@@ -39,6 +39,7 @@ interface AdminStaffTableProps {
   onDelete: (user: User) => void
   onSetPin?: (user: User) => void
   isLoading?: boolean
+  readOnly?: boolean
 }
 
 export function AdminStaffTable({
@@ -46,7 +47,8 @@ export function AdminStaffTable({
   onEdit,
   onDelete,
   onSetPin,
-  isLoading = false
+  isLoading = false,
+  readOnly = false,
 }: AdminStaffTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
 
@@ -244,7 +246,7 @@ export function AdminStaffTable({
             ) : (
               <span className="text-gray-400 text-xs">Not set</span>
             )}
-            {onSetPin && (
+            {!readOnly && onSetPin && (
               <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => onSetPin(user)}>
                 {(user as any).has_pin ? 'Change' : 'Set'}
               </Button>
@@ -258,6 +260,9 @@ export function AdminStaffTable({
       header: "Actions",
       cell: ({ row }) => {
         const user = row.original
+        if (readOnly) {
+          return <span className="text-sm text-muted-foreground">View only</span>
+        }
         return (
           <div className="flex items-center space-x-2">
             <Button

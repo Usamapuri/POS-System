@@ -23,6 +23,7 @@ import {
 import type { User } from '@/types'
 
 export function AdminStaffManagement() {
+  const [viewerRole, setViewerRole] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -36,6 +37,7 @@ export function AdminStaffManagement() {
   const [pendingDeleteUser, setPendingDeleteUser] = useState<User | null>(null)
 
   const queryClient = useQueryClient()
+  const isAdminViewer = viewerRole === 'admin'
 
   // Pagination hook
   const pagination = usePagination({ 
@@ -45,6 +47,17 @@ export function AdminStaffManagement() {
   })
 
   // Debounce search term
+  useEffect(() => {
+    const storedUser = localStorage.getItem('pos_user')
+    if (!storedUser) return
+    try {
+      const parsedUser = JSON.parse(storedUser) as { role?: string }
+      setViewerRole(parsedUser.role ?? null)
+    } catch {
+      setViewerRole(null)
+    }
+  }, [])
+
   useEffect(() => {
     if (searchTerm !== debouncedSearch) {
       setIsSearching(true)
@@ -143,7 +156,7 @@ export function AdminStaffManagement() {
   const filteredUsers = users
 
   // Show form if creating or editing
-  if (showCreateForm || editingUser) {
+  if (isAdminViewer && (showCreateForm || editingUser)) {
     return (
       <div className="p-6">
         <UserForm
@@ -189,11 +202,18 @@ export function AdminStaffManagement() {
             Manage your restaurant staff and their permissions
           </p>
         </div>
-        <Button onClick={() => setShowCreateForm(true)} className="gap-2">
-          <UserPlus className="h-4 w-4" />
-          Add New Staff
-        </Button>
+        {isAdminViewer ? (
+          <Button onClick={() => setShowCreateForm(true)} className="gap-2">
+            <UserPlus className="h-4 w-4" />
+            Add New Staff
+          </Button>
+        ) : null}
       </div>
+      {!isAdminViewer && (
+        <p className="text-sm text-muted-foreground">
+          Managers can view staff details, but only admins can add, edit, delete, or set PINs.
+        </p>
+      )}
 
       {/* Search */}
       <Card>
@@ -223,6 +243,7 @@ export function AdminStaffManagement() {
           onDelete={handleDeleteUser}
           onSetPin={setPinUser}
           isLoading={isLoading}
+          readOnly={!isAdminViewer}
         />
       </div>
 
@@ -242,7 +263,7 @@ export function AdminStaffManagement() {
       )}
 
       {/* PIN Modal */}
-      {pinUser && (
+      {isAdminViewer && pinUser && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl w-96 shadow-2xl">
             <div className="p-4 border-b flex items-center justify-between">
@@ -292,7 +313,7 @@ export function AdminStaffManagement() {
         </div>
       )}
 
-      <Dialog open={deleteUserOpen} onOpenChange={setDeleteUserOpen}>
+      <Dialog open={isAdminViewer && deleteUserOpen} onOpenChange={setDeleteUserOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Delete Staff Member?</DialogTitle>

@@ -152,6 +152,14 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		adminVoidLog.GET("/void-log", pinHandler.GetVoidLog)
 	}
 
+	// Staff listing — admins and managers (read-only list used by manage-staff page).
+	adminStaffRead := router.Group("/admin")
+	adminStaffRead.Use(authMiddleware)
+	adminStaffRead.Use(middleware.RequireRoles([]string{"admin", "manager"}))
+	{
+		adminStaffRead.GET("/users", getAdminUsers(db))
+	}
+
 	// Kitchen station configuration — admins + kitchen (KDS + stations pages).
 	adminStations := router.Group("/admin")
 	adminStations.Use(authMiddleware)
@@ -202,7 +210,6 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		adminOnly.GET("/reports/v2/export", reportsHandler.ExportReport)
 
 		// User management with pagination
-		adminOnly.GET("/users", getAdminUsers(db))
 		adminOnly.POST("/users", createUser(db))
 		adminOnly.PUT("/users/:id", updateUser(db))
 		adminOnly.DELETE("/users/:id", deleteUser(db))
