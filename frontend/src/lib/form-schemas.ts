@@ -5,7 +5,7 @@ export const emailSchema = z.string().email('Invalid email format')
 export const passwordSchema = z.string().min(6, 'Password must be at least 6 characters')
 export const requiredStringSchema = z.string().min(1, 'This field is required')
 export const positiveNumberSchema = z.number().min(0, 'Must be a positive number')
-export const priceSchema = z.number().min(0.01, 'Price must be greater than 0')
+export const priceSchema = z.number().min(0, 'Price must be 0 or greater')
 
 // User/Staff related schemas
 export const userRoles = ['admin', 'manager', 'inventory_manager', 'counter', 'kitchen'] as const
