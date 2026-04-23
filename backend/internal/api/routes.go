@@ -114,7 +114,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		counter.POST("/table-tabs", orderHandler.OpenCounterTableTab)
 		counter.POST("/orders/:id/cancel-open-tab", orderHandler.CancelCounterOpenTab)
 		counter.PATCH("/orders/:id/table", orderHandler.ReassignCounterOrderTable)
-		counter.POST("/orders", orderHandler.CreateOrder)                   // All order types
+		counter.POST("/orders", orderHandler.CreateOrder) // All order types
 		counter.PATCH("/orders/:id/checkout-intent", orderHandler.UpdateCheckoutIntent)
 		counter.PATCH("/orders/:id/discount", orderHandler.ApplyOrderDiscount)
 		counter.PATCH("/orders/:id/guest", orderHandler.UpdateCounterOrderGuest)
@@ -158,6 +158,21 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 	adminStaffRead.Use(middleware.RequireRoles([]string{"admin", "manager"}))
 	{
 		adminStaffRead.GET("/users", getAdminUsers(db))
+	}
+
+	// Staff + settings management for admin shell roles that can access those pages.
+	adminManagerWrite := router.Group("/admin")
+	adminManagerWrite.Use(authMiddleware)
+	adminManagerWrite.Use(middleware.RequireRoles([]string{"admin", "manager"}))
+	{
+		// User management with pagination
+		adminManagerWrite.POST("/users", createUser(db))
+		adminManagerWrite.PUT("/users/:id", updateUser(db))
+		adminManagerWrite.DELETE("/users/:id", deleteUser(db))
+		// PIN management (void authorization PIN — set for admin/manager accounts)
+		adminManagerWrite.PUT("/users/:id/pin", pinHandler.SetPin)
+		// Settings management
+		adminManagerWrite.PUT("/settings/:key", settingsHandler.UpdateSetting)
 	}
 
 	// Kitchen station configuration — admins + kitchen (KDS + stations pages).
@@ -209,11 +224,6 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		adminOnly.GET("/reports/v2/orders", reportsHandler.GetOrdersBrowser)
 		adminOnly.GET("/reports/v2/export", reportsHandler.ExportReport)
 
-		// User management with pagination
-		adminOnly.POST("/users", createUser(db))
-		adminOnly.PUT("/users/:id", updateUser(db))
-		adminOnly.DELETE("/users/:id", deleteUser(db))
-
 		// Advanced order management
 		adminOnly.POST("/orders", orderHandler.CreateOrder)
 		adminOnly.POST("/orders/:id/payments", paymentHandler.ProcessPayment)
@@ -241,13 +251,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		adminOnly.GET("/reports/pnl", expenseHandler.GetPnLReport)
 		adminOnly.GET("/reports/expense-intelligence", expenseHandler.GetExpenseIntelligence)
 
-		// PIN management (void authorization PIN — set by admin for admin/manager accounts)
-		adminOnly.PUT("/users/:id/pin", pinHandler.SetPin)
-
 		adminOnly.GET("/customers", listAdminCustomers(db))
-
-		// Settings management
-		adminOnly.PUT("/settings/:key", settingsHandler.UpdateSetting)
 	}
 
 	// Store inventory routes
@@ -371,9 +375,9 @@ func getDashboardStats(db *sql.DB) gin.HandlerFunc {
 			SELECT COUNT(*) FROM dining_tables WHERE is_occupied = true
 		`).Scan(&occupiedTables)
 
-		stats["today_orders"] = todayOrders         // completed only — matches today_revenue
-		stats["today_orders_placed"] = todayPlaced  // any status — drop-off denominator
-		stats["today_revenue"] = todayRevenue       // net of tax, completed orders only
+		stats["today_orders"] = todayOrders        // completed only — matches today_revenue
+		stats["today_orders_placed"] = todayPlaced // any status — drop-off denominator
+		stats["today_revenue"] = todayRevenue      // net of tax, completed orders only
 		stats["active_orders"] = activeOrders
 		stats["occupied_tables"] = occupiedTables
 
@@ -486,7 +490,7 @@ func listAdminCustomers(db *sql.DB) gin.HandlerFunc {
 			rows, err = db.Query(base+` WHERE lower(COALESCE(c.display_name,'')) LIKE $1 OR lower(COALESCE(c.email,'')) LIKE $1 OR COALESCE(c.phone,'') ILIKE $1
 				ORDER BY last_visit_at DESC NULLS LAST, c.created_at DESC LIMIT $2 OFFSET $3`, pat, perPage, offset)
 		} else {
-			rows, err = db.Query(base + ` ORDER BY last_visit_at DESC NULLS LAST, c.created_at DESC LIMIT $1 OFFSET $2`, perPage, offset)
+			rows, err = db.Query(base+` ORDER BY last_visit_at DESC NULLS LAST, c.created_at DESC LIMIT $1 OFFSET $2`, perPage, offset)
 		}
 		if err != nil {
 			c.JSON(500, gin.H{"success": false, "message": "Failed to list customers", "error": err.Error()})
@@ -656,19 +660,19 @@ func getKitchenOrders(db *sql.DB) gin.HandlerFunc {
 		defer rows.Close()
 
 		type kitchenOrder struct {
-			ID               string                   `json:"id"`
-			OrderNumber      string                   `json:"order_number"`
-			TableID          *string                  `json:"table_id"`
-			OrderType        string                   `json:"order_type"`
-			Status           string                   `json:"status"`
-			CreatedAt        interface{}               `json:"created_at"`
-			UpdatedAt        interface{}               `json:"updated_at"`
-			CustomerName     string                   `json:"customer_name"`
-			GuestCount       int                      `json:"guest_count"`
-			KotFirstSentAt   interface{}               `json:"kot_first_sent_at,omitempty"`
-			Table            map[string]interface{}    `json:"table,omitempty"`
-			Items            []map[string]interface{}  `json:"items"`
-			ServerName       string                   `json:"server_name,omitempty"`
+			ID             string                   `json:"id"`
+			OrderNumber    string                   `json:"order_number"`
+			TableID        *string                  `json:"table_id"`
+			OrderType      string                   `json:"order_type"`
+			Status         string                   `json:"status"`
+			CreatedAt      interface{}              `json:"created_at"`
+			UpdatedAt      interface{}              `json:"updated_at"`
+			CustomerName   string                   `json:"customer_name"`
+			GuestCount     int                      `json:"guest_count"`
+			KotFirstSentAt interface{}              `json:"kot_first_sent_at,omitempty"`
+			Table          map[string]interface{}   `json:"table,omitempty"`
+			Items          []map[string]interface{} `json:"items"`
+			ServerName     string                   `json:"server_name,omitempty"`
 		}
 
 		var orders []kitchenOrder
@@ -1625,18 +1629,18 @@ func deleteProduct(db *sql.DB) gin.HandlerFunc {
 					var id, orderNumber, status string
 					if rows.Scan(&id, &orderNumber, &status) == nil {
 						blocking = append(blocking, gin.H{
-							"id":            id,
-							"order_number":  orderNumber,
-							"status":        status,
+							"id":           id,
+							"order_number": orderNumber,
+							"status":       status,
 						})
 					}
 				}
 			}
 			c.JSON(400, gin.H{
-				"success":          false,
-				"message":          "Cannot delete product with active orders",
-				"error":            "product_has_active_orders",
-				"blocking_orders":  blocking,
+				"success":         false,
+				"message":         "Cannot delete product with active orders",
+				"error":           "product_has_active_orders",
+				"blocking_orders": blocking,
 			})
 			return
 		}
@@ -1933,12 +1937,12 @@ func isPlatformAdminUser(db *sql.DB, userID string) bool {
 func createUser(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			Username         string  `json:"username" binding:"required"`
-			Email            string  `json:"email" binding:"required"`
-			Password         string  `json:"password" binding:"required"`
-			FirstName        string  `json:"first_name" binding:"required"`
-			LastName         string  `json:"last_name" binding:"required"`
-			Role             string  `json:"role" binding:"required"`
+			Username        string  `json:"username" binding:"required"`
+			Email           string  `json:"email" binding:"required"`
+			Password        string  `json:"password" binding:"required"`
+			FirstName       string  `json:"first_name" binding:"required"`
+			LastName        string  `json:"last_name" binding:"required"`
+			Role            string  `json:"role" binding:"required"`
 			ProfileImageURL *string `json:"profile_image_url"`
 		}
 
@@ -2013,14 +2017,14 @@ func updateUser(db *sql.DB) gin.HandlerFunc {
 		}
 
 		var req struct {
-			Username          *string `json:"username"`
-			Email             *string `json:"email"`
-			Password          *string `json:"password"`
-			FirstName         *string `json:"first_name"`
-			LastName          *string `json:"last_name"`
-			Role              *string `json:"role"`
-			IsActive          *bool   `json:"is_active"`
-			ProfileImageURL   *string `json:"profile_image_url"`
+			Username        *string `json:"username"`
+			Email           *string `json:"email"`
+			Password        *string `json:"password"`
+			FirstName       *string `json:"first_name"`
+			LastName        *string `json:"last_name"`
+			Role            *string `json:"role"`
+			IsActive        *bool   `json:"is_active"`
+			ProfileImageURL *string `json:"profile_image_url"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
