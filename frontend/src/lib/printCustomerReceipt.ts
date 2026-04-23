@@ -476,6 +476,10 @@ export function buildReceiptHtml(
       `<div class="tr"><span>Discount${pctLabel}</span><span>−${fmt(discount)}</span></div>`,
     )
   }
+  const delFee = order.delivery_fee_amount ?? 0
+  if (delFee > 0) {
+    totalsRows.push(`<div class="tr"><span>Delivery fee</span><span>${fmt(delFee)}</span></div>`)
+  }
 
   const thankYouMarkup = cfg.thankYouMessage
     ? `<div class="thankyou">${escapeHtml(cfg.thankYouMessage)}</div>`

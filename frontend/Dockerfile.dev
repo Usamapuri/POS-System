@@ -10,13 +10,17 @@ COPY package*.json ./
 # Install all dependencies (including devDependencies)
 RUN npm ci
 
-# Copy source code
+# Copy source code (includes docker-dev-entrypoint.sh)
 COPY . .
+
+RUN if [ -f docker-dev-entrypoint.sh ]; then sed -i 's/\r$//' docker-dev-entrypoint.sh && chmod +x docker-dev-entrypoint.sh; fi
 
 # Expose port 3000 and Vite HMR port
 EXPOSE 3000 5173
 
-# Start development server
+# Invoke via sh so a CRLF copy of the script from a Windows bind mount does not break the shebang.
+# Ensure deps exist in the bind-mount + node_modules volume setup (see docker-compose.dev.yml)
+ENTRYPOINT ["/bin/sh", "/app/docker-dev-entrypoint.sh"]
 CMD ["npm", "run", "dev"]
 
 # Production build stage (same as regular Dockerfile)

@@ -41,6 +41,7 @@ func ApplySchemaPatches(db *sql.DB) {
 
 	stmts := []string{
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_charge_amount DECIMAL(10,2) NOT NULL DEFAULT 0`,
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_fee_amount DECIMAL(10,2) NOT NULL DEFAULT 0`,
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS checkout_payment_method VARCHAR(20)`,
 		`ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_checkout_payment_method_check`,
 		`ALTER TABLE orders ADD CONSTRAINT orders_checkout_payment_method_check CHECK (checkout_payment_method IS NULL OR checkout_payment_method IN ('cash', 'card', 'online'))`,

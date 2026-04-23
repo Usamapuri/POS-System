@@ -21,6 +21,8 @@ interface OrderTypeConfig {
   id: string
   label: string
   enabled: boolean
+  include_service_charge?: boolean
+  delivery_fee?: number
 }
 
 type ItemStatus = 'draft' | 'pending' | 'sent' | 'preparing' | 'ready' | 'served' | 'voided'

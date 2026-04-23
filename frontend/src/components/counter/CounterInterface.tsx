@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/dialog'
 import { Link } from '@tanstack/react-router'
 import { useCounterHotkeys } from '@/hooks/useCounterHotkeys'
-import { useEnabledOrderTypes } from '@/hooks/useEnabledOrderTypes'
+import { getOrderTypePricing, useEnabledOrderTypes } from '@/hooks/useEnabledOrderTypes'
 import { computeCartTotals, mergePricingSettings } from '@/lib/counterPricing'
 import { subscribeOrderReady } from '@/lib/kdsRealtime'
 import { cn } from '@/lib/utils'
@@ -182,7 +182,12 @@ export function CounterInterface() {
   const queryClient = useQueryClient()
   const { formatCurrency } = useCurrency()
 
-  const { enabledIds: enabledOrderTypeIds } = useEnabledOrderTypes()
+  const { enabledIds: enabledOrderTypeIds, raw: orderTypesRaw } = useEnabledOrderTypes()
+
+  const createOrderPricingExtras = useMemo(
+    () => getOrderTypePricing(orderType, orderTypesRaw),
+    [orderType, orderTypesRaw]
+  )
 
   // If an admin disables the currently-selected order type mid-session,
   // auto-switch to the first enabled type and clear transient session state
@@ -719,7 +724,10 @@ export function CounterInterface() {
     )
 
   const cartSubtotal = cart.reduce((t, item) => t + item.product.price * item.quantity, 0)
-  const cartTotals = computeCartTotals(cartSubtotal, 0, createCheckoutIntent, pricing)
+  const cartTotals = computeCartTotals(cartSubtotal, 0, createCheckoutIntent, pricing, {
+    includeServiceCharge: createOrderPricingExtras.includeServiceCharge,
+    deliveryFee: createOrderPricingExtras.deliveryFee,
+  })
 
   const addToCart = (product: Product) => {
     if (!canUseCart) return
@@ -1068,13 +1076,12 @@ export function CounterInterface() {
 
   const paymentTotals = useMemo(() => {
     if (!payOrder) return null
-    return computeCartTotals(
-      payOrder.subtotal,
-      payOrder.discount_amount,
-      paymentCheckoutIntent,
-      pricing
-    )
-  }, [payOrder, paymentCheckoutIntent, pricing])
+    const p = getOrderTypePricing(payOrder.order_type, orderTypesRaw)
+    return computeCartTotals(payOrder.subtotal, payOrder.discount_amount, paymentCheckoutIntent, pricing, {
+      includeServiceCharge: p.includeServiceCharge,
+      deliveryFee: p.deliveryFee,
+    })
+  }, [payOrder, paymentCheckoutIntent, pricing, orderTypesRaw])
 
   const onPaymentIntent = (intent: 'cash' | 'card' | 'online') => {
     if (!selectedOrder) return
@@ -1892,6 +1899,7 @@ export function CounterInterface() {
                         tax: cartTotals.tax,
                         taxRate: cartTotals.taxRate,
                         serviceRate: cartTotals.serviceRate,
+                        delivery: cartTotals.delivery,
                         total: cartTotals.total,
                       }
                 }

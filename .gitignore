@@ -84,6 +84,11 @@ files/
 *.dump
 *.backup
 
+# Local schema snapshots (pg_dump / make schema-dump-docker — restaurant-specific; never commit)
+database/schema/generated_from_db.sql
+database/schema/railway_live_snapshot.sql
+database/schema/*_snapshot.sql
+
 # Temporary files
 *.tmp
 *.temp

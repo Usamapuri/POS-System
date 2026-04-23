@@ -20,20 +20,39 @@ export function mergePricingSettings(p?: Partial<PricingSettings> | null): Prici
   }
 }
 
+export interface OrderPricingExtras {
+  /** When false, service amount is 0 (global % still in Financial for dine-in, etc.). */
+  includeServiceCharge?: boolean
+  /** Flat delivery add-on; not in tax base. */
+  deliveryFee?: number
+}
+
 export function computeCartTotals(
   subtotal: number,
   discount: number,
   intent: 'cash' | 'card' | 'online',
-  p: PricingSettings
+  p: PricingSettings,
+  extras?: OrderPricingExtras
 ) {
+  const includeSvc = extras?.includeServiceCharge !== false
+  const deliveryFee = round2(Math.max(0, extras?.deliveryFee ?? 0))
+  const effServiceRate = includeSvc ? p.service_charge_rate : 0
   const taxable = Math.max(0, subtotal - discount)
-  const service = round2(taxable * p.service_charge_rate)
+  const service = round2(taxable * effServiceRate)
   const tr =
     intent === 'card' ? p.tax_rate_card : intent === 'online' ? p.tax_rate_online : p.tax_rate_cash
   const tax = round2(taxable * tr)
-  const total = round2(taxable + service + tax)
+  const total = round2(taxable + service + tax + deliveryFee)
   // `taxRate` and `serviceRate` are returned as fractions (0.15 == 15%) so
   // the caller can render a consistent "Sales Tax (15%)" / "Service Charges
   // (10%)" label alongside the money amount.
-  return { taxable, service, tax, total, taxRate: tr, serviceRate: p.service_charge_rate }
+  return {
+    taxable,
+    service,
+    tax,
+    total,
+    taxRate: tr,
+    serviceRate: effServiceRate,
+    delivery: deliveryFee,
+  }
 }

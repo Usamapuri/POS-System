@@ -153,6 +153,14 @@ export function CounterPaymentPanel({
           </span>
           <span className="font-medium tabular-nums">{formatCurrency(payOrder.tax_amount)}</span>
         </div>
+        {(payOrder.delivery_fee_amount ?? 0) > 0 && (
+          <div className="flex justify-between gap-4">
+            <span className="text-muted-foreground">Delivery fee</span>
+            <span className="font-medium tabular-nums">
+              {formatCurrency(payOrder.delivery_fee_amount ?? paymentTotals?.delivery ?? 0)}
+            </span>
+          </div>
+        )}
         <div className="flex justify-between gap-4 border-t border-border pt-2 text-base font-bold tracking-tight">
           <span>Total</span>
           <span className="tabular-nums">{formatCurrency(payOrder.total_amount)}</span>

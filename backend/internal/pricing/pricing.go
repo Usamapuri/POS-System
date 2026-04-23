@@ -87,29 +87,47 @@ func CheckoutIntentFromPaymentMethod(method string) string {
 	}
 }
 
-// ComputeTotals: taxable = subtotal - discount; service and tax on taxable; total = taxable + service + tax.
+// ComputeTotals applies the global service rate and no delivery fee (backward-compatible).
 func ComputeTotals(subtotal, discount float64, checkoutIntent string, s Settings) (taxable, serviceCharge, tax, total float64) {
+	return ComputeTotalsEx(subtotal, discount, checkoutIntent, s, s.ServiceChargeRate, 0)
+}
+
+// ComputeTotalsEx: service on taxable F&B; tax on same taxable; delivery fee is a flat add-on (not in tax base).
+func ComputeTotalsEx(subtotal, discount float64, checkoutIntent string, s Settings, serviceChargeRate, deliveryFee float64) (taxable, serviceCharge, tax, total float64) {
 	taxable = subtotal - discount
 	if taxable < 0 {
 		taxable = 0
 	}
-	serviceCharge = roundMoney(taxable * s.ServiceChargeRate)
+	serviceCharge = roundMoney(taxable * serviceChargeRate)
 	tr := TaxRateForCheckoutIntent(checkoutIntent, s)
 	tax = roundMoney(taxable * tr)
-	total = roundMoney(taxable + serviceCharge + tax)
+	if deliveryFee < 0 {
+		deliveryFee = 0
+	}
+	deliveryFee = roundMoney(deliveryFee)
+	total = roundMoney(taxable + serviceCharge + tax + deliveryFee)
 	return
 }
 
-// ComputeTotalsFromPaymentMethod uses the payment row method for tax (ProcessPayment).
+// ComputeTotalsFromPaymentMethod uses the global service rate and no delivery fee.
 func ComputeTotalsFromPaymentMethod(subtotal, discount float64, paymentMethod string, s Settings) (taxable, serviceCharge, tax, total float64) {
+	return ComputeTotalsFromPaymentMethodEx(subtotal, discount, paymentMethod, s, s.ServiceChargeRate, 0)
+}
+
+// ComputeTotalsFromPaymentMethodEx uses the payment method for the tax rate; service and delivery as passed.
+func ComputeTotalsFromPaymentMethodEx(subtotal, discount float64, paymentMethod string, s Settings, serviceChargeRate, deliveryFee float64) (taxable, serviceCharge, tax, total float64) {
 	taxable = subtotal - discount
 	if taxable < 0 {
 		taxable = 0
 	}
-	serviceCharge = roundMoney(taxable * s.ServiceChargeRate)
+	serviceCharge = roundMoney(taxable * serviceChargeRate)
 	tr := TaxRateForPaymentMethod(paymentMethod, s)
 	tax = roundMoney(taxable * tr)
-	total = roundMoney(taxable + serviceCharge + tax)
+	if deliveryFee < 0 {
+		deliveryFee = 0
+	}
+	deliveryFee = roundMoney(deliveryFee)
+	total = roundMoney(taxable + serviceCharge + tax + deliveryFee)
 	return
 }
 

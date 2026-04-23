@@ -108,7 +108,16 @@ func (h *OrderHandler) OpenCounterTableTab(c *gin.Context) {
 		ps = pricing.Defaults
 	}
 	checkoutIntent := "cash"
-	_, serviceCharge, taxAmount, totalAmount := pricing.ComputeTotals(0, 0, checkoutIntent, ps)
+	includeSvc, delFee, err := orderTypeServiceAndDelivery(h.db, "dine_in")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to load order type settings", Error: stringPtr(err.Error())})
+		return
+	}
+	effSvc := 0.0
+	if includeSvc {
+		effSvc = ps.ServiceChargeRate
+	}
+	_, serviceCharge, taxAmount, totalAmount := pricing.ComputeTotalsEx(0, 0, checkoutIntent, ps, effSvc, delFee)
 
 	openedAt := time.Now().UTC()
 	orderID := uuid.New()
@@ -130,16 +139,16 @@ func (h *OrderHandler) OpenCounterTableTab(c *gin.Context) {
 		INSERT INTO orders (
 			id, order_number, table_id, user_id, customer_id, customer_name, customer_email, customer_phone,
 			guest_birthday, table_opened_at, is_open_tab, order_type, status,
-			subtotal, tax_amount, discount_amount, service_charge_amount, total_amount, guest_count, checkout_payment_method
+			subtotal, tax_amount, discount_amount, service_charge_amount, delivery_fee_amount, total_amount, guest_count, checkout_payment_method
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
 			$9, $10, true, 'dine_in', 'pending',
-			0, $11, 0, $12, $13, $14, $15
+			0, $11, 0, $12, $13, $14, $15, $16
 		)`,
 		orderID, orderNumber, req.TableID, orderUserID, custIDArg,
 		req.CustomerName, nullIfEmptyPtr(req.CustomerEmail), nullIfEmptyPtr(req.CustomerPhone),
 		guestBD, openedAt,
-		taxAmount, serviceCharge, totalAmount, guestCount, checkoutIntent,
+		taxAmount, serviceCharge, delFee, totalAmount, guestCount, checkoutIntent,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: "Failed to create open tab", Error: stringPtr(err.Error())})

@@ -12,6 +12,8 @@ export interface OrderTypeConfig {
   id: string
   label: string
   enabled: boolean
+  include_service_charge?: boolean
+  delivery_fee?: number
 }
 
 /** The three built-in counter order types. Custom types (e.g. foodpanda) are
@@ -19,6 +21,20 @@ export interface OrderTypeConfig {
  * these three. Custom-type support is a separate concern. */
 const BUILT_IN_COUNTER_TYPES: readonly CounterOrderType[] = ['dine_in', 'takeout', 'delivery'] as const
 const ALL_ENABLED: ReadonlySet<CounterOrderType> = new Set(BUILT_IN_COUNTER_TYPES)
+
+/** Resolves per-type service and delivery defaults (aligned with backend order_types_guard). */
+export function getOrderTypePricing(
+  type: CounterOrderType,
+  raw: OrderTypeConfig[]
+): { includeServiceCharge: boolean; deliveryFee: number } {
+  const row = raw.find((r) => r.id === type)
+  const includeServiceCharge = row ? row.include_service_charge !== false : true
+  const deliveryFee =
+    type === 'delivery' && row && typeof row.delivery_fee === 'number' && !Number.isNaN(row.delivery_fee)
+      ? Math.max(0, row.delivery_fee)
+      : 0
+  return { includeServiceCharge, deliveryFee }
+}
 
 export interface UseEnabledOrderTypesResult {
   /**

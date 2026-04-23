@@ -102,6 +102,7 @@ type Order struct {
 	// Subtotal. Frontends use this to render "Discount (10%)" on receipts.
 	DiscountPercent      *float64 `json:"discount_percent,omitempty"`
 	ServiceChargeAmount  float64  `json:"service_charge_amount"`
+	DeliveryFeeAmount    float64  `json:"delivery_fee_amount"`
 	TotalAmount          float64  `json:"total_amount"`
 	CheckoutPaymentMethod *string `json:"checkout_payment_method,omitempty"`
 	GuestCount     int          `json:"guest_count"`

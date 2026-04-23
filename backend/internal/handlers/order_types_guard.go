@@ -8,8 +8,49 @@ import (
 // orderTypeConfigRow matches the shape persisted in app_settings.enabled_order_types
 // by the Admin UI (see frontend/src/components/admin/AdminSettings.tsx).
 type orderTypeConfigRow struct {
-	ID      string `json:"id"`
-	Enabled bool   `json:"enabled"`
+	ID                   string   `json:"id"`
+	Enabled              bool     `json:"enabled"`
+	IncludeServiceCharge *bool    `json:"include_service_charge"`
+	DeliveryFee          *float64 `json:"delivery_fee"`
+}
+
+// orderTypeServiceAndDelivery returns whether to apply the global service charge
+// rate for this order type and the flat delivery fee (delivery orders only).
+// Safe defaults on missing or malformed JSON: include service, no delivery fee.
+// Only returns a non-nil error on database failure.
+func orderTypeServiceAndDelivery(db *sql.DB, orderType string) (includeService bool, deliveryFee float64, err error) {
+	includeService = true
+	deliveryFee = 0
+	if orderType == "" {
+		return includeService, deliveryFee, nil
+	}
+
+	var raw []byte
+	e := db.QueryRow(`SELECT value FROM app_settings WHERE key = 'enabled_order_types'`).Scan(&raw)
+	if e == sql.ErrNoRows {
+		return includeService, deliveryFee, nil
+	}
+	if e != nil {
+		return false, 0, e
+	}
+
+	var rows []orderTypeConfigRow
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return includeService, deliveryFee, nil
+	}
+	for _, r := range rows {
+		if r.ID != orderType {
+			continue
+		}
+		if r.IncludeServiceCharge != nil {
+			includeService = *r.IncludeServiceCharge
+		}
+		if orderType == "delivery" && r.DeliveryFee != nil && *r.DeliveryFee > 0 {
+			deliveryFee = *r.DeliveryFee
+		}
+		return includeService, deliveryFee, nil
+	}
+	return includeService, deliveryFee, nil
 }
 
 // isOrderTypeEnabled returns true when the given order_type is permitted for

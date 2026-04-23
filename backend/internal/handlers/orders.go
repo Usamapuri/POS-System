@@ -54,7 +54,7 @@ func (h *OrderHandler) GetOrders(c *gin.Context) {
 		SELECT DISTINCT o.id, o.order_number, o.table_id, o.user_id, o.customer_id::text, o.customer_name,
 		       o.customer_email, o.customer_phone, o.guest_birthday, o.table_opened_at, COALESCE(o.is_open_tab, false),
 		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount, o.discount_percent,
-		       o.service_charge_amount, o.total_amount, o.checkout_payment_method, o.guest_count, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
+		       o.service_charge_amount, o.delivery_fee_amount, o.total_amount, o.checkout_payment_method, o.guest_count, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
 		       COALESCE(o.pra_invoice_printed, false), o.pra_invoice_number, o.pra_invoice_printed_at,
 		       t.table_number, t.location,
 		       u.username, u.first_name, u.last_name
@@ -141,7 +141,7 @@ func (h *OrderHandler) GetOrders(c *gin.Context) {
 			&order.ID, &order.OrderNumber, &order.TableID, &order.UserID, &custIDns, &order.CustomerName,
 			&custEmail, &custPhone, &guestBD, &tableOpened, &order.IsOpenTab,
 			&order.OrderType, &order.Status, &order.Subtotal, &order.TaxAmount, &order.DiscountAmount, &discountPct,
-			&order.ServiceChargeAmount, &order.TotalAmount, &checkoutMethod, &order.GuestCount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
+			&order.ServiceChargeAmount, &order.DeliveryFeeAmount, &order.TotalAmount, &checkoutMethod, &order.GuestCount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
 			&order.PraInvoicePrinted, &praInvoiceNumber, &praInvoicePrintedAt,
 			&tableNumber, &tableLocation,
 			&username, &firstName, &lastName,
@@ -449,7 +449,20 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 	}
 
 	checkoutIntent := "cash"
-	_, serviceCharge, taxAmount, totalAmount := pricing.ComputeTotals(subtotal, 0, checkoutIntent, ps)
+	includeSvc, deliveryFee, err := orderTypeServiceAndDelivery(h.db, req.OrderType)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Message: "Failed to load order type settings",
+			Error:   stringPtr(err.Error()),
+		})
+		return
+	}
+	effSvc := 0.0
+	if includeSvc {
+		effSvc = ps.ServiceChargeRate
+	}
+	_, serviceCharge, taxAmount, totalAmount := pricing.ComputeTotalsEx(subtotal, 0, checkoutIntent, ps, effSvc, deliveryFee)
 
 	// Create order
 	orderID := uuid.New()
@@ -477,16 +490,16 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 	orderQuery := `
 		INSERT INTO orders (id, order_number, table_id, user_id, customer_id, customer_name, customer_email, customer_phone,
 		                   guest_birthday, table_opened_at, is_open_tab, order_type, status,
-		                   subtotal, tax_amount, discount_amount, service_charge_amount, total_amount, guest_count, notes, checkout_payment_method)
+		                   subtotal, tax_amount, discount_amount, service_charge_amount, delivery_fee_amount, total_amount, guest_count, notes, checkout_payment_method)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
 		                   $9, NULL, false, $10, $11,
-		                   $12, $13, $14, $15, $16, $17, $18, $19)
+		                   $12, $13, $14, $15, $16, $17, $18, $19, $20)
 	`
 
 	_, err = tx.Exec(orderQuery, orderID, orderNumber, req.TableID, orderUserID, custID, req.CustomerName,
 		nullIfEmptyPtr(req.CustomerEmail), nullIfEmptyPtr(req.CustomerPhone),
 		guestBD,
-		req.OrderType, "pending", subtotal, taxAmount, 0, serviceCharge, totalAmount, req.GuestCount, req.Notes, checkoutIntent)
+		req.OrderType, "pending", subtotal, taxAmount, 0, serviceCharge, deliveryFee, totalAmount, req.GuestCount, req.Notes, checkoutIntent)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
@@ -828,18 +841,27 @@ func strPtrOrNil(s string) *string {
 
 func (h *OrderHandler) recalcOrderTotalsTx(tx *sql.Tx, orderID uuid.UUID, checkoutIntent string) error {
 	var subtotal, discount float64
-	if err := tx.QueryRow(`SELECT subtotal, discount_amount FROM orders WHERE id = $1`, orderID).Scan(&subtotal, &discount); err != nil {
+	var orderType string
+	if err := tx.QueryRow(`SELECT subtotal, discount_amount, order_type FROM orders WHERE id = $1`, orderID).Scan(&subtotal, &discount, &orderType); err != nil {
 		return err
 	}
 	ps, err := pricing.LoadSettings(h.db)
 	if err != nil {
 		ps = pricing.Defaults
 	}
-	_, svc, tax, total := pricing.ComputeTotals(subtotal, discount, checkoutIntent, ps)
+	includeSvc, deliveryFee, err := orderTypeServiceAndDelivery(h.db, orderType)
+	if err != nil {
+		return err
+	}
+	effSvc := 0.0
+	if includeSvc {
+		effSvc = ps.ServiceChargeRate
+	}
+	_, svc, tax, total := pricing.ComputeTotalsEx(subtotal, discount, checkoutIntent, ps, effSvc, deliveryFee)
 	_, err = tx.Exec(`
-		UPDATE orders SET tax_amount = $1, service_charge_amount = $2, total_amount = $3, checkout_payment_method = $4, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $5
-	`, tax, svc, total, checkoutIntent, orderID)
+		UPDATE orders SET tax_amount = $1, service_charge_amount = $2, delivery_fee_amount = $3, total_amount = $4, checkout_payment_method = $5, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $6
+	`, tax, svc, deliveryFee, total, checkoutIntent, orderID)
 	return err
 }
 
@@ -1053,7 +1075,7 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 		SELECT o.id, o.order_number, o.table_id, o.user_id, o.customer_id::text, o.customer_name,
 		       o.customer_email, o.customer_phone, o.guest_birthday, o.table_opened_at, COALESCE(o.is_open_tab, false),
 		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount, o.discount_percent,
-		       o.service_charge_amount, o.total_amount, o.checkout_payment_method, o.guest_count, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
+		       o.service_charge_amount, o.delivery_fee_amount, o.total_amount, o.checkout_payment_method, o.guest_count, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
 		       COALESCE(o.pra_invoice_printed, false), o.pra_invoice_number, o.pra_invoice_printed_at,
 		       t.table_number, t.location,
 		       u.username, u.first_name, u.last_name
@@ -1074,7 +1096,7 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 		&order.ID, &order.OrderNumber, &order.TableID, &order.UserID, &custIDns, &order.CustomerName,
 		&custEmail, &custPhone, &guestBD, &tableOpened, &order.IsOpenTab,
 		&order.OrderType, &order.Status, &order.Subtotal, &order.TaxAmount, &order.DiscountAmount, &discountPct,
-		&order.ServiceChargeAmount, &order.TotalAmount, &checkoutMethod, &order.GuestCount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
+		&order.ServiceChargeAmount, &order.DeliveryFeeAmount, &order.TotalAmount, &checkoutMethod, &order.GuestCount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
 		&order.PraInvoicePrinted, &praInvoiceNumber, &praInvoicePrintedAt,
 		&tableNumber, &tableLocation,
 		&username, &firstName, &lastName,

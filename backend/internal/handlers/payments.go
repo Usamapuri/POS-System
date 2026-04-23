@@ -496,18 +496,27 @@ func (h *PaymentHandler) getPaymentByID(paymentID uuid.UUID) (*models.Payment, e
 
 func persistOrderTotalsForPayment(db *sql.DB, tx *sql.Tx, orderID uuid.UUID, paymentMethod string) error {
 	var subtotal, discount float64
-	if err := tx.QueryRow(`SELECT subtotal, discount_amount FROM orders WHERE id = $1`, orderID).Scan(&subtotal, &discount); err != nil {
+	var orderType string
+	if err := tx.QueryRow(`SELECT subtotal, discount_amount, order_type FROM orders WHERE id = $1`, orderID).Scan(&subtotal, &discount, &orderType); err != nil {
 		return err
 	}
 	ps, err := pricing.LoadSettings(db)
 	if err != nil {
 		ps = pricing.Defaults
 	}
-	_, svc, tax, total := pricing.ComputeTotalsFromPaymentMethod(subtotal, discount, paymentMethod, ps)
+	includeSvc, deliveryFee, err := orderTypeServiceAndDelivery(db, orderType)
+	if err != nil {
+		return err
+	}
+	effSvc := 0.0
+	if includeSvc {
+		effSvc = ps.ServiceChargeRate
+	}
+	_, svc, tax, total := pricing.ComputeTotalsFromPaymentMethodEx(subtotal, discount, paymentMethod, ps, effSvc, deliveryFee)
 	intent := pricing.CheckoutIntentFromPaymentMethod(paymentMethod)
 	_, err = tx.Exec(`
-		UPDATE orders SET tax_amount = $1, service_charge_amount = $2, total_amount = $3, checkout_payment_method = $4, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $5
-	`, tax, svc, total, intent, orderID)
+		UPDATE orders SET tax_amount = $1, service_charge_amount = $2, delivery_fee_amount = $3, total_amount = $4, checkout_payment_method = $5, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $6
+	`, tax, svc, deliveryFee, total, intent, orderID)
 	return err
 }

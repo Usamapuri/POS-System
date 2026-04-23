@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS orders (
     -- was entered as a percentage. Enables "Discount (10%)" on receipts.
     discount_percent DECIMAL(5,2) CHECK (discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 100)),
     service_charge_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+    delivery_fee_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
     total_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
     checkout_payment_method VARCHAR(20) CHECK (checkout_payment_method IS NULL OR checkout_payment_method IN ('cash', 'card', 'online')),
     guest_count INTEGER DEFAULT 0,

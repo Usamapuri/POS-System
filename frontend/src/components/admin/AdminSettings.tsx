@@ -30,6 +30,15 @@ import {
   Info,
   FileText,
 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Checkbox } from '@/components/ui/checkbox'
 import { KITCHEN_SETTINGS_QUERY_KEY } from '@/hooks/useKitchenSettings'
 import type { KitchenStation } from '@/types'
 import apiClient from '@/api/client'
@@ -43,6 +52,10 @@ interface OrderTypeConfig {
   id: string
   label: string
   enabled: boolean
+  /** When false, the global service charge % is not applied for this type at checkout. */
+  include_service_charge?: boolean
+  /** Flat per-order delivery fee; only used when id is `delivery`. */
+  delivery_fee?: number
 }
 
 type SettingsSection = 'general' | 'financial' | 'receipt' | 'pra' | 'order-types' | 'kitchen' | 'appearance'
@@ -437,9 +450,9 @@ export function AdminSettings() {
   // wired through the Counter/Checkout UI and backend guard; custom types are
   // intentionally not supported here.
   const BUILT_IN_ORDER_TYPES: readonly OrderTypeConfig[] = [
-    { id: 'dine_in', label: 'Dine In', enabled: true },
-    { id: 'takeout', label: 'Takeaway', enabled: true },
-    { id: 'delivery', label: 'Delivery', enabled: true },
+    { id: 'dine_in', label: 'Dine In', enabled: true, include_service_charge: true, delivery_fee: 0 },
+    { id: 'takeout', label: 'Takeaway', enabled: true, include_service_charge: true, delivery_fee: 0 },
+    { id: 'delivery', label: 'Delivery', enabled: true, include_service_charge: true, delivery_fee: 0 },
   ] as const
 
   const { data: orderTypes = [] } = useQuery<OrderTypeConfig[]>({
@@ -462,9 +475,22 @@ export function AdminSettings() {
     const byId = new Map(orderTypes.map((t) => [t.id, t]))
     const normalized: OrderTypeConfig[] = BUILT_IN_ORDER_TYPES.map((defn) => {
       const existing = byId.get(defn.id)
-      return existing
-        ? { ...defn, enabled: existing.enabled, label: existing.label || defn.label }
-        : { ...defn }
+      if (!existing) return { ...defn }
+      const include =
+        existing.include_service_charge === undefined || existing.include_service_charge === null
+          ? true
+          : Boolean(existing.include_service_charge)
+      const dFee =
+        typeof existing.delivery_fee === 'number' && !Number.isNaN(existing.delivery_fee)
+          ? existing.delivery_fee
+          : 0
+      return {
+        ...defn,
+        enabled: existing.enabled,
+        label: existing.label || defn.label,
+        include_service_charge: include,
+        delivery_fee: defn.id === 'delivery' ? dFee : 0,
+      }
     })
     setLocalOrderTypes(normalized)
   }, [orderTypes])
@@ -481,10 +507,39 @@ export function AdminSettings() {
     },
   })
 
-  const toggleOrderType = (id: string) => {
-    const updated = localOrderTypes.map((t) => (t.id === id ? { ...t, enabled: !t.enabled } : t))
+  const [orderTypeModalId, setOrderTypeModalId] = useState<string | null>(null)
+  const [otModalEnabled, setOtModalEnabled] = useState(true)
+  const [otModalIncludeSvc, setOtModalIncludeSvc] = useState(true)
+  const [otModalDeliveryFee, setOtModalDeliveryFee] = useState('0')
+
+  const openOrderTypeModal = (id: string) => {
+    const t = localOrderTypes.find((x) => x.id === id)
+    if (!t) return
+    setOrderTypeModalId(id)
+    setOtModalEnabled(t.enabled)
+    setOtModalIncludeSvc(t.include_service_charge !== false)
+    setOtModalDeliveryFee(String(t.delivery_fee ?? 0))
+  }
+
+  const saveOrderTypeModal = () => {
+    if (!orderTypeModalId) return
+    const df =
+      orderTypeModalId === 'delivery'
+        ? Math.max(0, Number.parseFloat(otModalDeliveryFee.replace(/,/g, '')) || 0)
+        : 0
+    const updated = localOrderTypes.map((t) =>
+      t.id === orderTypeModalId
+        ? {
+            ...t,
+            enabled: otModalEnabled,
+            include_service_charge: otModalIncludeSvc,
+            delivery_fee: df,
+          }
+        : t
+    )
     setLocalOrderTypes(updated)
     saveOrderTypesMutation.mutate(updated)
+    setOrderTypeModalId(null)
   }
 
   // ── Kitchen ──
@@ -946,53 +1001,136 @@ export function AdminSettings() {
     )
   }
 
-  const renderOrderTypes = () => (
-    <div className="space-y-6">
-      <SectionHeader
-        title="Order Types"
-        description="Control which order types are available in the POS interface. Only enabled types will appear for servers and counter staff"
-      />
-      <Card>
-        <CardContent className="pt-6 space-y-5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {localOrderTypes.map((type) => (
-              <button
-                key={type.id}
-                onClick={() => toggleOrderType(type.id)}
-                className={`group relative p-4 rounded-lg border-2 text-left transition-all ${
-                  type.enabled
-                    ? 'border-primary/40 bg-primary/5 hover:border-primary/60'
-                    : 'border-muted bg-muted/30 opacity-70 hover:opacity-90'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="font-medium text-sm">{type.label}</span>
-                  {type.enabled && (
-                    <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-                      <Check className="w-3 h-3 text-primary-foreground" />
-                    </div>
+  const renderOrderTypes = () => {
+    const modalType = orderTypeModalId
+      ? localOrderTypes.find((t) => t.id === orderTypeModalId)
+      : undefined
+    return (
+      <div className="space-y-6">
+        <SectionHeader
+          title="Order Types"
+          description="Control which order types are available in the POS interface. Only enabled types will appear for servers and counter staff. Click a card to configure service charge and delivery fee."
+        />
+        <Card>
+          <CardContent className="pt-6 space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {localOrderTypes.map((type) => (
+                <button
+                  key={type.id}
+                  type="button"
+                  onClick={() => openOrderTypeModal(type.id)}
+                  className={`group relative p-4 rounded-lg border-2 text-left transition-all ${
+                    type.enabled
+                      ? 'border-primary/40 bg-primary/5 hover:border-primary/60'
+                      : 'border-muted bg-muted/30 opacity-70 hover:opacity-90'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-medium text-sm">{type.label}</span>
+                    {type.enabled && (
+                      <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                        <Check className="w-3 h-3 text-primary-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant={type.enabled ? 'default' : 'secondary'} className="text-xs">
+                      {type.enabled ? 'Active' : 'Disabled'}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground font-mono">{type.id}</span>
+                  </div>
+                  {type.include_service_charge === false && (
+                    <p className="text-[11px] text-muted-foreground mt-2">No service charge</p>
                   )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={type.enabled ? 'default' : 'secondary'} className="text-xs">
-                    {type.enabled ? 'Active' : 'Disabled'}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground font-mono">{type.id}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-
-          {saveOrderTypesMutation.isPending && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              Saving...
+                  {type.id === 'delivery' && (type.delivery_fee ?? 0) > 0 && (
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Delivery fee: {type.delivery_fee}
+                    </p>
+                  )}
+                </button>
+              ))}
             </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  )
+
+            {saveOrderTypesMutation.isPending && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Saving...
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Dialog
+          open={orderTypeModalId !== null}
+          onOpenChange={(o) => {
+            if (!o) setOrderTypeModalId(null)
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {modalType ? `Configure ${modalType.label}` : 'Order type'}
+              </DialogTitle>
+              <DialogDescription>
+                Changes apply at the checkout counter for new and updated tickets. The service charge
+                rate is set under Financial; here you only choose whether it applies to this order type.
+              </DialogDescription>
+            </DialogHeader>
+            {modalType && (
+              <div className="space-y-4 py-1">
+                <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                  <div>
+                    <p className="text-sm font-medium">Available in POS</p>
+                    <p className="text-xs text-muted-foreground">When off, staff cannot start this order type.</p>
+                  </div>
+                  <Switch checked={otModalEnabled} onCheckedChange={setOtModalEnabled} />
+                </div>
+                <div className="flex items-start gap-3 rounded-md border p-3">
+                  <Checkbox
+                    id="ot-svc"
+                    checked={otModalIncludeSvc}
+                    onCheckedChange={(c) => setOtModalIncludeSvc(c === true)}
+                    className="mt-0.5"
+                  />
+                  <div className="space-y-0.5">
+                    <label htmlFor="ot-svc" className="text-sm font-medium leading-none cursor-pointer">
+                      Apply service charge
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      Uses the global service charge % on food &amp; beverage (after discount) for this order
+                      type.
+                    </p>
+                  </div>
+                </div>
+                {modalType.id === 'delivery' && (
+                  <FieldGroup label="Delivery fee (flat per order)">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={otModalDeliveryFee}
+                      onChange={(e) => setOtModalDeliveryFee(e.target.value)}
+                    />
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Added after tax; not included in the sales tax base. Currency matches your store setting.
+                    </p>
+                  </FieldGroup>
+                )}
+              </div>
+            )}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setOrderTypeModalId(null)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={saveOrderTypeModal} disabled={saveOrderTypesMutation.isPending}>
+                {saveOrderTypesMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    )
+  }
 
   const renderKitchen = () => {
     const mode = kitchenForm.mode

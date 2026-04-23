@@ -1,4 +1,26 @@
--- POS System Database Schema
+-- ============================================================================
+-- POS System — canonical full schema (greenfield CREATE)
+-- ============================================================================
+--
+-- Purpose: Single human-readable architecture document for tables, indexes,
+-- constraints, triggers, and functions used by the Go API.
+--
+-- Source: Merged from database/init/01_schema.sql plus DDL that otherwise
+-- only appears in backend/internal/database/schema_patches.go (runtime
+-- idempotent patches for older volumes).
+--
+-- Maintenance (pick one workflow and stick to it):
+--   1. After schema changes: edit this file OR database/init/01_schema.sql in
+--      tandem with schema_patches.go / migrations, keeping them aligned.
+--   2. Or regenerate from a DB that has run ApplySchemaPatches at least once:
+--        make schema-dump DATABASE_URL=postgres://...
+--      (requires PostgreSQL client tools: pg_dump)
+--
+-- Do NOT paste production credentials into chat or commit them.
+--
+-- Related: database/migrations/*.sql (incremental), embedded_railway_init.sql,
+--           schema_patches.go (startup compatibility layer)
+-- ============================================================================
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -11,28 +33,13 @@ CREATE TABLE users (
     password_hash VARCHAR(255) NOT NULL,
     first_name VARCHAR(50) NOT NULL,
     last_name VARCHAR(50) NOT NULL,
-    role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'manager', 'inventory_manager', 'counter', 'kitchen')),
+    role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'manager', 'server', 'counter', 'kitchen', 'store_manager')),
     manager_pin VARCHAR(4),
     profile_image_url TEXT,
     is_active BOOLEAN DEFAULT true,
-    -- Self-service password flow (see migrations/004_auth_password_reset.sql).
-    -- token_hash stores sha256(token); the raw token never touches the DB.
-    password_reset_token_hash   TEXT,
-    password_reset_expires_at   TIMESTAMPTZ,
-    password_reset_requested_at TIMESTAMPTZ,
-    last_login_at               TIMESTAMPTZ,
-    password_updated_at         TIMESTAMPTZ,
-    -- TRUE for the bhookly_support account seeded on every deployment. Rows
-    -- with this flag are hidden from /admin/users and protected from
-    -- update/delete by non-platform callers.
-    is_platform_admin           BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX idx_users_password_reset_token_hash
-    ON users(password_reset_token_hash)
-    WHERE password_reset_token_hash IS NOT NULL;
 
 -- Categories table
 CREATE TABLE categories (
@@ -53,7 +60,7 @@ CREATE TABLE products (
     name VARCHAR(100) NOT NULL,
     description TEXT,
     price DECIMAL(10,2) NOT NULL,
-    image_url TEXT,
+    image_url VARCHAR(500),
     barcode VARCHAR(50),
     sku VARCHAR(50) UNIQUE,
     is_available BOOLEAN DEFAULT true,
@@ -132,8 +139,10 @@ CREATE TABLE orders (
     -- NULL when the discount was entered as a flat amount (or there's no discount);
     -- 0–100 when the discount was entered as a percentage of `subtotal`.
     -- Retained so receipts / UI can render "Discount (10%)" faithfully.
-    discount_percent DECIMAL(5,2) CHECK (discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 100)),
+    discount_percent DECIMAL(5,2),
+    CONSTRAINT orders_discount_percent_range CHECK (discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 100)),
     service_charge_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+    -- Flat per-order delivery fee (from app_settings; not part of F&B tax base).
     delivery_fee_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
     total_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
     checkout_payment_method VARCHAR(20) CHECK (checkout_payment_method IS NULL OR checkout_payment_method IN ('cash', 'card', 'online')),
@@ -149,7 +158,11 @@ CREATE TABLE orders (
     -- the customer explicitly requests one at checkout. See printPraTaxInvoice.ts.
     pra_invoice_printed BOOLEAN NOT NULL DEFAULT false,
     pra_invoice_number VARCHAR(64),
-    pra_invoice_printed_at TIMESTAMP WITH TIME ZONE
+    pra_invoice_printed_at TIMESTAMP WITH TIME ZONE,
+    -- PRA late-print / reprint audit (see reports, MarkPraInvoicePrinted)
+    pra_invoice_reprint_count INTEGER NOT NULL DEFAULT 0,
+    pra_invoice_last_reprinted_at TIMESTAMP WITH TIME ZONE,
+    pra_invoice_last_reprinted_by UUID REFERENCES users(id) ON DELETE SET NULL
 );
 
 -- Order Items table
@@ -164,6 +177,8 @@ CREATE TABLE order_items (
     status VARCHAR(20) NOT NULL CHECK (status IN ('draft', 'sent', 'pending', 'preparing', 'ready', 'served', 'voided')) DEFAULT 'draft',
     kot_sent_at TIMESTAMP WITH TIME ZONE,
     kot_fire_generation INTEGER NOT NULL DEFAULT 1,
+    prepared_at TIMESTAMPTZ,
+    prepared_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -381,6 +396,7 @@ CREATE TABLE kitchen_stations (
     print_location VARCHAR(20) NOT NULL DEFAULT 'kitchen' CHECK (print_location IN ('kitchen', 'counter')),
     is_active BOOLEAN DEFAULT true,
     sort_order INTEGER DEFAULT 0,
+    urgency_minutes INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -405,10 +421,28 @@ CREATE TABLE void_log (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- KDS/KOT event audit (handlers/kot.go, api routes — prep analytics)
+CREATE TABLE kitchen_events (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    order_item_id UUID REFERENCES order_items(id) ON DELETE SET NULL,
+    event_type VARCHAR(40) NOT NULL CHECK (event_type IN (
+        'fired','item_started','item_prepared','item_unprepared',
+        'bumped','recalled','voided','served'
+    )),
+    station_id UUID REFERENCES kitchen_stations(id) ON DELETE SET NULL,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create indexes for better performance
 CREATE INDEX idx_orders_status ON orders(status);
 CREATE INDEX idx_orders_created_at ON orders(created_at);
 CREATE INDEX idx_orders_table_id ON orders(table_id);
+CREATE INDEX idx_orders_completed_status ON orders(completed_at) WHERE status = 'completed';
+CREATE INDEX idx_orders_created_status ON orders(created_at, status);
+CREATE INDEX idx_orders_pra_printed_at ON orders(pra_invoice_printed_at) WHERE pra_invoice_printed = true;
 CREATE INDEX idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX idx_order_items_product_id ON order_items(product_id);
 CREATE INDEX idx_products_category_id ON products(category_id);
@@ -439,6 +473,8 @@ CREATE INDEX idx_stock_batches_remaining ON stock_batches(stock_item_id) WHERE q
 CREATE INDEX idx_void_log_order ON void_log(order_id);
 CREATE INDEX idx_void_log_date ON void_log(created_at);
 CREATE INDEX idx_category_station ON category_station_map(station_id);
+CREATE INDEX idx_kitchen_events_order_created ON kitchen_events(order_id, created_at DESC);
+CREATE INDEX idx_kitchen_events_type_created ON kitchen_events(event_type, created_at DESC);
 
 -- Create triggers for updated_at timestamps
 -- App Settings (key-value configuration store)

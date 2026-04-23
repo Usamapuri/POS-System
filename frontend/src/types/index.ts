@@ -126,6 +126,8 @@ export interface Order {
    */
   discount_percent?: number | null;
   service_charge_amount?: number;
+  /** Flat delivery fee for delivery orders; not part of F&B tax base. */
+  delivery_fee_amount?: number;
   total_amount: number;
   checkout_payment_method?: 'cash' | 'card' | 'online';
   guest_count?: number;

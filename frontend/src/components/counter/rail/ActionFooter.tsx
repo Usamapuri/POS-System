@@ -9,6 +9,8 @@ export interface ActionFooterTotals {
   taxRate: number
   /** Service-charge fraction (0.10 == 10%); optional so legacy callers keep working. */
   serviceRate?: number
+  /** Flat delivery add-on (after tax); omit or 0 to hide. */
+  delivery?: number
   total: number
   discount?: number
   /** Discount percent (0–100) when the discount was entered as a percentage. */
@@ -108,6 +110,12 @@ export function ActionFooter({
             </span>
             <span className="font-medium tabular-nums">{formatCurrency(totals!.tax)}</span>
           </div>
+          {typeof totals!.delivery === 'number' && totals!.delivery > 0 && (
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">Delivery fee</span>
+              <span className="font-medium tabular-nums">{formatCurrency(totals!.delivery)}</span>
+            </div>
+          )}
           <div className="flex justify-between border-t border-border pt-2 text-base font-bold tracking-tight sm:text-lg">
             <span>Total</span>
             <span className="tabular-nums">{formatCurrency(totals!.total)}</span>
