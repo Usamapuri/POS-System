@@ -82,6 +82,15 @@ export function AdminSettings() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
   const { theme, setTheme } = useTheme()
+  const stationsErrorNotifiedRef = useRef(false)
+
+  const getSettingsErrorMessage = (operation: string, error: unknown) => {
+    const raw = error instanceof Error ? error.message : String(error)
+    if (raw.toLowerCase().includes('insufficient_permissions')) {
+      return `${operation} failed due to role permissions (${raw}).`
+    }
+    return `${operation} failed: ${raw}`
+  }
 
   // ── Global settings query ──
   const { data: allSettingsRes } = useQuery({
@@ -111,7 +120,11 @@ export function AdminSettings() {
       toast({ title: 'Settings saved', description: 'General settings updated.' })
     },
     onError: (e: unknown) => {
-      toast({ title: 'Save failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' })
+      toast({
+        title: 'Save failed',
+        description: getSettingsErrorMessage('General settings save', e),
+        variant: 'destructive',
+      })
     },
   })
 
@@ -153,7 +166,11 @@ export function AdminSettings() {
       toast({ title: 'Settings saved', description: 'Tax and service rates updated.' })
     },
     onError: (e: unknown) => {
-      toast({ title: 'Save failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' })
+      toast({
+        title: 'Save failed',
+        description: getSettingsErrorMessage('Financial settings save', e),
+        variant: 'destructive',
+      })
     },
   })
 
@@ -301,7 +318,11 @@ export function AdminSettings() {
       toast({ title: 'Settings saved', description: 'Receipt branding updated.' })
     },
     onError: (e: unknown) => {
-      toast({ title: 'Save failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' })
+      toast({
+        title: 'Save failed',
+        description: getSettingsErrorMessage('Receipt settings save', e),
+        variant: 'destructive',
+      })
     },
   })
 
@@ -322,7 +343,11 @@ export function AdminSettings() {
       toast({ title: 'Saved', description: 'PRA tax invoice settings updated.' })
     },
     onError: (e: unknown) => {
-      toast({ title: 'Save failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' })
+      toast({
+        title: 'Save failed',
+        description: getSettingsErrorMessage('PRA settings save', e),
+        variant: 'destructive',
+      })
     },
   })
 
@@ -447,6 +472,13 @@ export function AdminSettings() {
   const saveOrderTypesMutation = useMutation({
     mutationFn: async (types: OrderTypeConfig[]) => apiClient.updateSetting('enabled_order_types', types),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings', 'enabled_order_types'] }),
+    onError: (e: unknown) => {
+      toast({
+        title: 'Save failed',
+        description: getSettingsErrorMessage('Order types save', e),
+        variant: 'destructive',
+      })
+    },
   })
 
   const toggleOrderType = (id: string) => {
@@ -484,11 +516,24 @@ export function AdminSettings() {
     })
   }, [allSettingsRes])
 
-  const { data: stationsRes } = useQuery({
+  const { data: stationsRes, error: stationsError, isError: isStationsError } = useQuery({
     queryKey: ['admin', 'stations', 'list-for-settings'],
     queryFn: () => apiClient.getStations(),
     staleTime: 60_000,
   })
+  useEffect(() => {
+    if (!isStationsError) {
+      stationsErrorNotifiedRef.current = false
+      return
+    }
+    if (stationsErrorNotifiedRef.current) return
+    stationsErrorNotifiedRef.current = true
+    toast({
+      title: 'Kitchen stations unavailable',
+      description: getSettingsErrorMessage('Kitchen stations load', stationsError),
+      variant: 'destructive',
+    })
+  }, [isStationsError, stationsError, toast])
   const stations = (stationsRes?.data ?? []) as KitchenStation[]
   const kdsStationCount = stations.filter((s) => s.is_active && s.output_type === 'kds').length
   const printerStationCount = stations.filter((s) => s.is_active && s.output_type === 'printer').length
@@ -509,7 +554,11 @@ export function AdminSettings() {
       toast({ title: 'Settings saved', description: 'Kitchen configuration updated.' })
     },
     onError: (e: unknown) => {
-      toast({ title: 'Save failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' })
+      toast({
+        title: 'Save failed',
+        description: getSettingsErrorMessage('Kitchen settings save', e),
+        variant: 'destructive',
+      })
     },
   })
 

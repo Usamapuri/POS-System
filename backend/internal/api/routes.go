@@ -175,10 +175,10 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		adminManagerWrite.PUT("/settings/:key", settingsHandler.UpdateSetting)
 	}
 
-	// Kitchen station configuration — admins + kitchen (KDS + stations pages).
+	// Kitchen station configuration — admins + managers + kitchen.
 	adminStations := router.Group("/admin")
 	adminStations.Use(authMiddleware)
-	adminStations.Use(middleware.RequireRoles([]string{"admin", "kitchen"}))
+	adminStations.Use(middleware.RequireRoles([]string{"admin", "manager", "kitchen"}))
 	{
 		adminStations.GET("/stations", stationHandler.GetStations)
 		adminStations.POST("/stations", stationHandler.CreateStation)
