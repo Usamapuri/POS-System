@@ -44,7 +44,6 @@ export function AdminStaffManagement() {
     total: 0 
   })
 
-  // Debounce search term
   useEffect(() => {
     if (searchTerm !== debouncedSearch) {
       setIsSearching(true)

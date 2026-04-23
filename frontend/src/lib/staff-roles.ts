@@ -8,7 +8,7 @@ export function isStaffRole(role: string): role is StaffRole {
 
 const ROLE_ADMIN_PATHS: Record<StaffRole, string[] | null> = {
   admin: null,
-  manager: ['/admin/counter', '/admin/server', '/admin/menu', '/admin/tables', '/admin/void-log'],
+  manager: ['/admin/counter', '/admin/server', '/admin/menu', '/admin/tables', '/admin/staff', '/admin/void-log', '/admin/settings'],
   inventory_manager: ['/admin/inventory'],
   counter: ['/admin/counter', '/admin/server'],
   kitchen: ['/admin/kitchen', '/admin/stations'],
@@ -46,7 +46,7 @@ export function navSectionIdsForRole(role: string): Set<string> | null {
   if (role === 'admin') return null
   if (role === 'inventory_manager') return new Set(['inventory'])
   if (role === 'manager') {
-    return new Set(['counter', 'server', 'menu', 'tables', 'void-log'])
+    return new Set(['counter', 'server', 'menu', 'tables', 'staff', 'void-log', 'settings'])
   }
   if (role === 'counter') return new Set(['counter', 'server'])
   if (role === 'kitchen') return new Set(['kitchen', 'stations'])
