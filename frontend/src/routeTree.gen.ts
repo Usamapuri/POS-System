@@ -26,7 +26,6 @@ import { Route as AdminReportsRouteImport } from './routes/admin/reports'
 import { Route as AdminMenuRouteImport } from './routes/admin/menu'
 import { Route as AdminKitchenRouteImport } from './routes/admin/kitchen'
 import { Route as AdminInventoryRouteImport } from './routes/admin/inventory'
-import { Route as AdminFiscalAuditRouteImport } from './routes/admin/fiscal-audit'
 import { Route as AdminExpensesRouteImport } from './routes/admin/expenses'
 import { Route as AdminDashboardRouteImport } from './routes/admin/dashboard'
 import { Route as AdminCounterRouteImport } from './routes/admin/counter'
@@ -116,11 +115,6 @@ const AdminInventoryRoute = AdminInventoryRouteImport.update({
   path: '/inventory',
   getParentRoute: () => AdminRoute,
 } as any)
-const AdminFiscalAuditRoute = AdminFiscalAuditRouteImport.update({
-  id: '/fiscal-audit',
-  path: '/fiscal-audit',
-  getParentRoute: () => AdminRoute,
-} as any)
 const AdminExpensesRoute = AdminExpensesRouteImport.update({
   id: '/expenses',
   path: '/expenses',
@@ -147,7 +141,6 @@ export interface FileRoutesByFullPath {
   '/admin/counter': typeof AdminCounterRoute
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/expenses': typeof AdminExpensesRoute
-  '/admin/fiscal-audit': typeof AdminFiscalAuditRoute
   '/admin/inventory': typeof AdminInventoryRoute
   '/admin/kitchen': typeof AdminKitchenRoute
   '/admin/menu': typeof AdminMenuRoute
@@ -169,7 +162,6 @@ export interface FileRoutesByTo {
   '/admin/counter': typeof AdminCounterRoute
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/expenses': typeof AdminExpensesRoute
-  '/admin/fiscal-audit': typeof AdminFiscalAuditRoute
   '/admin/inventory': typeof AdminInventoryRoute
   '/admin/kitchen': typeof AdminKitchenRoute
   '/admin/menu': typeof AdminMenuRoute
@@ -193,7 +185,6 @@ export interface FileRoutesById {
   '/admin/counter': typeof AdminCounterRoute
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/expenses': typeof AdminExpensesRoute
-  '/admin/fiscal-audit': typeof AdminFiscalAuditRoute
   '/admin/inventory': typeof AdminInventoryRoute
   '/admin/kitchen': typeof AdminKitchenRoute
   '/admin/menu': typeof AdminMenuRoute
@@ -218,7 +209,6 @@ export interface FileRouteTypes {
     | '/admin/counter'
     | '/admin/dashboard'
     | '/admin/expenses'
-    | '/admin/fiscal-audit'
     | '/admin/inventory'
     | '/admin/kitchen'
     | '/admin/menu'
@@ -240,7 +230,6 @@ export interface FileRouteTypes {
     | '/admin/counter'
     | '/admin/dashboard'
     | '/admin/expenses'
-    | '/admin/fiscal-audit'
     | '/admin/inventory'
     | '/admin/kitchen'
     | '/admin/menu'
@@ -263,7 +252,6 @@ export interface FileRouteTypes {
     | '/admin/counter'
     | '/admin/dashboard'
     | '/admin/expenses'
-    | '/admin/fiscal-audit'
     | '/admin/inventory'
     | '/admin/kitchen'
     | '/admin/menu'
@@ -407,13 +395,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminInventoryRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/fiscal-audit': {
-      id: '/admin/fiscal-audit'
-      path: '/fiscal-audit'
-      fullPath: '/admin/fiscal-audit'
-      preLoaderRoute: typeof AdminFiscalAuditRouteImport
-      parentRoute: typeof AdminRoute
-    }
     '/admin/expenses': {
       id: '/admin/expenses'
       path: '/expenses'
@@ -442,7 +423,6 @@ interface AdminRouteChildren {
   AdminCounterRoute: typeof AdminCounterRoute
   AdminDashboardRoute: typeof AdminDashboardRoute
   AdminExpensesRoute: typeof AdminExpensesRoute
-  AdminFiscalAuditRoute: typeof AdminFiscalAuditRoute
   AdminInventoryRoute: typeof AdminInventoryRoute
   AdminKitchenRoute: typeof AdminKitchenRoute
   AdminMenuRoute: typeof AdminMenuRoute
@@ -460,7 +440,6 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminCounterRoute: AdminCounterRoute,
   AdminDashboardRoute: AdminDashboardRoute,
   AdminExpensesRoute: AdminExpensesRoute,
-  AdminFiscalAuditRoute: AdminFiscalAuditRoute,
   AdminInventoryRoute: AdminInventoryRoute,
   AdminKitchenRoute: AdminKitchenRoute,
   AdminMenuRoute: AdminMenuRoute,

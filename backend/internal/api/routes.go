@@ -258,9 +258,6 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		adminOnly.GET("/fiscal/config", fiscalHandler.GetConfig)
 		adminOnly.PUT("/fiscal/config", fiscalHandler.PutConfig)
 		adminOnly.POST("/fiscal/test-connection", fiscalHandler.TestConnection)
-		adminOnly.GET("/fiscal/audit", fiscalHandler.Audit)
-		adminOnly.POST("/fiscal/orders/:id/retry", fiscalHandler.Retry)
-		adminOnly.GET("/fiscal/orders/:id", fiscalHandler.GetFiscalOrder)
 	}
 
 	// Store inventory routes

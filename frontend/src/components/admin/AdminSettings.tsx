@@ -67,7 +67,7 @@ const NAV_ITEMS: { id: SettingsSection; label: string; icon: typeof Globe; descr
   { id: 'financial', label: 'Financial', icon: DollarSign, description: 'Tax rates and service charges' },
   { id: 'receipt', label: 'Receipt & Printing', icon: Printer, description: 'Receipt branding and layout' },
   { id: 'fiscal', label: 'Tax & Fiscal', icon: Shield, description: 'FBR/PRA digital reporting and credentials' },
-  { id: 'pra', label: 'PRA Tax Invoice', icon: FileText, description: 'Optional Punjab Revenue Authority slip' },
+  { id: 'pra', label: 'Tax Invoice Settings', icon: FileText, description: 'Printed tax slip, QR template, and reprints' },
   { id: 'order-types', label: 'Order Types', icon: UtensilsCrossed, description: 'Manage available order types' },
   { id: 'kitchen', label: 'Kitchen', icon: ChefHat, description: 'KDS mode and kitchen thresholds' },
   { id: 'appearance', label: 'Appearance', icon: Palette, description: 'Theme and display preferences' },
@@ -223,7 +223,7 @@ export function AdminSettings() {
 
   const [customerReceipt, setCustomerReceipt] = useState<ReceiptFormState>(EMPTY_RECEIPT_FORM)
 
-  // ── PRA (Punjab Revenue Authority) tax invoice ──
+  // ── Tax invoice (printed PRA-style slip) — see also Tax & Fiscal for digital sync ──
   // These live in the same `app_settings` key-value store under simple keys,
   // gated by `pra_invoice_enabled`. When disabled, the post-payment prompt
   // is never shown to cashiers.
@@ -356,12 +356,12 @@ export function AdminSettings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'all'] })
-      toast({ title: 'Saved', description: 'PRA tax invoice settings updated.' })
+      toast({ title: 'Saved', description: 'Tax invoice settings updated.' })
     },
     onError: (e: unknown) => {
       toast({
         title: 'Save failed',
-        description: getSettingsErrorMessage('PRA settings save', e),
+        description: getSettingsErrorMessage('Tax invoice settings save', e),
         variant: 'destructive',
       })
     },
@@ -1284,25 +1284,26 @@ export function AdminSettings() {
   const renderPra = () => (
     <div className="space-y-6">
       <SectionHeader
-        title="PRA Tax Invoice"
-        description="Optional second receipt for Punjab Revenue Authority tax compliance. The standard customer receipt is always printed; this slip is only produced when the customer asks for it"
+        title="Tax Invoice Settings"
+        description="Configure the optional printed tax invoice slip (same document your team already uses at checkout). The standard customer receipt is always printed; this tax slip is only produced when the customer asks for it. Government digital reporting (FBR/PRA sync) is configured under Tax & Fiscal."
       />
 
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="text-base flex items-center gap-2">
-            <FileText className="w-4 h-4" /> PRA Tax Invoice
+            <FileText className="w-4 h-4" /> Printed tax invoice slip
           </CardTitle>
           <CardDescription>
-            When enabled, the cashier is prompted after payment to optionally print a second
-            <strong> Punjab Revenue Authority</strong> tax invoice slip (PRA logo, QR code, invoice
-            number).
+            When enabled, the cashier is prompted after payment to optionally print a second slip: your
+            <strong> Punjab Revenue Authority</strong>-style tax invoice (PRA branding, QR code, invoice
+            number field). This is the physical tax receipt; it works alongside digital fiscal settings in{' '}
+            <strong>Tax &amp; Fiscal</strong>.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/30 p-4">
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">Enable PRA tax invoice prompt</p>
+              <p className="text-sm font-medium">Enable tax invoice prompt at checkout</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Adds a post-payment prompt with <em>Skip</em> (default) and <em>Print PRA Invoice</em>{' '}
                 buttons. Leave off to keep checkout identical to today.
@@ -1311,7 +1312,7 @@ export function AdminSettings() {
             <Switch
               checked={praForm.enabled}
               onCheckedChange={(v) => setPraForm((p) => ({ ...p, enabled: v }))}
-              aria-label="Enable PRA tax invoice"
+              aria-label="Enable tax invoice prompt at checkout"
             />
           </div>
 
@@ -1331,7 +1332,7 @@ export function AdminSettings() {
 
               <FieldGroup
                 label="Footer Note"
-                hint="Optional short line rendered above the PRA logo on the tax invoice slip."
+                hint="Optional short line shown on the tax invoice slip (above the logo area)."
               >
                 <Textarea
                   rows={2}
@@ -1349,9 +1350,9 @@ export function AdminSettings() {
             <div>
               <p className="text-sm font-medium">Late printing (reprints)</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Lets cashiers issue a PRA invoice for a past order from{' '}
-                <strong>Reports → Orders</strong> when the customer comes back later. Admins and
-                admins can always reprint regardless of this window.
+                Lets cashiers issue a tax invoice for a past order from{' '}
+                <strong>View Reports → Orders Browser</strong> when the customer comes back later.
+                Admins can always reprint regardless of this window.
               </p>
             </div>
             <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
@@ -1364,7 +1365,7 @@ export function AdminSettings() {
               <Switch
                 checked={praForm.late_print_enabled}
                 onCheckedChange={(v) => setPraForm((p) => ({ ...p, late_print_enabled: v }))}
-                aria-label="Allow late PRA reprints"
+                aria-label="Allow late tax invoice reprints"
               />
             </div>
             <FieldGroup
@@ -1393,8 +1394,9 @@ export function AdminSettings() {
           <div className="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 p-3 text-xs text-amber-900 dark:text-amber-200">
             <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
             <p>
-              The PRA invoice number field is printed blank during rollout. A future update will wire
-              it to the PRA API / a sequential counter without changing this screen.
+              The invoice number on this printed slip may show blank until it is wired to your
+              sequential counter or government API. Digital IRN/QR sync for compliance is configured
+              under <strong>Tax &amp; Fiscal</strong>.
             </p>
           </div>
 
@@ -1406,7 +1408,7 @@ export function AdminSettings() {
               {savePraInvoice.isPending
                 ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 : <Save className="w-4 h-4 mr-2" />}
-              Save PRA Settings
+              Save tax invoice settings
             </Button>
           </div>
         </CardContent>

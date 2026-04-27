@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Loader2, Save, Link2, Shield } from 'lucide-react'
+import { Loader2, Save, Shield } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import apiClient from '@/api/client'
 import { useToast } from '@/hooks/use-toast'
@@ -196,26 +195,26 @@ export function FiscalSettingsPanel() {
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2 pt-2">
-            <Button type="button" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-              {saveMut.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-              Save fiscal settings
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => testMut.mutate()}
-              disabled={testMut.isPending || authority === 'NONE'}
-            >
-              {testMut.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              Test sandbox connection
-            </Button>
-            <Button type="button" variant="outline" asChild>
-              <Link to="/admin/fiscal-audit" className="gap-2">
-                <Link2 className="w-4 h-4" />
-                Open fiscal audit log
-              </Link>
-            </Button>
+          <div className="space-y-2 pt-2">
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+                {saveMut.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                Save fiscal settings
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => testMut.mutate()}
+                disabled={testMut.isPending || authority === 'NONE'}
+              >
+                {testMut.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                Test sandbox connection
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground max-w-prose">
+              Per-order fiscal sync status and PRA print state are in{' '}
+              <strong>View Reports</strong> → <strong>Orders Browser</strong>.
+            </p>
           </div>
         </CardContent>
       </Card>

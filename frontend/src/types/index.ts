@@ -115,16 +115,6 @@ export interface FiscalTestConnectionResult {
   error?: string;
 }
 
-export interface FiscalAuditRow {
-  order_id: string;
-  order_number: string;
-  total_amount: number;
-  tax_amount: number;
-  authority: string;
-  status: string;
-  completed_at?: string;
-}
-
 // Table Types
 export interface DiningTable {
   id: string;

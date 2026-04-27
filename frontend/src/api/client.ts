@@ -65,8 +65,6 @@ import type {
   DashboardAlert,
   FiscalConfigPublic,
   FiscalTestConnectionResult,
-  FiscalAuditRow,
-  FiscalDetails,
 } from '@/types';
 
 class APIClient {
@@ -1320,26 +1318,6 @@ class APIClient {
 
   async postFiscalTestConnection(body: { authority?: string }): Promise<APIResponse<FiscalTestConnectionResult>> {
     return this.request({ method: 'POST', url: '/admin/fiscal/test-connection', data: body });
-  }
-
-  async getFiscalAudit(): Promise<APIResponse<FiscalAuditRow[]>> {
-    return this.request({ method: 'GET', url: '/admin/fiscal/audit' });
-  }
-
-  async postFiscalRetry(orderId: string): Promise<APIResponse> {
-    return this.request({ method: 'POST', url: `/admin/fiscal/orders/${orderId}/retry` });
-  }
-
-  async getFiscalOrder(orderId: string): Promise<
-    APIResponse<{
-      order_id: string
-      order_number: string
-      total_amount: number
-      tax_amount: number
-      fiscal_details: FiscalDetails
-    }>
-  > {
-    return this.request({ method: 'GET', url: `/admin/fiscal/orders/${orderId}` });
   }
 
   // Utility methods
