@@ -66,6 +66,7 @@ CREATE TABLE products (
     is_available BOOLEAN DEFAULT true,
     preparation_time INTEGER DEFAULT 0, -- in minutes
     sort_order INTEGER DEFAULT 0,
+    pct_code VARCHAR(32) NOT NULL DEFAULT '9801.7000',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -162,7 +163,8 @@ CREATE TABLE orders (
     -- PRA late-print / reprint audit (see reports, MarkPraInvoicePrinted)
     pra_invoice_reprint_count INTEGER NOT NULL DEFAULT 0,
     pra_invoice_last_reprinted_at TIMESTAMP WITH TIME ZONE,
-    pra_invoice_last_reprinted_by UUID REFERENCES users(id) ON DELETE SET NULL
+    pra_invoice_last_reprinted_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    fiscal_details JSONB
 );
 
 -- Order Items table

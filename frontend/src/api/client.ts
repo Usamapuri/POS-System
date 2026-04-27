@@ -63,6 +63,10 @@ import type {
   PaymentMixSlice,
   OrderTypeMixSlice,
   DashboardAlert,
+  FiscalConfigPublic,
+  FiscalTestConnectionResult,
+  FiscalAuditRow,
+  FiscalDetails,
 } from '@/types';
 
 class APIClient {
@@ -1293,6 +1297,49 @@ class APIClient {
 
   async getAllSettings(): Promise<APIResponse<Record<string, any>>> {
     return this.request({ method: 'GET', url: '/settings' });
+  }
+
+  // Fiscal (FBR/PRA) — admin only
+  async getFiscalConfig(): Promise<APIResponse<FiscalConfigPublic>> {
+    return this.request({ method: 'GET', url: '/admin/fiscal/config' });
+  }
+
+  async putFiscalConfig(data: {
+    authority: string
+    pos_id: string
+    ntn: string
+    is_sandbox: boolean
+    strn?: string
+    pntn?: string
+    pos_registration_number?: string
+    sfd_proxy_url?: string
+    api_key?: string
+  }): Promise<APIResponse> {
+    return this.request({ method: 'PUT', url: '/admin/fiscal/config', data });
+  }
+
+  async postFiscalTestConnection(body: { authority?: string }): Promise<APIResponse<FiscalTestConnectionResult>> {
+    return this.request({ method: 'POST', url: '/admin/fiscal/test-connection', data: body });
+  }
+
+  async getFiscalAudit(): Promise<APIResponse<FiscalAuditRow[]>> {
+    return this.request({ method: 'GET', url: '/admin/fiscal/audit' });
+  }
+
+  async postFiscalRetry(orderId: string): Promise<APIResponse> {
+    return this.request({ method: 'POST', url: `/admin/fiscal/orders/${orderId}/retry` });
+  }
+
+  async getFiscalOrder(orderId: string): Promise<
+    APIResponse<{
+      order_id: string
+      order_number: string
+      total_amount: number
+      tax_amount: number
+      fiscal_details: FiscalDetails
+    }>
+  > {
+    return this.request({ method: 'GET', url: `/admin/fiscal/orders/${orderId}` });
   }
 
   // Utility methods

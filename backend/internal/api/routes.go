@@ -38,6 +38,7 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 	counterHandler := handlers.NewCounterHandler(db)
 	reportsHandler := handlers.NewReportsHandler(db)
 	dashboardHandler := handlers.NewDashboardHandler(db)
+	fiscalHandler := handlers.NewFiscalHandler(db)
 
 	// Public routes (no authentication required)
 	public := router.Group("/")
@@ -252,6 +253,14 @@ func SetupRoutes(router *gin.RouterGroup, db *sql.DB, authMiddleware gin.Handler
 		adminOnly.GET("/reports/expense-intelligence", expenseHandler.GetExpenseIntelligence)
 
 		adminOnly.GET("/customers", listAdminCustomers(db))
+
+		// Fiscal compliance (FBR/PRA/mock)
+		adminOnly.GET("/fiscal/config", fiscalHandler.GetConfig)
+		adminOnly.PUT("/fiscal/config", fiscalHandler.PutConfig)
+		adminOnly.POST("/fiscal/test-connection", fiscalHandler.TestConnection)
+		adminOnly.GET("/fiscal/audit", fiscalHandler.Audit)
+		adminOnly.POST("/fiscal/orders/:id/retry", fiscalHandler.Retry)
+		adminOnly.GET("/fiscal/orders/:id", fiscalHandler.GetFiscalOrder)
 	}
 
 	// Store inventory routes
@@ -1423,6 +1432,7 @@ func createProduct(db *sql.DB) gin.HandlerFunc {
 			ImageURL        *string `json:"image_url"`
 			Barcode         *string `json:"barcode"`
 			SKU             *string `json:"sku"`
+			PctCode         *string `json:"pct_code"`
 			PreparationTime int     `json:"preparation_time"`
 			SortOrder       int     `json:"sort_order"`
 		}
@@ -1436,12 +1446,16 @@ func createProduct(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		pct := "9801.7000"
+		if req.PctCode != nil && strings.TrimSpace(*req.PctCode) != "" {
+			pct = strings.TrimSpace(*req.PctCode)
+		}
 		var productID string
 		err := db.QueryRow(`
-			INSERT INTO products (category_id, name, description, price, image_url, barcode, sku, preparation_time, sort_order)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			INSERT INTO products (category_id, name, description, price, image_url, barcode, sku, preparation_time, sort_order, pct_code)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			RETURNING id
-		`, req.CategoryID, req.Name, req.Description, req.Price, req.ImageURL, req.Barcode, req.SKU, req.PreparationTime, req.SortOrder).Scan(&productID)
+		`, req.CategoryID, req.Name, req.Description, req.Price, req.ImageURL, req.Barcode, req.SKU, req.PreparationTime, req.SortOrder, pct).Scan(&productID)
 
 		if err != nil {
 			c.JSON(500, gin.H{
@@ -1473,6 +1487,7 @@ func updateProduct(db *sql.DB) gin.HandlerFunc {
 			ImageURL        *string  `json:"image_url"`
 			Barcode         *string  `json:"barcode"`
 			SKU             *string  `json:"sku"`
+			PctCode         *string  `json:"pct_code"`
 			IsAvailable     *bool    `json:"is_available"`
 			PreparationTime *int     `json:"preparation_time"`
 			SortOrder       *int     `json:"sort_order"`
@@ -1525,6 +1540,15 @@ func updateProduct(db *sql.DB) gin.HandlerFunc {
 		if req.SKU != nil {
 			updates = append(updates, fmt.Sprintf("sku = $%d", argCount))
 			args = append(args, req.SKU)
+			argCount++
+		}
+		if req.PctCode != nil {
+			pc := strings.TrimSpace(*req.PctCode)
+			if pc == "" {
+				pc = "9801.7000"
+			}
+			updates = append(updates, fmt.Sprintf("pct_code = $%d", argCount))
+			args = append(args, pc)
 			argCount++
 		}
 		if req.IsAvailable != nil {

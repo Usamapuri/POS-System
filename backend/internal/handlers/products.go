@@ -46,6 +46,7 @@ func (h *ProductHandler) GetProducts(c *gin.Context) {
 	queryBuilder := `
 		SELECT p.id, p.category_id, p.name, p.description, p.price, p.image_url, 
 		       p.barcode, p.sku, p.is_available, p.preparation_time, p.sort_order,
+		       COALESCE(NULLIF(TRIM(p.pct_code), ''), '9801.7000'),
 		       p.created_at, p.updated_at,
 		       c.name as category_name, c.color as category_color
 		FROM products p
@@ -118,6 +119,7 @@ func (h *ProductHandler) GetProducts(c *gin.Context) {
 			&product.ID, &product.CategoryID, &product.Name, &product.Description,
 			&product.Price, &product.ImageURL, &product.Barcode, &product.SKU,
 			&product.IsAvailable, &product.PreparationTime, &product.SortOrder,
+			&product.PctCode,
 			&product.CreatedAt, &product.UpdatedAt,
 			&categoryName, &categoryColor,
 		)
@@ -175,6 +177,7 @@ func (h *ProductHandler) GetProduct(c *gin.Context) {
 	query := `
 		SELECT p.id, p.category_id, p.name, p.description, p.price, p.image_url, 
 		       p.barcode, p.sku, p.is_available, p.preparation_time, p.sort_order,
+		       COALESCE(NULLIF(TRIM(p.pct_code), ''), '9801.7000'),
 		       p.created_at, p.updated_at,
 		       c.name as category_name, c.color as category_color
 		FROM products p
@@ -186,6 +189,7 @@ func (h *ProductHandler) GetProduct(c *gin.Context) {
 		&product.ID, &product.CategoryID, &product.Name, &product.Description,
 		&product.Price, &product.ImageURL, &product.Barcode, &product.SKU,
 		&product.IsAvailable, &product.PreparationTime, &product.SortOrder,
+		&product.PctCode,
 		&product.CreatedAt, &product.UpdatedAt,
 		&categoryName, &categoryColor,
 	)
@@ -294,6 +298,7 @@ func (h *ProductHandler) GetProductsByCategory(c *gin.Context) {
 	query := `
 		SELECT p.id, p.category_id, p.name, p.description, p.price, p.image_url, 
 		       p.barcode, p.sku, p.is_available, p.preparation_time, p.sort_order,
+		       COALESCE(NULLIF(TRIM(p.pct_code), ''), '9801.7000'),
 		       p.created_at, p.updated_at,
 		       c.name as category_name, c.color as category_color
 		FROM products p
@@ -327,6 +332,7 @@ func (h *ProductHandler) GetProductsByCategory(c *gin.Context) {
 			&product.ID, &product.CategoryID, &product.Name, &product.Description,
 			&product.Price, &product.ImageURL, &product.Barcode, &product.SKU,
 			&product.IsAvailable, &product.PreparationTime, &product.SortOrder,
+			&product.PctCode,
 			&product.CreatedAt, &product.UpdatedAt,
 			&categoryName, &categoryColor,
 		)

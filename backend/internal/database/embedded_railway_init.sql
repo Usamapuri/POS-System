@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS products (
     is_available BOOLEAN DEFAULT true,
     preparation_time INTEGER DEFAULT 0,
     sort_order INTEGER DEFAULT 0,
+    pct_code VARCHAR(32) NOT NULL DEFAULT '9801.7000',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -127,7 +128,8 @@ CREATE TABLE IF NOT EXISTS orders (
     served_at TIMESTAMP WITH TIME ZONE,
     completed_at TIMESTAMP WITH TIME ZONE,
     kot_first_sent_at TIMESTAMP WITH TIME ZONE,
-    kitchen_bumped_at TIMESTAMP WITH TIME ZONE
+    kitchen_bumped_at TIMESTAMP WITH TIME ZONE,
+    fiscal_details JSONB
 );
 
 CREATE TABLE IF NOT EXISTS order_items (

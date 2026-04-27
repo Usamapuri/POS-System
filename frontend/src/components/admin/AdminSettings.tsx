@@ -29,6 +29,7 @@ import {
   AlertTriangle,
   Info,
   FileText,
+  Shield,
 } from 'lucide-react'
 import {
   Dialog,
@@ -46,6 +47,7 @@ import { useToast } from '@/hooks/use-toast'
 import { useTheme } from '@/contexts/ThemeContext'
 import { DEFAULT_DISPLAY_CURRENCY, parseCurrencyFromSettings, setDisplayCurrency } from '@/lib/currency'
 import { ReceiptPreview } from '@/components/admin/ReceiptPreview'
+import { FiscalSettingsPanel } from '@/components/admin/FiscalSettingsPanel'
 import { parseReceiptSettings, type ReceiptCustomField } from '@/lib/printCustomerReceipt'
 
 interface OrderTypeConfig {
@@ -58,12 +60,13 @@ interface OrderTypeConfig {
   delivery_fee?: number
 }
 
-type SettingsSection = 'general' | 'financial' | 'receipt' | 'pra' | 'order-types' | 'kitchen' | 'appearance'
+type SettingsSection = 'general' | 'financial' | 'receipt' | 'fiscal' | 'pra' | 'order-types' | 'kitchen' | 'appearance'
 
 const NAV_ITEMS: { id: SettingsSection; label: string; icon: typeof Globe; description: string }[] = [
   { id: 'general', label: 'General', icon: Globe, description: 'Restaurant name and currency' },
   { id: 'financial', label: 'Financial', icon: DollarSign, description: 'Tax rates and service charges' },
   { id: 'receipt', label: 'Receipt & Printing', icon: Printer, description: 'Receipt branding and layout' },
+  { id: 'fiscal', label: 'Tax & Fiscal', icon: Shield, description: 'FBR/PRA digital reporting and credentials' },
   { id: 'pra', label: 'PRA Tax Invoice', icon: FileText, description: 'Optional Punjab Revenue Authority slip' },
   { id: 'order-types', label: 'Order Types', icon: UtensilsCrossed, description: 'Manage available order types' },
   { id: 'kitchen', label: 'Kitchen', icon: ChefHat, description: 'KDS mode and kitchen thresholds' },
@@ -1276,6 +1279,8 @@ export function AdminSettings() {
     )
   }
 
+  const renderFiscal = () => <FiscalSettingsPanel />
+
   const renderPra = () => (
     <div className="space-y-6">
       <SectionHeader
@@ -1454,6 +1459,7 @@ export function AdminSettings() {
     general: renderGeneral,
     financial: renderFinancial,
     receipt: renderReceipt,
+    fiscal: renderFiscal,
     pra: renderPra,
     'order-types': renderOrderTypes,
     kitchen: renderKitchen,

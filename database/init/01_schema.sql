@@ -59,6 +59,7 @@ CREATE TABLE products (
     is_available BOOLEAN DEFAULT true,
     preparation_time INTEGER DEFAULT 0, -- in minutes
     sort_order INTEGER DEFAULT 0,
+    pct_code VARCHAR(32) NOT NULL DEFAULT '9801.7000',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -149,7 +150,9 @@ CREATE TABLE orders (
     -- the customer explicitly requests one at checkout. See printPraTaxInvoice.ts.
     pra_invoice_printed BOOLEAN NOT NULL DEFAULT false,
     pra_invoice_number VARCHAR(64),
-    pra_invoice_printed_at TIMESTAMP WITH TIME ZONE
+    pra_invoice_printed_at TIMESTAMP WITH TIME ZONE,
+    -- FBR/PRA fiscal sync: IRN, QR, status (JSON — see internal/fiscal)
+    fiscal_details JSONB
 );
 
 -- Order Items table

@@ -90,6 +90,7 @@ export const createProductSchema = z.object({
   image_url: productImageUrlSchema,
   status: productStatusSchema.default('active'),
   preparation_time: z.number().min(0).max(120).default(5), // minutes
+  pct_code: z.string().optional().default('9801.7000'),
 })
 
 export const updateProductSchema = createProductSchema.partial().extend({

@@ -75,9 +75,54 @@ export interface Product {
   is_available: boolean;
   preparation_time: number;
   sort_order: number;
+  /** FBR / PRA PCT (HS) code for fiscal line items */
+  pct_code?: string;
   created_at: string;
   updated_at: string;
   category?: Category;
+}
+
+/** FBR/PRA fiscal sync state on an order (orders.fiscal_details) */
+export interface FiscalDetails {
+  status: string;
+  irn?: string;
+  qr_code_value?: string;
+  last_sync_attempt?: string;
+  error_log?: string;
+  authority?: string;
+  raw_response?: string;
+}
+
+export interface FiscalConfigPublic {
+  authority: string;
+  pos_id: string;
+  ntn: string;
+  is_sandbox: boolean;
+  strn?: string;
+  pntn?: string;
+  pos_registration_number?: string;
+  sfd_proxy_url?: string;
+  api_key_set: boolean;
+  api_key_masked?: string;
+}
+
+export interface FiscalTestConnectionResult {
+  ok: boolean;
+  irn: string;
+  qr_code_value: string;
+  authority: string;
+  raw?: string;
+  error?: string;
+}
+
+export interface FiscalAuditRow {
+  order_id: string;
+  order_number: string;
+  total_amount: number;
+  tax_amount: number;
+  authority: string;
+  status: string;
+  completed_at?: string;
 }
 
 // Table Types
@@ -144,6 +189,8 @@ export interface Order {
   pra_invoice_number?: string | null;
   /** Timestamp (ISO) when the PRA slip was last printed. */
   pra_invoice_printed_at?: string;
+  /** FBR/PRA government sync (IRN, QR) */
+  fiscal_details?: FiscalDetails;
   table?: DiningTable;
   user?: User;
   items?: OrderItem[];

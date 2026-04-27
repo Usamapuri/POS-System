@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"pos-backend/internal/fiscal"
 	"pos-backend/internal/middleware"
 	"pos-backend/internal/models"
 	"pos-backend/internal/pricing"
@@ -201,6 +202,7 @@ func (h *PaymentHandler) ProcessPayment(c *gin.Context) {
 
 	// Check if order is now fully paid
 	newTotalPaid := totalPaid + req.Amount
+	orderJustCompleted := false
 	if newTotalPaid >= orderTotalAmount {
 		// Update order status to completed if fully paid
 		_, err = tx.Exec(`
@@ -237,6 +239,7 @@ func (h *PaymentHandler) ProcessPayment(c *gin.Context) {
 			// Log error but don't fail the transaction
 			// fmt.Printf("Warning: Failed to log status change: %v\n", err)
 		}
+		orderJustCompleted = true
 	}
 
 	// Commit transaction
@@ -269,6 +272,10 @@ func (h *PaymentHandler) ProcessPayment(c *gin.Context) {
 		Amount:  payment.Amount,
 		OrderID: payment.OrderID.String(),
 	})
+
+	if orderJustCompleted {
+		fiscal.EnqueueFiscalSync(h.db, orderID)
+	}
 
 	c.JSON(http.StatusCreated, models.APIResponse{
 		Success: true,

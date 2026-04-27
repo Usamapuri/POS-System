@@ -75,6 +75,9 @@ func ApplySchemaPatches(db *sql.DB) {
 		`CREATE INDEX IF NOT EXISTS idx_orders_completed_status ON orders(completed_at) WHERE status = 'completed'`,
 		`CREATE INDEX IF NOT EXISTS idx_orders_created_status ON orders(created_at, status)`,
 		`CREATE INDEX IF NOT EXISTS idx_orders_pra_printed_at ON orders(pra_invoice_printed_at) WHERE pra_invoice_printed = true`,
+		// Fiscalization (FBR/PRA): order-level JSON state; menu PCT code per product.
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS fiscal_details JSONB`,
+		`ALTER TABLE products ADD COLUMN IF NOT EXISTS pct_code VARCHAR(32) NOT NULL DEFAULT '9801.7000'`,
 	}
 	for _, q := range stmts {
 		if _, err := db.Exec(q); err != nil {

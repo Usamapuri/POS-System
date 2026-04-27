@@ -6,6 +6,17 @@ import (
 	"github.com/google/uuid"
 )
 
+// FiscalDetails is persisted in orders.fiscal_details (JSONB) for FBR/PRA sync state.
+type FiscalDetails struct {
+	Status          string     `json:"status"` // SYNCED | PENDING | FAILED
+	IRN             string     `json:"irn,omitempty"`
+	QrCodeValue     string     `json:"qr_code_value,omitempty"`
+	LastSyncAttempt *time.Time `json:"last_sync_attempt,omitempty"`
+	ErrorLog        *string    `json:"error_log,omitempty"`
+	Authority       string     `json:"authority,omitempty"` // FBR | PRA | MOCK | NONE
+	RawResponse     string     `json:"raw_response,omitempty"`
+}
+
 // User represents a system user/staff member
 type User struct {
 	ID           uuid.UUID `json:"id"`
@@ -51,6 +62,7 @@ type Product struct {
 	IsAvailable     bool       `json:"is_available"`
 	PreparationTime int        `json:"preparation_time"` // in minutes
 	SortOrder       int        `json:"sort_order"`
+	PctCode         string     `json:"pct_code"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 	Category        *Category  `json:"category,omitempty"`
@@ -115,7 +127,9 @@ type Order struct {
 	PraInvoicePrinted   bool       `json:"pra_invoice_printed"`
 	PraInvoiceNumber    *string    `json:"pra_invoice_number,omitempty"`
 	PraInvoicePrintedAt *time.Time `json:"pra_invoice_printed_at,omitempty"`
-	Table          *DiningTable `json:"table,omitempty"`
+	// FBR/PRA fiscal sync (JSONB) — not loaded on all list queries; use detail endpoints when needed.
+	FiscalDetails *FiscalDetails `json:"fiscal_details,omitempty"`
+	Table          *DiningTable   `json:"table,omitempty"`
 	User           *User        `json:"user,omitempty"`
 	Items          []OrderItem  `json:"items,omitempty"`
 	Payments       []Payment    `json:"payments,omitempty"`

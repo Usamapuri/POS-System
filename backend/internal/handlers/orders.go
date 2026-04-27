@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"pos-backend/internal/fiscal"
 	"pos-backend/internal/middleware"
 	"pos-backend/internal/models"
 	"pos-backend/internal/pricing"
@@ -1009,6 +1011,10 @@ func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {
 		return
 	}
 
+	if req.Status == models.OrderStatusCompleted {
+		fiscal.EnqueueFiscalSync(h.db, orderID)
+	}
+
 	// Push KDS-relevant transitions to SSE subscribers.
 	if req.Status == "served" || req.Status == "completed" || req.Status == "cancelled" {
 		evType := req.Status
@@ -1077,6 +1083,7 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 		       o.order_type, o.status, o.subtotal, o.tax_amount, o.discount_amount, o.discount_percent,
 		       o.service_charge_amount, o.delivery_fee_amount, o.total_amount, o.checkout_payment_method, o.guest_count, o.notes, o.created_at, o.updated_at, o.served_at, o.completed_at,
 		       COALESCE(o.pra_invoice_printed, false), o.pra_invoice_number, o.pra_invoice_printed_at,
+		       o.fiscal_details,
 		       t.table_number, t.location,
 		       u.username, u.first_name, u.last_name
 		FROM orders o
@@ -1092,12 +1099,14 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 	var discountPct sql.NullFloat64
 	var praInvoiceNumber sql.NullString
 	var praInvoicePrintedAt sql.NullTime
+	var fiscalRaw []byte
 	err := h.db.QueryRow(query, orderID).Scan(
 		&order.ID, &order.OrderNumber, &order.TableID, &order.UserID, &custIDns, &order.CustomerName,
 		&custEmail, &custPhone, &guestBD, &tableOpened, &order.IsOpenTab,
 		&order.OrderType, &order.Status, &order.Subtotal, &order.TaxAmount, &order.DiscountAmount, &discountPct,
 		&order.ServiceChargeAmount, &order.DeliveryFeeAmount, &order.TotalAmount, &checkoutMethod, &order.GuestCount, &order.Notes, &order.CreatedAt, &order.UpdatedAt, &order.ServedAt, &order.CompletedAt,
 		&order.PraInvoicePrinted, &praInvoiceNumber, &praInvoicePrintedAt,
+		&fiscalRaw,
 		&tableNumber, &tableLocation,
 		&username, &firstName, &lastName,
 	)
@@ -1143,6 +1152,12 @@ func (h *OrderHandler) getOrderByID(orderID uuid.UUID) (*models.Order, error) {
 		t := praInvoicePrintedAt.Time.UTC()
 		order.PraInvoicePrintedAt = &t
 	}
+	if len(fiscalRaw) > 0 {
+		var fd models.FiscalDetails
+		if json.Unmarshal(fiscalRaw, &fd) == nil {
+			order.FiscalDetails = &fd
+		}
+	}
 
 	// Add table info if available
 	if tableNumber.Valid {
@@ -1178,7 +1193,7 @@ func (h *OrderHandler) loadOrderItems(order *models.Order) error {
 	query := `
 		SELECT oi.id, oi.product_id, oi.quantity, oi.unit_price, oi.total_price, 
 		       oi.special_instructions, oi.status, oi.created_at, oi.updated_at,
-		       p.name, p.description, p.price, p.preparation_time
+		       p.name, p.description, p.price, p.preparation_time, COALESCE(NULLIF(TRIM(p.pct_code), ''), '9801.7000')
 		FROM order_items oi
 		JOIN products p ON oi.product_id = p.id
 		WHERE oi.order_id = $1
@@ -1197,11 +1212,12 @@ func (h *OrderHandler) loadOrderItems(order *models.Order) error {
 		var productName, productDescription string
 		var productPrice float64
 		var preparationTime int
+		var pctCode string
 
 		err := rows.Scan(
 			&item.ID, &item.ProductID, &item.Quantity, &item.UnitPrice, &item.TotalPrice,
 			&item.SpecialInstructions, &item.Status, &item.CreatedAt, &item.UpdatedAt,
-			&productName, &productDescription, &productPrice, &preparationTime,
+			&productName, &productDescription, &productPrice, &preparationTime, &pctCode,
 		)
 		if err != nil {
 			return err
@@ -1214,6 +1230,7 @@ func (h *OrderHandler) loadOrderItems(order *models.Order) error {
 			Description:     &productDescription,
 			Price:           productPrice,
 			PreparationTime: preparationTime,
+			PctCode:         pctCode,
 		}
 
 		items = append(items, item)

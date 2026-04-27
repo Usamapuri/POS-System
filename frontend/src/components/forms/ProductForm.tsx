@@ -61,6 +61,7 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
         category_id: product.category_id != null ? String(product.category_id) : '',
         image_url: product.image_url || '',
         preparation_time: product.preparation_time || 5,
+        pct_code: product.pct_code || '9801.7000',
       }
     : {
         name: '',
@@ -70,6 +71,7 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
         image_url: '',
         preparation_time: 5,
         is_available: true,
+        pct_code: '9801.7000',
       }
 
   const form = useForm<CreateProductData | UpdateProductData>({
@@ -82,11 +84,11 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
   // Create mutation
   const createMutation = useMutation({
     mutationFn: (data: CreateProductData) => apiClient.createProduct(data),
-    onSuccess: (response) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-products'] })
       queryClient.invalidateQueries({ queryKey: ['products'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
-      toastHelpers.productCreated(form.getValues('name'))
+      toastHelpers.productCreated(form.getValues('name') ?? '')
       form.reset()
       onSuccess?.()
     },
@@ -98,11 +100,11 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
   // Update mutation  
   const updateMutation = useMutation({
     mutationFn: (data: UpdateProductData) => apiClient.updateProduct(data.id.toString(), data),
-    onSuccess: (response) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-products'] })
       queryClient.invalidateQueries({ queryKey: ['products'] })
       queryClient.invalidateQueries({ queryKey: ['categories'] })
-      toastHelpers.apiSuccess('Update', `Product "${form.getValues('name')}"`)
+      toastHelpers.apiSuccess('Update', `Product "${form.getValues('name') ?? ''}"`)
       onSuccess?.()
     },
     onError: (error) => {
@@ -276,6 +278,14 @@ export function ProductForm({ product, onSuccess, onCancel, mode = 'create' }: P
               options={categoryOptions}
               placeholder="Select a category"
               description="Product category for menu organization"
+            />
+
+            <TextInputField
+              control={form.control}
+              name="pct_code"
+              label="PCT / HS code (FBR/PRA)"
+              placeholder="9801.7000"
+              description="Fiscal line classification for tax reporting"
             />
 
             {/* Action Buttons */}
